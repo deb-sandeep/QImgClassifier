@@ -126,8 +126,9 @@ public interface AIProcessor {
         /**
          * Wrap an unexpected failure talking to {@code backend} (e.g.
          * "OpenRouter") with a readable reason: timeouts and connection
-         * failures by name, anything else as "ExceptionType: message".
-         * Restores the thread's interrupt flag if {@code e} is an
+         * failures by name, anything else as "ExceptionType: message". A
+         * connection failure is an {@link UnreachableException}. Restores the
+         * thread's interrupt flag if {@code e} is an
          * {@link InterruptedException}.
          */
         public static ProcessorException of( Exception e, String backend ) {
@@ -139,13 +140,17 @@ public interface AIProcessor {
             }
             String reason ;
             if( e instanceof HttpConnectTimeoutException ) {
-                reason = "could not connect to " + backend + " (timed out)" ;
+                return new UnreachableException(
+                        "could not connect to " + backend + " (timed out)",
+                        String.valueOf( e ) ) ;
             }
             else if( e instanceof HttpTimeoutException ) {
                 reason = backend + " took too long to reply (timed out)" ;
             }
             else if( e instanceof ConnectException ) {
-                reason = "could not connect to " + backend ;
+                return new UnreachableException(
+                        "could not connect to " + backend,
+                        String.valueOf( e ) ) ;
             }
             else {
                 reason = e.getClass().getSimpleName() +
@@ -215,6 +220,20 @@ public interface AIProcessor {
                     .orElse( null ) ;
             return new RateLimitException( reason, retryAfter,
                                            String.valueOf( response.body() ) ) ;
+        }
+    }
+
+    /**
+     * The backend could not be reached (connection refused or timed out).
+     * It is handled like a rate limit on the whole processor: the attempt is
+     * handed back without using the question's retry budget, and the
+     * processor is suspended for its cooldown. Otherwise every queued
+     * question would fail at once against a host that is down.
+     */
+    class UnreachableException extends RateLimitException {
+
+        public UnreachableException( String reason, String detail ) {
+            super( reason, null, detail, RateLimitScope.PROCESSOR ) ;
         }
     }
 }

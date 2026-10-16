@@ -399,9 +399,10 @@ public class TaskScheduler {
                                         classifier.attemptListener( job.task ) ) ;
         }
         catch( AIProcessor.RateLimitException e ) {
-            // Not the question's fault: the attempt is handed back. The
-            // next one goes to another model while this one is paused, or
-            // waits if the limit covers the whole processor.
+            // Not the question's fault (a rate limit, or the backend is
+            // unreachable): the attempt is handed back. The next one goes to
+            // another model while this one is paused, or waits if the limit
+            // covers the whole processor.
             aiInvoker.suspend( processor, model, e ) ;
             job.used[p]-- ;
             job.attempts-- ;
