@@ -330,6 +330,30 @@ public class AIInvoker {
     }
 
     /**
+     * True while {@code processor} is held back by a rate limit for longer
+     * than routine pacing: a limit the backend reported (or the backend being
+     * unreachable), the daily limit, or every model being paused. A full
+     * per-minute window does not count.
+     */
+    public synchronized boolean isHeldBack( AIProcessor processor ) {
+        return heldBackReason( processors.indexOf( processor ),
+                               System.currentTimeMillis() ) != null ;
+    }
+
+    /**
+     * Under {@code this}: why processor {@code p} is held back at
+     * {@code now} (see {@link #isHeldBack}); null if it is not.
+     */
+    private String heldBackReason( int p, long now ) {
+
+        if( limiters[p].isSuspended( now ) ) return suspendReasons[p] ;
+
+        String daily = limiters[p].dailyLimitReason( now ) ;
+        if( daily != null ) return daily ;
+        return modelsFreeAt( p ) > now ? "every model is rate limited" : null ;
+    }
+
+    /**
      * The processors, and models of otherwise free processors, held back by
      * a rate limit right now, with why and until when: a limit the backend
      * reported (or the backend being unreachable), the daily limit, or every
@@ -342,15 +366,8 @@ public class AIInvoker {
         List<RateLimitNotice> notices = new ArrayList<>() ;
 
         for( int p = 0 ; p < processors.size() ; p++ ) {
-            AIAgent     agent   = processors.get( p ).getAgent() ;
-            RateLimiter limiter = limiters[p] ;
-
-            String reason = limiter.isSuspended( now )
-                          ? suspendReasons[p]
-                          : limiter.dailyLimitReason( now ) ;
-            if( reason == null && modelsFreeAt( p ) > now ) {
-                reason = "every model is rate limited" ;
-            }
+            AIAgent agent = processors.get( p ).getAgent() ;
+            String reason = heldBackReason( p, now ) ;
             if( reason != null ) {
                 notices.add( new RateLimitNotice( agent, null, reason,
                                                   availableAt( p, now ) ) ) ;

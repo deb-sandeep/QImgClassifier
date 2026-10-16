@@ -24,7 +24,9 @@ import java.util.function.BooleanSupplier;
  * waiting question for its processor:
  * <ul>
  *   <li>Chemistry goes to OpenRouter. Gemma takes it only when OpenRouter is
- *       not configured.</li>
+ *       not configured, or while OpenRouter is held back by a rate limit
+ *       (a 429, the daily limit, being unreachable; not per-minute
+ *       pacing).</li>
  *   <li>Physics and Maths go to Gemma. OpenRouter takes them only when no
  *       Chemistry is waiting for it and no Gemma slot is free to take
  *       them.</li>
@@ -85,6 +87,12 @@ public class TaskScheduler {
     private long frontSeq ;
 
     private volatile boolean shutdown ;
+
+    /**
+     * True while OpenRouter is held back by a rate limit, so Gemma may take
+     * Chemistry; refreshed before each routing decision.
+     */
+    private volatile boolean openRouterHeldBack ;
 
     /**
      * One question's way through the scheduler. Touched under {@link #lock}
@@ -443,6 +451,7 @@ public class TaskScheduler {
 
     private void failed( Job job ) {
 
+        refreshOpenRouterHeldBack() ;
         if( mayContinue( job ) && canRunAnywhere( job ) ) {
             log.warn( "Retrying {} (attempt {})", job.task, job.attempts + 1 ) ;
             requeue( job ) ;
@@ -530,6 +539,8 @@ public class TaskScheduler {
         Job best     = null ;
         int bestRank = Integer.MAX_VALUE ;
 
+        refreshOpenRouterHeldBack() ;
+
         for( Job job : queue ) {
             int rank = rank( job, p ) ;
             if( rank < 0 ) continue ;
@@ -570,7 +581,8 @@ public class TaskScheduler {
 
     /**
      * True if the routing rules let {@code job} run on processor {@code p} and
-     * it has attempts left there.
+     * it has attempts left there. Chemistry runs on OpenRouter, or anywhere
+     * while OpenRouter is missing or held back by a rate limit.
      */
     private boolean canRun( Job job, int p ) {
 
@@ -578,7 +590,13 @@ public class TaskScheduler {
         if( job.awaitsSecondOpinion() ) return p == openRouter ;
 
         boolean chemistry = job.task.getSubject() == Subject.CHEMISTRY ;
-        return !chemistry || openRouter < 0 || p == openRouter ;
+        return !chemistry || openRouter < 0 || p == openRouter
+               || openRouterHeldBack ;
+    }
+
+    private void refreshOpenRouterHeldBack() {
+        openRouterHeldBack = openRouter >= 0
+                && aiInvoker.isHeldBack( processors.get( openRouter ) ) ;
     }
 
     private boolean canRunAnywhere( Job job ) {

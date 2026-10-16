@@ -175,7 +175,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     private final TranscriptPanel     transcriptPanel ;
     private final JTable              table ;
     private final JLabel              statusBar = new JLabel( " " ) ;
-    private final JLabel              rateLimitStrip = new JLabel() ;
+    private final JTextArea           rateLimitStrip = new JTextArea() ;
     private final JPanel              previewPanel =
             new JPanel( new BorderLayout() ) ;
     private final JLabel              previewLabel =
@@ -184,6 +184,10 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     private final JMenuItem startItem = new JMenuItem( "Start processing" ) ;
     private final JMenuItem stopItem  = new JMenuItem( "Stop processing" ) ;
     private final JMenuItem repairItem = new JMenuItem( "Repair processed list" ) ;
+
+    /** View option: show the rate-limit strip under the transcripts. */
+    private final JCheckBoxMenuItem rateLimitItem =
+            new JCheckBoxMenuItem( "Show rate limit bar", true ) ;
     private boolean repairRunning ;
 
     /**
@@ -296,25 +300,30 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
 
         // Table and preview on the left, transcripts on the right, status
         // bar across the bottom.
-        // A strip under the table shows while a rate limit holds requests
-        // back.
+        // A strip under the transcripts shows while a rate limit holds
+        // requests back, one line per limit.
+        rateLimitStrip.setEditable( false ) ;
+        rateLimitStrip.setFocusable( false ) ;
+        rateLimitStrip.setLineWrap( true ) ;
+        rateLimitStrip.setWrapStyleWord( true ) ;
         rateLimitStrip.setOpaque( true ) ;
         rateLimitStrip.setBackground( RATE_LIMIT_BG ) ;
         rateLimitStrip.setForeground( RATE_LIMIT_FG ) ;
-        rateLimitStrip.setFont( rateLimitStrip.getFont().deriveFont( 11f ) ) ;
-        rateLimitStrip.setBorder( BorderFactory.createEmptyBorder( 2, 8, 2, 8 ) ) ;
+        rateLimitStrip.setFont( UIManager.getFont( "Label.font" )
+                                         .deriveFont( 11f ) ) ;
+        rateLimitStrip.setBorder( BorderFactory.createEmptyBorder( 3, 8, 3, 8 ) ) ;
         rateLimitStrip.setVisible( false ) ;
 
-        JPanel tablePanel = new JPanel( new BorderLayout() ) ;
-        tablePanel.add( new JScrollPane( table ), BorderLayout.CENTER ) ;
-        tablePanel.add( rateLimitStrip, BorderLayout.SOUTH ) ;
-
         JPanel left = new JPanel( new BorderLayout() ) ;
-        left.add( tablePanel, BorderLayout.CENTER ) ;
+        left.add( new JScrollPane( table ), BorderLayout.CENTER ) ;
         left.add( previewPanel, BorderLayout.SOUTH ) ;
 
+        JPanel right = new JPanel( new BorderLayout() ) ;
+        right.add( transcriptPanel, BorderLayout.CENTER ) ;
+        right.add( rateLimitStrip, BorderLayout.SOUTH ) ;
+
         JSplitPane split = new JSplitPane( JSplitPane.HORIZONTAL_SPLIT,
-                                           left, transcriptPanel ) ;
+                                           left, right ) ;
         split.setResizeWeight( SPLIT_RATIO ) ;
         split.setContinuousLayout( true ) ;
 
@@ -439,6 +448,9 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
         JMenuItem clearFilters = new JMenuItem( "Clear all filters" ) ;
         clearFilters.addActionListener( a -> headerFilters.clearAll() ) ;
         view.add( clearFilters ) ;
+        view.addSeparator() ;
+        rateLimitItem.addActionListener( a -> refreshRateLimitStrip() ) ;
+        view.add( rateLimitItem ) ;
 
         JMenu maintenance = new JMenu( "Maintenance" ) ;
         repairItem.addActionListener( a -> repairProcessedList() ) ;
@@ -1142,32 +1154,32 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     }
 
     /**
-     * Show the strip under the table while any AI target or model is held
-     * back by a rate limit, with why and when it lifts; hide it otherwise.
+     * Show the strip under the transcripts while any AI target or model is
+     * held back by a rate limit, one line each with why and when it lifts;
+     * hide it otherwise, or when View > Show rate limit bar is off.
      */
     private void refreshRateLimitStrip() {
 
         List<RateLimitNotice> notices = controller != null
                                       ? controller.rateLimitNotices()
                                       : List.of() ;
-        if( notices.isEmpty() ) {
+        if( notices.isEmpty() || !rateLimitItem.isSelected() ) {
             rateLimitStrip.setVisible( false ) ;
             return ;
         }
 
         long          now  = System.currentTimeMillis() ;
-        StringBuilder text = new StringBuilder( "Rate limit encountered  -  " ) ;
+        StringBuilder text = new StringBuilder( "Rate limit encountered" ) ;
 
-        for( int i = 0 ; i < notices.size() ; i++ ) {
-            RateLimitNotice n = notices.get( i ) ;
-            if( i > 0 ) text.append( "   |   " ) ;
-            text.append( agentName( n.agent() ) ) ;
+        for( RateLimitNotice n : notices ) {
+            text.append( "\n" ).append( agentName( n.agent() ) ) ;
             if( n.model() != null ) text.append( " " ).append( n.model() ) ;
             text.append( ": " ).append( n.reason().replaceAll( "[.\\s]+$", "" ) )
                 .append( " - resumes " ).append( resumesIn( n.until(), now ) ) ;
         }
-        rateLimitStrip.setText( text.toString() ) ;
-        rateLimitStrip.setToolTipText( text.toString() ) ;
+        if( !text.toString().equals( rateLimitStrip.getText() ) ) {
+            rateLimitStrip.setText( text.toString() ) ;
+        }
         rateLimitStrip.setVisible( true ) ;
     }
 
