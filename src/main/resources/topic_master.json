@@ -1,0 +1,458 @@
+[
+  {
+    "id" : 79,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Set Theory",
+    "topic_name" : "Sets"
+  },
+  {
+    "id" : 80,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Algebra",
+    "topic_name" : "Relations and Functions"
+  },
+  {
+    "id" : 81,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Algebra",
+    "topic_name" : "Complex Numbers"
+  },
+  {
+    "id" : 82,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Algebra",
+    "topic_name" : "Theory Of Equations"
+  },
+  {
+    "id" : 83,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Algebra",
+    "topic_name" : "Sequence and Series"
+  },
+  {
+    "id" : 84,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Algebra",
+    "topic_name" : "Logarithms"
+  },
+  {
+    "id" : 85,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Algebra",
+    "topic_name" : "Permutations and Combinations"
+  },
+  {
+    "id" : 86,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Algebra",
+    "topic_name" : "Binomial Theorem"
+  },
+  {
+    "id" : 87,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Algebra",
+    "topic_name" : "Matrices"
+  },
+  {
+    "id" : 88,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Algebra",
+    "topic_name" : "Determinants"
+  },
+  {
+    "id" : 89,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Algebra",
+    "topic_name" : "Probability"
+  },
+  {
+    "id" : 90,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Algebra",
+    "topic_name" : "Statistics"
+  },
+  {
+    "id" : 91,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Algebra",
+    "topic_name" : "Vector Algebra"
+  },
+  {
+    "id" : 92,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Trigonometry",
+    "topic_name" : "Trigonometry"
+  },
+  {
+    "id" : 93,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Geometry",
+    "topic_name" : "Coordinate System"
+  },
+  {
+    "id" : 94,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Geometry",
+    "topic_name" : "Straight Line"
+  },
+  {
+    "id" : 95,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Geometry",
+    "topic_name" : "Circles"
+  },
+  {
+    "id" : 96,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Geometry",
+    "topic_name" : "Conic Sections"
+  },
+  {
+    "id" : 97,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Geometry",
+    "topic_name" : "3D Geometry"
+  },
+  {
+    "id" : 98,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Calculus",
+    "topic_name" : "Limit and Continuity"
+  },
+  {
+    "id" : 99,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Calculus",
+    "topic_name" : "Derivatives"
+  },
+  {
+    "id" : 100,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Calculus",
+    "topic_name" : "Integral Calculus"
+  },
+  {
+    "id" : 101,
+    "syllabus_name" : "IIT Maths",
+    "section" : "Calculus",
+    "topic_name" : "Differential Equations"
+  },
+  {
+    "id" : 102,
+    "syllabus_name" : "IIT Physics",
+    "section" : "General Physics",
+    "topic_name" : "Units and Measurements"
+  },
+  {
+    "id" : 103,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Mechanics",
+    "topic_name" : "Kinematics"
+  },
+  {
+    "id" : 104,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Mechanics",
+    "topic_name" : "Laws of Motion"
+  },
+  {
+    "id" : 105,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Mechanics",
+    "topic_name" : "Work, Energy and Power"
+  },
+  {
+    "id" : 106,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Mechanics",
+    "topic_name" : "Rotational Motion"
+  },
+  {
+    "id" : 107,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Mechanics",
+    "topic_name" : "Gravitation"
+  },
+  {
+    "id" : 108,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Mechanics",
+    "topic_name" : "Solids and Liquids"
+  },
+  {
+    "id" : 109,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Mechanics",
+    "topic_name" : "Oscillations and Waves"
+  },
+  {
+    "id" : 110,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Optics",
+    "topic_name" : "Ray Optics"
+  },
+  {
+    "id" : 111,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Optics",
+    "topic_name" : "Wave Optics"
+  },
+  {
+    "id" : 112,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Thermal Physics",
+    "topic_name" : "Heat"
+  },
+  {
+    "id" : 113,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Thermal Physics",
+    "topic_name" : "Thermodynamics"
+  },
+  {
+    "id" : 114,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Thermal Physics",
+    "topic_name" : "Kinetic Theory of Gases"
+  },
+  {
+    "id" : 115,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Electromagnetism",
+    "topic_name" : "Electrostatics"
+  },
+  {
+    "id" : 116,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Electromagnetism",
+    "topic_name" : "Current Electricity"
+  },
+  {
+    "id" : 117,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Electromagnetism",
+    "topic_name" : "Magnetism"
+  },
+  {
+    "id" : 118,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Electromagnetism",
+    "topic_name" : "EM Induction and AC"
+  },
+  {
+    "id" : 119,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Electromagnetism",
+    "topic_name" : "EM Waves"
+  },
+  {
+    "id" : 120,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Modern Physics",
+    "topic_name" : "Matter and Radiation"
+  },
+  {
+    "id" : 121,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Modern Physics",
+    "topic_name" : "Atoms and Nuclei"
+  },
+  {
+    "id" : 122,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Modern Physics",
+    "topic_name" : "Electronic Devices"
+  },
+  {
+    "id" : 123,
+    "syllabus_name" : "IIT Physics",
+    "section" : "General Physics",
+    "topic_name" : "Practical Skills"
+  },
+  {
+    "id" : 124,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Foundation",
+    "topic_name" : "Foundation Mathematics"
+  },
+  {
+    "id" : 125,
+    "syllabus_name" : "IIT Physics",
+    "section" : "Foundation",
+    "topic_name" : "Foundation Vectors"
+  },
+  {
+    "id" : 126,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Physical",
+    "topic_name" : "Basic Concepts"
+  },
+  {
+    "id" : 127,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Physical",
+    "topic_name" : "States of Matter - Gases and Liquids"
+  },
+  {
+    "id" : 128,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Physical",
+    "topic_name" : "States of Matter - Solid"
+  },
+  {
+    "id" : 129,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Physical",
+    "topic_name" : "Surface Chemistry"
+  },
+  {
+    "id" : 130,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Physical",
+    "topic_name" : "Atomic Structure"
+  },
+  {
+    "id" : 131,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Physical",
+    "topic_name" : "Bonding And Molecular Structure"
+  },
+  {
+    "id" : 132,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Physical",
+    "topic_name" : "Thermodynamics"
+  },
+  {
+    "id" : 133,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Physical",
+    "topic_name" : "Solutions"
+  },
+  {
+    "id" : 134,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Physical",
+    "topic_name" : "Equilibrium"
+  },
+  {
+    "id" : 135,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Physical",
+    "topic_name" : "Electrochemistry"
+  },
+  {
+    "id" : 136,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Physical",
+    "topic_name" : "Chemical Kinetics"
+  },
+  {
+    "id" : 137,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Inorganic",
+    "topic_name" : "Classification Of Elements"
+  },
+  {
+    "id" : 138,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Inorganic",
+    "topic_name" : "Hydrogen"
+  },
+  {
+    "id" : 139,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Inorganic",
+    "topic_name" : "S - Block"
+  },
+  {
+    "id" : 140,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Inorganic",
+    "topic_name" : "P - Block"
+  },
+  {
+    "id" : 141,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Inorganic",
+    "topic_name" : "D and F - Block"
+  },
+  {
+    "id" : 142,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Inorganic",
+    "topic_name" : "Isolation Of Metals"
+  },
+  {
+    "id" : 143,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Inorganic",
+    "topic_name" : "Coordination Compounds"
+  },
+  {
+    "id" : 144,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Organic",
+    "topic_name" : "Qualitative Organic Chemistry"
+  },
+  {
+    "id" : 145,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Organic",
+    "topic_name" : "Basic Organic Chemistry"
+  },
+  {
+    "id" : 146,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Organic",
+    "topic_name" : "Hydrocarbons"
+  },
+  {
+    "id" : 147,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Organic",
+    "topic_name" : "Organic - Halogens"
+  },
+  {
+    "id" : 148,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Organic",
+    "topic_name" : "Organic - Oxygen"
+  },
+  {
+    "id" : 149,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Organic",
+    "topic_name" : "Organic - Nitrogen"
+  },
+  {
+    "id" : 150,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Organic",
+    "topic_name" : "Practical Chemistry"
+  },
+  {
+    "id" : 151,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Organic",
+    "topic_name" : "Biomolecules"
+  },
+  {
+    "id" : 152,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Organic",
+    "topic_name" : "Chemistry In Everyday Life"
+  },
+  {
+    "id" : 153,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Organic",
+    "topic_name" : "Environmental Chemistry"
+  },
+  {
+    "id" : 154,
+    "syllabus_name" : "IIT Chemistry",
+    "section" : "Organic",
+    "topic_name" : "Polymers"
+  }
+]

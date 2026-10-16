@@ -1,0 +1,182 @@
+JEE PHYSICS - TOPIC SCOPE REFERENCE
+Each block lists what the topic covers. Match the question to the topic whose
+listed sub-topics it actually draws on. topic_name and id are given verbatim -
+copy them exactly.
+
+================ GENERAL PHYSICS ================
+
+[id: 102] Units and Measurements
+  Units and systems of units, SI units; fundamental and derived units; least
+  count, significant figures; errors in measurement (combination of errors);
+  dimensions of physical quantities; dimensional analysis and its applications.
+
+[id: 123] Practical Skills
+  Experiments and instruments - vernier callipers, screw gauge, metre scale
+  and principle of moments; simple pendulum energy dissipation; Young's modulus
+  of a wire; surface tension by capillary rise; coefficient of viscosity by
+  terminal velocity; speed of sound by resonance tube; specific heat by method
+  of mixtures; resistivity / resistance by metre bridge, Ohm's law, post office
+  box; galvanometer figure of merit by half-deflection; focal length of mirrors
+  and lens by u-v / parallax; angle of deviation vs incidence for a prism;
+  refractive index of a glass slab by travelling microscope; p-n junction and
+  Zener diode characteristic curves; identification of circuit components.
+  Typical: questions about apparatus, measurement procedure, or reading an
+  experimental data plot.
+
+================ MECHANICS ================
+
+[id: 103] Kinematics
+  Frame of reference; motion in a straight line; speed and velocity; uniform
+  and non-uniform motion; average speed and instantaneous velocity; uniformly
+  accelerated motion and its equations; velocity-time and position-time graphs;
+  relative velocity; motion in a plane; projectile motion; uniform circular
+  motion.
+
+[id: 104] Laws of Motion
+  Force and inertia; Newton's three laws; momentum and impulse; conservation of
+  linear momentum and applications; equilibrium of concurrent forces; static,
+  dynamic and rolling friction, laws of friction; dynamics of uniform circular
+  motion - centripetal force, vehicle on level and banked roads.
+
+[id: 105] Work, Energy and Power
+  Work done by constant and variable forces; kinetic and potential energy;
+  work-energy theorem; power; potential energy of a spring; conservation of
+  mechanical energy; conservative and non-conservative forces; motion in a
+  vertical circle; elastic and inelastic collisions in one and two dimensions.
+
+[id: 106] Rotational Motion
+  System of particles and centre of mass; rigid body rotation; moment of a
+  force, torque, angular momentum and its conservation; moment of inertia and
+  radius of gyration; parallel and perpendicular axes theorems; equilibrium and
+  dynamics of rigid bodies with a fixed axis; comparison of linear and
+  rotational motion; rolling without slipping.
+
+[id: 107] Gravitation
+  Universal law of gravitation; acceleration due to gravity and its variation
+  with altitude and depth; Kepler's laws; gravitational potential energy, field
+  and potential; escape velocity; satellites - orbital velocity, time period,
+  energy, geostationary orbits.
+
+[id: 108] Solids and Liquids
+  Elastic behaviour, stress-strain, Hooke's law, Young's / bulk / rigidity
+  moduli; fluid pressure, Pascal's law; viscosity, Stokes' law, terminal
+  velocity; streamline and turbulent flow, equation of continuity, Bernoulli's
+  principle; surface energy and surface tension, angle of contact, excess
+  pressure across a curved surface, capillary rise.
+
+[id: 109] Oscillations and Waves
+  Periodic motion - period, frequency; simple harmonic motion and its equation,
+  phase, energy in SHM; oscillations of a spring; simple pendulum; wave motion,
+  longitudinal and transverse waves, speed of a travelling wave, speed of sound
+  in gases; progressive wave equation; superposition, reflection of waves,
+  standing waves in strings and organ pipes, harmonics; beats; forced and
+  damped oscillation, resonance; Doppler effect in sound.
+
+================ OPTICS ================
+
+[id: 110] Ray Optics
+  Reflection at plane and spherical mirrors, mirror formula; refraction at
+  plane and spherical surfaces; thin lens and lens-maker's formula; total
+  internal reflection and applications; magnification, power of a lens,
+  combination of lenses and mirrors; refraction and dispersion through a prism;
+  microscope and astronomical telescope, magnifying power.
+
+[id: 111] Wave Optics
+  Wavefront and Huygens' principle; laws of reflection and refraction by
+  Huygens' construction; interference - Young's double-slit experiment, fringe
+  width, coherent sources; diffraction at a single slit, width of central
+  maximum; polarization - plane-polarized light, Brewster's law, Polaroid.
+
+================ THERMAL PHYSICS ================
+
+[id: 112] Heat
+  Heat and temperature; thermal expansion of solids, liquids and gases;
+  specific heat capacity, calorimetry; change of state, latent heat; heat
+  transfer - conduction, convection, radiation; Newton's law of cooling;
+  blackbody radiation, Kirchhoff's law, Wien's displacement law, Stefan's law.
+
+[id: 113] Thermodynamics
+  Thermal equilibrium and temperature, zeroth law; heat, work and internal
+  energy; first law of thermodynamics; isothermal and adiabatic processes;
+  second law of thermodynamics; reversible and irreversible processes; Carnot
+  engine and its efficiency.
+
+[id: 114] Kinetic Theory of Gases
+  Equation of state of a perfect gas; work done in compressing a gas;
+  assumptions of kinetic theory; kinetic interpretation of pressure and
+  temperature; RMS speed; degrees of freedom; specific heats Cv and Cp for
+  monatomic and diatomic gases; law of equipartition of energy; mean free path;
+  Avogadro's number.
+
+================ ELECTROMAGNETISM ================
+
+[id: 115] Electrostatics
+  Electric charge and conservation; Coulomb's law, superposition; electric
+  field and field lines; electric dipole and torque on it; electric flux,
+  Gauss's law and applications (wire, sheet, shell); electric potential and
+  potential difference, equipotential surfaces; conductors and dielectrics,
+  polarization; capacitors and capacitance, combinations, parallel-plate
+  capacitor with / without dielectric, energy stored.
+
+[id: 116] Current Electricity
+  Electric current, drift velocity, mobility; Ohm's law, resistance,
+  resistivity and conductivity; I-V characteristics of ohmic and non-ohmic
+  conductors; electrical energy and power; series and parallel combinations of
+  resistors; temperature dependence of resistance; internal resistance, EMF and
+  terminal potential difference, combination of cells; Kirchhoff's laws;
+  Wheatstone bridge and metre bridge.
+
+[id: 117] Magnetism
+  Biot-Savart law and circular loop; Ampere's law - straight wire and solenoid;
+  force on a moving charge and on a current-carrying conductor; force between
+  parallel currents; torque on a current loop; moving-coil galvanometer and its
+  conversion; current loop and bar magnet as magnetic dipoles; magnetic field
+  of a dipole; para-, dia- and ferromagnetism, effect of temperature.
+
+[id: 118] EM Induction and AC
+  Electromagnetic induction - Faraday's law, induced EMF and current, Lenz's
+  law, eddy currents; self and mutual inductance; alternating current - peak and
+  RMS values; reactance and impedance; LCR series circuit, RC / LR / LC / LCR
+  circuits with dc and ac sources; resonance, power in ac circuits, wattless
+  current; ac generator and transformer.
+
+[id: 119] EM Waves
+  Displacement current; electromagnetic waves and their characteristics,
+  transverse nature; electromagnetic spectrum - radio waves, microwaves,
+  infrared, visible, ultraviolet, X-rays, gamma rays; applications of
+  electromagnetic waves.
+
+================ MODERN PHYSICS ================
+
+[id: 120] Matter and Radiation
+  Dual nature of radiation; photoelectric effect - Hertz and Lenard's
+  observations, Einstein's photoelectric equation, particle nature of light;
+  matter waves and the de Broglie relation; characteristic and continuous
+  X-rays, Moseley's law.
+
+[id: 121] Atoms and Nuclei
+  Alpha-particle scattering, Rutherford's model; Bohr model, energy levels,
+  hydrogen spectrum; composition and size of the nucleus, atomic masses;
+  mass-energy relation, mass defect, binding energy per nucleon; nuclear
+  fission and fusion; alpha, beta and gamma radiation; law of radioactive
+  decay, decay constant, half-life and mean life.
+
+[id: 122] Electronic Devices
+  Semiconductors; semiconductor diode - I-V characteristics in forward and
+  reverse bias; diode as a rectifier; LED, photodiode, solar cell; Zener diode
+  and its use as a voltage regulator; logic gates (OR, AND, NOT, NAND, NOR).
+
+================ FOUNDATION ================
+
+[id: 124] Foundation Mathematics
+  Pre-requisite mathematical tools used in solving physics problems - algebra,
+  basic calculus (differentiation and integration of standard functions),
+  quadratic and simultaneous equations, graphs, approximations and series
+  expansions. Use only when a question is purely about the mathematical
+  technique rather than a physics concept.
+
+[id: 125] Foundation Vectors
+  Pre-requisite vector tools - vector addition and resolution, components, unit
+  vectors, dot and cross products and their geometrical meaning, as applied to
+  physics problems. Use only when a question is purely about vector manipulation
+  rather than a physics concept.

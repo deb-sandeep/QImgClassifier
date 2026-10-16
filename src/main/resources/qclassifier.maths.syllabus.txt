@@ -1,0 +1,147 @@
+JEE MATHS - TOPIC SCOPE REFERENCE
+Each block lists what the topic covers. Match the question to the topic whose
+listed sub-topics it actually draws on. topic_name and id are given verbatim -
+copy them exactly.
+
+================ SET THEORY ================
+
+[id: 79] Sets
+  Sets and their representation; kinds of sets (empty, finite, infinite); power
+  set; union, intersection, complement, difference and symmetric difference and
+  their algebraic properties; De Morgan's laws and problems based on them;
+  Cartesian product of finite sets.
+
+================ ALGEBRA ================
+
+[id: 80] Relations and Functions
+  Relations, types of relations, equivalence relations; domain, codomain,
+  range; function as a special relation; one-one, into and onto functions;
+  invertible functions; even and odd functions; standard functions
+  (polynomial, trigonometric, exponential, logarithmic, power, absolute value,
+  greatest integer); sum, difference, product and composition of functions;
+  graphs of simple functions.
+
+[id: 81] Complex Numbers
+  Complex numbers as ordered pairs, a + ib form; Argand diagram; modulus and
+  argument; algebra of complex numbers, conjugation; polar representation;
+  properties of modulus and principal argument; triangle inequality; cube roots
+  of unity; geometric interpretation of complex-number operations.
+
+[id: 82] Theory Of Equations
+  Quadratic equations in real and complex systems and their solutions;
+  relations between roots and coefficients; nature of roots; formation of
+  equations with given roots; fundamental theorem of algebra; symmetric
+  functions of roots; higher-degree polynomial equations; location of roots.
+
+[id: 83] Sequence and Series
+  Arithmetic and geometric progressions; insertion of AM and GM between two
+  numbers; relation between AM and GM; sums of finite AP and GP; infinite
+  geometric series; sum of the first n natural numbers, and of their squares
+  and cubes.
+
+[id: 84] Logarithms
+  Logarithms and their properties; logarithmic equations and inequalities.
+
+[id: 85] Permutations and Combinations
+  Fundamental principle of counting; permutations and combinations; meaning of
+  P(n,r) and C(n,r); simple applications of permutation and combination.
+
+[id: 86] Binomial Theorem
+  Binomial theorem for a positive integral index; general term and middle term;
+  properties of binomial coefficients and simple applications.
+
+[id: 87] Matrices
+  Matrices of order two and three; algebra of matrices (addition, product);
+  types of matrices; equality of matrices; transpose; elementary row and column
+  transformations; diagonal, symmetric and skew-symmetric matrices.
+
+[id: 88] Determinants
+  Determinants of a square matrix of order up to three; evaluation of
+  determinants; area of a triangle using determinants; adjoint and inverse of a
+  matrix; test of consistency; solution of simultaneous linear equations in two
+  or three variables.
+
+[id: 89] Probability
+  Random experiment, sample space, types of events; probability of an event;
+  addition and multiplication theorems; independence of events; conditional
+  probability, total probability and Bayes' theorem; probability distribution,
+  mean and variance of a random variable; use of permutations and combinations
+  in probability.
+
+[id: 90] Statistics
+  Measures of central tendency and dispersion; mean, median and mode of grouped
+  and ungrouped data; standard deviation, variance and mean deviation;
+  comparison of frequency distributions with the same mean but different
+  variance.
+
+[id: 91] Vector Algebra
+  Vectors and scalars; addition of vectors; components of a vector in two and
+  three dimensions; scalar (dot), vector (cross) and scalar triple products;
+  geometrical interpretation of vector products.
+
+================ TRIGONOMETRY ================
+
+[id: 92] Trigonometry
+  Trigonometric identities and functions, their periodicity and graphs;
+  addition and subtraction formulae; multiple- and sub-multiple-angle formulae;
+  general solution of trigonometric equations; inverse trigonometric functions
+  (principal value) and their elementary properties; heights and distances.
+
+================ GEOMETRY ================
+
+[id: 93] Coordinate System
+  Cartesian coordinates in a plane; distance and section formulae; locus and
+  its equation; slope of a line; parallel and perpendicular lines; intercepts
+  on the axes; shift of origin.
+
+[id: 94] Straight Line
+  Various forms of the equation of a line; intersection of lines; angle between
+  two lines; concurrence of three lines; distance of a point from a line; line
+  through the intersection of two given lines; angle-bisector equations;
+  centroid, orthocentre, incentre and circumcentre of a triangle.
+
+[id: 95] Circles
+  Standard and general form of the equation of a circle, its centre and radius;
+  equation from the endpoints of a diameter; equations of tangent, normal and
+  chord; parametric equations; intersection of a circle with a line or another
+  circle; family of circles through intersection points.
+
+[id: 96] Conic Sections
+  Equations of a parabola, ellipse and hyperbola in standard form; foci,
+  directrices and eccentricity; parametric equations; equations of tangent and
+  normal.
+
+[id: 97] 3D Geometry
+  Coordinates of a point in space; distance and section formulae; direction
+  ratios and direction cosines; angle between two lines; equation of a line;
+  skew lines and the shortest distance between them; distance of a point from a
+  plane; angle between two planes and between a line and a plane; coplanar
+  lines.
+
+================ CALCULUS ================
+
+[id: 98] Limit and Continuity
+  Limit of a function at a real number; continuity and differentiability;
+  limits and continuity of sum, difference, product and quotient of functions;
+  L'Hopital's rule; continuity of composite functions; intermediate value
+  property.
+
+[id: 99] Derivatives
+  Derivative of a function; differentiation of sum, difference, product and
+  quotient; chain rule; derivatives of polynomial, rational, trigonometric,
+  inverse trigonometric, exponential and logarithmic functions; higher-order
+  and implicit differentiation; rate of change; increasing and decreasing
+  functions; maxima and minima of one variable; tangents and normals; Rolle's
+  theorem and Lagrange's mean value theorem and their geometric interpretation.
+
+[id: 100] Integral Calculus
+  Integral as an anti-derivative; fundamental integrals (algebraic,
+  trigonometric, exponential, logarithmic); integration by substitution, by
+  parts and by partial fractions; integration using trigonometric identities;
+  fundamental theorem of calculus; properties and evaluation of definite
+  integrals; area of regions bounded by simple curves.
+
+[id: 101] Differential Equations
+  Ordinary differential equations; order and degree; solution by separation of
+  variables; solution of homogeneous and linear first-order differential
+  equations.

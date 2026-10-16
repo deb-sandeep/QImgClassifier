@@ -1,0 +1,237 @@
+JEE CHEMISTRY - TOPIC SCOPE REFERENCE
+Each block lists what the topic covers. Match the question to the topic whose
+listed sub-topics it actually draws on. topic_name and id are given verbatim -
+copy them exactly.
+
+================ PHYSICAL CHEMISTRY ================
+
+[id: 126] Basic Concepts
+  Matter and its nature; Dalton's atomic theory; atom, molecule, element,
+  compound; laws of chemical combination; atomic and molecular masses; mole
+  concept and molar mass; percentage composition; empirical and molecular
+  formulae; stoichiometry and balancing of chemical equations; calculations
+  involving redox, neutralisation and displacement reactions; concentration
+  terms - mole fraction, molarity, molality, normality; equivalent weight.
+  Typical: numerical mole-concept / stoichiometry / limiting-reagent problems.
+
+[id: 127] States of Matter - Gases and Liquids
+  Gas laws and the ideal gas equation; absolute temperature scale; deviation
+  from ideality and the van der Waals equation; kinetic theory of gases;
+  average, RMS and most-probable speeds vs temperature; Dalton's law of partial
+  pressures; diffusion of gases (Graham's law); intermolecular forces and their
+  effect on properties; liquids - vapour pressure, surface tension, viscosity.
+
+[id: 128] States of Matter - Solid
+  Crystalline vs amorphous solids; seven crystal systems and cell parameters;
+  close-packed structures (cubic, hexagonal); packing in fcc, bcc, hcp; nearest
+  neighbours / coordination number; ionic radii and radius-ratio rules; packing
+  efficiency and density calculations; point defects (Schottky, Frenkel).
+
+[id: 129] Surface Chemistry
+  Adsorption - physisorption vs chemisorption; Freundlich adsorption isotherm;
+  catalysis (homogeneous, heterogeneous, enzyme); colloids - types, methods of
+  preparation, Tyndall effect, Brownian motion; emulsions; surfactants and
+  micelles.
+
+[id: 130] Atomic Structure
+  Electromagnetic radiation; photoelectric effect; hydrogen atom spectrum; Bohr
+  model - postulates, energy and radii of orbits, limitations; wave-particle
+  duality and de Broglie relation; Heisenberg uncertainty principle; quantum
+  mechanical model; orbitals as wave functions; variation of psi and psi^2 with
+  r; quantum numbers and their significance; shapes of s, p, d orbitals;
+  electron spin; Aufbau principle, Pauli exclusion, Hund's rule; electronic
+  configurations and stability of half / fully filled subshells.
+
+[id: 131] Bonding And Molecular Structure
+  Kossel-Lewis approach; ionic bond formation, lattice enthalpy (Born-Haber);
+  electronegativity, Fajans' rules, dipole moment; VSEPR theory and molecular
+  shapes; valence bond theory; hybridisation (s, p, d); resonance; molecular
+  orbital theory up to Ne - LCAO, bonding / antibonding, sigma and pi bonds, MO
+  configurations of homonuclear diatomics, bond order; bond length and bond
+  energy; metallic bonding; hydrogen bonding.
+  Typical: lone-pair counting, geometry / shape, hybridisation, bond order,
+  magnetic behaviour of a molecule or ion.
+
+[id: 132] Thermodynamics
+  System and surroundings; extensive / intensive properties; state functions;
+  first law - work (p-V), heat, internal energy, enthalpy; heat capacity;
+  Hess's law; enthalpies of bond dissociation, combustion, formation,
+  atomization, sublimation, phase transition, hydration, ionization, solution,
+  lattice; second law - entropy, spontaneity, dS(universe); Gibbs energy dG and
+  dG(standard), relation to the equilibrium constant; criteria for equilibrium
+  and spontaneity.
+
+[id: 133] Solutions
+  Concentration terms - molality, molarity, mole fraction, mass / volume
+  percentage; vapour pressure of solutions; Henry's law; Raoult's law, ideal
+  and non-ideal solutions, vapour-pressure vs composition plots; colligative
+  properties - relative lowering of vapour pressure, depression of freezing
+  point, elevation of boiling point, osmotic pressure; determination of molar
+  mass; abnormal molar mass; van't Hoff factor.
+
+[id: 134] Equilibrium
+  Dynamic equilibrium; law of mass action; physical equilibria; law of chemical
+  equilibrium, Kp and Kc; significance of dG and dG(standard); factors affecting
+  equilibrium and Le Chatelier's principle; ionic equilibrium - weak / strong
+  electrolytes, Arrhenius / Bronsted-Lowry / Lewis acids and bases, ionization
+  constants, ionic product of water, pH scale, common-ion effect, salt
+  hydrolysis, solubility and solubility product (Ksp), buffer solutions.
+
+[id: 135] Electrochemistry
+  Oxidation number, rules, balancing redox reactions; electrolytic and metallic
+  conduction; specific, equivalent and molar conductivity vs concentration;
+  Kohlrausch's law; galvanic and electrolytic cells; electrode types; standard
+  electrode potential; cell reactions and cell EMF; Nernst equation; relation
+  between cell potential and dG; dry cell, lead accumulator, fuel cells;
+  corrosion; Faraday's laws of electrolysis.
+
+[id: 136] Chemical Kinetics
+  Rate of reaction; factors affecting rate; catalysis (activity and
+  selectivity, enzyme catalysis); elementary and complex reactions; order and
+  molecularity; rate law and rate-constant units; half-life; integrated rate
+  equations for zero and first order; effect of temperature - Arrhenius
+  equation, activation energy; collision theory of bimolecular gaseous
+  reactions.
+
+================ INORGANIC CHEMISTRY ================
+
+[id: 137] Classification Of Elements
+  Modern periodic law; long form of the periodic table, s / p / d / f blocks;
+  periodic trends in atomic and ionic radius, ionization enthalpy, electron
+  gain enthalpy, valence, oxidation states, electronegativity and chemical
+  reactivity.
+
+[id: 138] Hydrogen
+  Position of hydrogen in the periodic table; occurrence, isotopes, preparation,
+  properties and uses; hydrides - ionic, covalent, interstitial; water and
+  heavy water; hydrogen peroxide - preparation, structure, reactions and uses;
+  hydrogen as a fuel.
+
+[id: 139] S - Block
+  Alkali and alkaline earth metals; reactivity towards air, water, hydrogen,
+  halogens, acids; reducing nature, solutions in liquid ammonia; anomalous
+  behaviour of Li and Be; diagonal relationship; oxides, hydroxides, halides and
+  oxo-salts; compounds of sodium (Na2CO3, NaCl, NaOH, NaHCO3) and calcium (CaO,
+  Ca(OH)2, CaCO3, CaSO4).
+
+[id: 140] P - Block
+  Groups 13-18 - oxidation states and trends in reactivity; anomalous properties
+  of B, C, N, O, F; group-wise descriptive chemistry and important compounds -
+  borax, boric acid, diborane, BF3, AlCl3, alums; CO, CO2, silicones, silicates,
+  zeolites; N2, NH3, HNO3, oxides of nitrogen, phosphine, PCl3, PCl5, oxoacids
+  of phosphorus and sulphur; O2, O3, H2SO4; halogens, HCl, interhalogens,
+  bleaching powder; noble gases and xenon fluorides / oxides.
+
+[id: 141] D and F - Block
+  Transition elements - electronic configuration, trends across the first row
+  (ionization enthalpy, oxidation states, atomic radii, colour, catalytic and
+  magnetic behaviour, complex and interstitial compound formation, alloys);
+  standard electrode potentials; preparation and properties of K2Cr2O7 and
+  KMnO4; lanthanoids - configuration, oxidation states, lanthanoid contraction;
+  actinoids - configuration and oxidation states.
+
+[id: 142] Isolation Of Metals
+  Occurrence of metals and concentration of ores; extraction of crude metal -
+  thermodynamic principles and Ellingham diagrams (iron, copper, zinc),
+  electrochemical (aluminium), cyanide process (silver, gold); refining of
+  metals.
+
+[id: 143] Coordination Compounds
+  Werner's theory; ligands, denticity, chelation, coordination number;
+  spectrochemical series; IUPAC nomenclature of mononuclear complexes;
+  isomerism - structural (ionization, linkage) and stereo (cis-trans); bonding -
+  valence bond theory and crystal field theory (octahedral, tetrahedral);
+  hybridisation and geometry; colour and spin-only magnetic moment of 3d-series
+  complexes; metal carbonyls; importance of coordination compounds.
+
+================ ORGANIC CHEMISTRY ================
+
+[id: 144] Qualitative Organic Chemistry
+  Purification - crystallization, sublimation, distillation, differential
+  extraction, chromatography; detection of N, S, P and halogens; quantitative
+  estimation of C, H, N, halogens, S, P; detection of functional groups
+  (hydroxyl, carbonyl, carboxyl, amino, nitro); calculation of empirical and
+  molecular formulae; numerical problems in organic quantitative analysis.
+
+[id: 145] Basic Organic Chemistry
+  Tetravalency of carbon; hybridisation and shapes; sigma and pi bonds;
+  classification of organic compounds and functional groups; homologous series;
+  isomerism - structural and stereoisomerism (enantiomers, diastereomers, meso;
+  up to two chiral centres); trivial and IUPAC nomenclature; homolytic and
+  heterolytic bond fission; reactive intermediates - formation, structure and
+  stability of carbocations, carbanions and free radicals; electrophiles and
+  nucleophiles; electronic effects - inductive, electromeric, resonance,
+  hyperconjugation; aromaticity; types of organic reactions - substitution,
+  addition, elimination, rearrangement; comparative acidity and basicity of
+  organic compounds.
+
+[id: 146] Hydrocarbons
+  Alkanes - conformations (sawhorse, Newman), preparation, combustion,
+  halogenation (incl. allylic / benzylic), oxidation, Wurtz reaction,
+  carbocation rearrangements; alkenes - geometrical isomerism, mechanism of
+  electrophilic addition, addition of H2, X2, H2O, HX (Markovnikov and peroxide
+  effect), ozonolysis, oxidation with KMnO4 / O3, polymerization; alkynes -
+  acidic character, metal acetylides, addition, hydration, reduction, cyclic
+  polymerization; aromatic hydrocarbons - benzene structure and aromaticity,
+  electrophilic substitution (halogenation, nitration, sulphonation,
+  Friedel-Crafts alkylation / acylation), directing effect of substituents.
+
+[id: 147] Organic - Halogens
+  Haloalkanes and haloarenes - preparation, properties, reactions and uses;
+  nature of the C-X bond; mechanisms of nucleophilic substitution (SN1, SN2) and
+  their stereochemistry; elimination; environmental effects of chloroform,
+  iodoform, freons and DDT.
+
+[id: 148] Organic - Oxygen
+  Alcohols - classification and identification, preparation, dehydration
+  mechanism, reactions with Na, PX3, SOCl2, ZnCl2/HCl, esterification,
+  oxidation; phenols - acidity, electrophilic substitution, Reimer-Tiemann,
+  Kolbe, aspirin synthesis; ethers - Williamson synthesis, C-O cleavage;
+  aldehydes and ketones - nucleophilic addition to C=O, relative reactivity,
+  preparation, alpha-hydrogen acidity, aldol and Cannizzaro reactions, haloform
+  reaction, oxidation and reduction (Wolff-Kishner, Clemmensen), oxime /
+  hydrazone formation, tests to distinguish; carboxylic acids and derivatives -
+  acidic strength and factors, preparation, esters, acid chlorides, amides,
+  reduction, HVZ halogenation.
+
+[id: 149] Organic - Nitrogen
+  Amines - classification, structure, nomenclature, basic character and its
+  comparison, preparation from nitro compounds / nitriles / amides, Hofmann
+  bromamide degradation, Gabriel synthesis, reaction with nitrous acid,
+  carbylamine reaction, Hinsberg test, alkylation and acylation; nitro
+  compounds; diazonium salts - preparation, azo coupling, Sandmeyer and related
+  reactions, synthetic importance.
+
+[id: 150] Practical Chemistry
+  Detection of extra elements (N, S, halogens) and functional groups in organic
+  compounds; preparation of inorganic (Mohr's salt, potash alum) and organic
+  (acetanilide, p-nitroacetanilide, aniline yellow, iodoform) compounds;
+  titrimetric exercises (acid-base with indicators, oxalic acid vs KMnO4, Mohr's
+  salt vs KMnO4); qualitative salt analysis - chemistry of cation groups I-V and
+  common anions; enthalpy of solution / neutralisation experiments; preparation
+  of lyophilic / lyophobic sols; kinetic study of iodide + H2O2.
+
+[id: 151] Biomolecules
+  Carbohydrates - classification, aldoses / ketoses, glucose and fructose
+  structure, di- and oligosaccharides (sucrose, maltose, lactose), oxidation,
+  reduction, glycoside formation and hydrolysis, anomers; proteins - alpha-amino
+  acids, peptide bond, primary / secondary / tertiary / quaternary structure,
+  denaturation, fibrous vs globular; enzymes; vitamins - classification and
+  functions; nucleic acids - DNA and RNA constitution and functions; hormones
+  (general).
+
+[id: 152] Chemistry In Everyday Life
+  Drug-target interaction; therapeutic action and examples (structures excluded)
+  of antacids, antihistamines, tranquilizers, analgesics, antimicrobials,
+  antifertility drugs; artificial sweeteners (names only); soaps and detergents
+  and their cleansing action.
+
+[id: 153] Environmental Chemistry
+  Atmospheric pollution (tropospheric and stratospheric), water pollution, soil
+  pollution; industrial waste; strategies to control environmental pollution;
+  green chemistry.
+
+[id: 154] Polymers
+  Types of polymerization - addition and condensation; homopolymers and
+  copolymers; natural rubber; synthetic polymers - nylon, Teflon, Bakelite,
+  PVC; cellulose; biodegradable polymers; applications of polymers.
