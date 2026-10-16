@@ -1,6 +1,7 @@
 package com.sandy.sconsole.qimgclassifier.classifier;
 
 import com.sandy.sconsole.qimgclassifier.model.AIAgent;
+import com.sandy.sconsole.qimgclassifier.model.AttemptRequest;
 import com.sandy.sconsole.qimgclassifier.model.ProcessingState;
 import com.sandy.sconsole.qimgclassifier.model.QTask;
 import com.sandy.sconsole.qimgclassifier.model.TaskStatus;
@@ -34,8 +35,17 @@ public interface ClassificationListener {
     default void taskAttempt( QTask task, AIAgent agent, String model,
                               int attempt ) {}
 
-    /** A transcript of one of the task's attempts was saved. */
-    default void taskTranscriptSaved( QTask task ) {}
+    /**
+     * A request for the task went out and is waiting for its reply.
+     * {@link #taskAttemptFinished} follows when it ends.
+     */
+    default void taskRequestSent( AttemptRequest request ) {}
+
+    /**
+     * One of the task's attempts ended. Its transcript has been saved, unless
+     * saving failed (logged).
+     */
+    default void taskAttemptFinished( QTask task ) {}
 
     /**
      * The task finished.

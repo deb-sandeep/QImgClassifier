@@ -25,8 +25,10 @@ import java.util.Properties;
  * <p>
  * Every key must be present ({@code question.filter} may be blank); a missing
  * or malformed value fails {@link #load()} with an
- * {@link IllegalStateException} naming the key. Paths may start with
- * {@code ~/} for the user's home directory.
+ * {@link IllegalStateException} naming the key. Paths may start with {@code ~/}
+ * for the user's home directory. The files the application keeps (processed
+ * list, request history, usage log, API key) may be given relative to
+ * {@code workspace.dir}.
  */
 @Slf4j
 @Getter
@@ -46,6 +48,15 @@ public final class QClassifierConfig {
 
     /** Names of the sources whose every question has been classified. */
     private final File processedListFile ;
+
+    /**
+     * Start times of the last day's requests per target, so per-day rate
+     * limits survive a restart.
+     */
+    private final File requestHistoryFile ;
+
+    /** One CSV row per AI attempt with the tokens it used. */
+    private final File usageLogFile ;
 
     /**
      * Root of the per-source, per-question AI request / response transcripts.
@@ -93,6 +104,12 @@ public final class QClassifierConfig {
          * Pause after the backend reports a rate limit without saying how long.
          */
         Duration rateLimitCooldown ;
+
+        /**
+         * Let the model reason before answering; when false it is asked not
+         * to, saving the reasoning tokens and time.
+         */
+        boolean reasoning ;
     }
 
     private final Target gemma ;
@@ -118,16 +135,18 @@ public final class QClassifierConfig {
 
         this.props = props ;
 
-        qBankDir          = path( "question.bank.dir" ) ;
-        questionFilter    = value( "question.filter", true ) ;
-        processedListFile = path( "processed.list.file" ) ;
-        workspaceDir      = path( "workspace.dir" ) ;
+        qBankDir           = path( "question.bank.dir" ) ;
+        questionFilter     = value( "question.filter", true ) ;
+        workspaceDir       = path( "workspace.dir" ) ;
+        processedListFile  = workspacePath( "processed.list.file" ) ;
+        requestHistoryFile = workspacePath( "request.history.file" ) ;
+        usageLogFile       = workspacePath( "usage.log.file" ) ;
 
         gemma          = target( "gemma" ) ;
         gemmaServerUrl = str( "gemma.server.url" ) ;
 
         openRouter       = target( "openrouter" ) ;
-        openRouterApiKey = readKey( path( "openrouter.api.key.file" ) ) ;
+        openRouterApiKey = readKey( workspacePath( "openrouter.api.key.file" ) ) ;
         openRouterPromptCaching = bool( "openrouter.prompt.caching" ) ;
 
         qImgExtractorApiUrl = str( "qimgextractor.api.url" ) ;
@@ -174,7 +193,8 @@ public final class QClassifierConfig {
                            seconds( prefix + ".request.timeout.seconds" ),
                            wholeNumber( prefix + ".rate.limit.rpm", 0 ),
                            wholeNumber( prefix + ".rate.limit.rpd", 0 ),
-                           seconds( prefix + ".rate.limit.cooldown.seconds" ) ) ;
+                           seconds( prefix + ".rate.limit.cooldown.seconds" ),
+                           bool( prefix + ".reasoning" ) ) ;
     }
 
     /**
@@ -248,6 +268,15 @@ public final class QClassifierConfig {
             return new File( System.getProperty( "user.home" ), v.substring( 2 ) ) ;
         }
         return new File( v ) ;
+    }
+
+    /**
+     * A file path as {@link #path}, with a relative path taken as relative to
+     * {@code workspace.dir}.
+     */
+    private File workspacePath( String key ) {
+        File f = path( key ) ;
+        return f.isAbsolute() ? f : new File( workspaceDir, f.getPath() ) ;
     }
 
     private static IllegalStateException invalid( String key, String problem ) {

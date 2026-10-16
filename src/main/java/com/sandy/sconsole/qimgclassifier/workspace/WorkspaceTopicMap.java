@@ -1,5 +1,6 @@
 package com.sandy.sconsole.qimgclassifier.workspace;
 
+import com.sandy.sconsole.qimgclassifier.model.AIAgent;
 import com.sandy.sconsole.qimgclassifier.model.Topic;
 import com.sandy.sconsole.qimgclassifier.model.TopicRepo;
 
@@ -24,14 +25,20 @@ import static com.sandy.sconsole.qimgclassifier.workspace.JsonFiles.MAPPER;
 
 /**
  * Reads and updates a source's {@code .workspace/ai-topic-map.json}: the
- * model's topic recommendations for each question, keyed by question id.
+ * model's topic recommendations for each question, keyed by question id,
+ * and who made them.
  * <pre>
  * { "C_SCA_74" : {
+ *     "classifiedBy" : { "actor" : "AI", "agent" : "openrouter",
+ *                        "model" : "google/gemini-2.5-flash" },
  *     "topicMappings" : [
  *       { "topicId" : 12, "topicName" : "...", "syllabusName" : "...",
  *         "confidenceLevel" : 92 },
  *       ... ] } }
  * </pre>
+ * A hand-picked topic is classified by {@code "actor" : "User"} with null
+ * agent and model. Entries written before {@code classifiedBy} existed have
+ * none.
  * A question present in the file is "classified" (even with an empty list).
  * Each question is merged into the file individually, so a single re-queued
  * question can be persisted on its own. All access to a file is serialised
@@ -95,6 +102,17 @@ public final class WorkspaceTopicMap {
      * The stored recommendations for one question, confidence-descending.
      * Empty if the question has no entry or was stored with no topics.
      */
+    /**
+     * The AI model that made the question's stored recommendations; null if
+     * they were hand-picked, predate this record, or there are none.
+     */
+    public static String classifierModel( File srcDir, String questionId ) {
+
+        JsonNode model = readOrEmpty( srcDir ).path( questionId )
+                                              .path( "classifiedBy" ).path( "model" ) ;
+        return model.isTextual() ? model.asText() : null ;
+    }
+
     public static List<StoredMapping> topicMappings( File srcDir,
                                                      String questionId ) {
 
@@ -132,7 +150,8 @@ public final class WorkspaceTopicMap {
      *         untouched
      */
     public static void write( File srcDir, String questionId,
-                              List<Topic> matchedTopics ) throws IOException {
+                              List<Topic> matchedTopics, AIAgent agent,
+                              String model ) throws IOException {
 
         TopicRepo topicRepo = TopicRepo.instance() ;
         ArrayNode topicMappings = MAPPER.createArrayNode() ;
@@ -152,7 +171,8 @@ public final class WorkspaceTopicMap {
             int confidence = Math.round( t.getMatchProbability() * 100 ) ;
             addMapping( topicMappings, master, confidence ) ;
         }
-        putQuestion( srcDir, questionId, topicMappings ) ;
+        putQuestion( srcDir, questionId, classifiedBy( "AI", agent, model ),
+                     topicMappings ) ;
     }
 
     /**
@@ -166,7 +186,8 @@ public final class WorkspaceTopicMap {
                                     Topic topic ) throws IOException {
         ArrayNode topicMappings = MAPPER.createArrayNode() ;
         addMapping( topicMappings, topic, 100 ).put( HUMAN_INTERVENTION, true ) ;
-        putQuestion( srcDir, questionId, topicMappings ) ;
+        putQuestion( srcDir, questionId, classifiedBy( "User", null, null ),
+                     topicMappings ) ;
     }
 
     // ---- internals ---------------------------------------------------
@@ -185,15 +206,27 @@ public final class WorkspaceTopicMap {
 
     /** Read-modify-write of one question's entry. */
     private static void putQuestion( File srcDir, String questionId,
+                                     ObjectNode classifiedBy,
                                      ArrayNode topicMappings ) throws IOException {
 
         File file = mapFile( srcDir ) ;
         synchronized( JsonFiles.lockFor( file ) ) {
-            ObjectNode root = JsonFiles.readObject( file ) ;
-            root.putObject( questionId ).set( "topicMappings", topicMappings ) ;
+            ObjectNode root  = JsonFiles.readObject( file ) ;
+            ObjectNode entry = root.putObject( questionId ) ;
+
+            entry.set( "classifiedBy", classifiedBy ) ;
+            entry.set( "topicMappings", topicMappings ) ;
             file.getParentFile().mkdirs() ;
             JsonFiles.writeAtomically( file, root ) ;
         }
+    }
+
+    private static ObjectNode classifiedBy( String actor, AIAgent agent,
+                                            String model ) {
+        return MAPPER.createObjectNode()
+                .put( "actor", actor )
+                .put( "agent", agent != null ? agent.getLabel() : null )
+                .put( "model", model ) ;
     }
 
     private static ObjectNode addMapping( ArrayNode topicMappings, Topic topic,

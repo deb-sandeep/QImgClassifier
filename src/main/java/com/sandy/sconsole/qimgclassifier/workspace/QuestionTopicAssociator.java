@@ -13,6 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,7 +35,16 @@ import java.util.Map;
  *       more than 5.</li>
  * </ul>
  * Auto association never changes a question that already has a topic;
- * {@link #associateManual} always overwrites. Sources without a
+ * {@link #associateManual} always overwrites. Each written topic records who
+ * chose it:
+ * <pre>
+ * "topic" : { "id" : 214, "name" : "...", "syllabusName" : "...",
+ *             "topicAssociator" : { "actor" : "AI",
+ *                                   "model" : "gemma4:latest",
+ *                                   "confidence" : 96 } }
+ * </pre>
+ * {@code actor} is {@code AI} or {@code User}; a user's choice has
+ * confidence 100 and a null model. Sources without a
  * question-info.json (never opened in QImgExtractor) are skipped.
  * <p>
  * <b>Caveat:</b> if the source is open in QImgExtractor while it is being
@@ -131,8 +142,15 @@ public final class QuestionTopicAssociator {
     }
 
     /**
+     * Who chose a written topic: {@code actor}, {@code model},
+     * {@code confidence}.
+     */
+    private record Associator( String actor, String model, int confidence ) {}
+
+    /**
      * Associate the question's top stored AI topic if it clears the quality
-     * gate and the question has no topic yet.
+     * gate and the question has no topic yet. The associator recorded is the
+     * model named in the map's {@code classifiedBy}.
      */
     public static Outcome associate( File srcDir, String questionId ) {
 
@@ -149,7 +167,30 @@ public final class QuestionTopicAssociator {
         Topic topic = evaluate( Subject.fromQuestionId( questionId ), mappings ) ;
         if( topic == null ) return logged( questionId, Outcome.FAILED_GATE ) ;
 
-        return writeTopic( srcDir, questionId, topic, false ) ;
+        Associator by = new Associator(
+                "AI", WorkspaceTopicMap.classifierModel( srcDir, questionId ),
+                mappings.get( 0 ).confidenceLevel() ) ;
+        return writeTopic( srcDir, questionId, topic, by, false ) ;
+    }
+
+    /**
+     * True if the top of {@code topics} (a model's reply, before it is stored)
+     * clears the quality gate for the question's subject. Topics unknown to
+     * the master are ignored, as when they are stored.
+     */
+    public static boolean passesGate( String questionId, List<Topic> topics ) {
+
+        List<StoredMapping> mappings = new ArrayList<>() ;
+        for( Topic t : topics ) {
+            if( TopicRepo.instance().getTopicById( t.getId() ) == null ) continue ;
+            mappings.add( new StoredMapping(
+                    t.getId(), Math.round( t.getMatchProbability() * 100 ) ) ) ;
+        }
+        if( mappings.isEmpty() ) return false ;
+
+        mappings.sort( Comparator.comparingInt( StoredMapping::confidenceLevel )
+                                 .reversed() ) ;
+        return evaluate( Subject.fromQuestionId( questionId ), mappings ) != null ;
     }
 
     /**
@@ -161,7 +202,8 @@ public final class QuestionTopicAssociator {
         if( !infoFile( srcDir ).exists() ) {
             return logged( questionId, Outcome.NO_QUESTION_INFO ) ;
         }
-        return writeTopic( srcDir, questionId, topic, true ) ;
+        Associator by = new Associator( "User", null, 100 ) ;
+        return writeTopic( srcDir, questionId, topic, by, true ) ;
     }
 
     private static File infoFile( File srcDir ) {
@@ -181,7 +223,8 @@ public final class QuestionTopicAssociator {
     }
 
     private static Outcome writeTopic( File srcDir, String questionId,
-                                       Topic topic, boolean overwrite ) {
+                                       Topic topic, Associator by,
+                                       boolean overwrite ) {
 
         File file = infoFile( srcDir ) ;
         String qid = toQid( questionId ) ;
@@ -207,10 +250,14 @@ public final class QuestionTopicAssociator {
                     return logged( questionId, Outcome.ALREADY_SET ) ;
                 }
 
-                question.putObject( "topic" )
+                ObjectNode topicNode = question.putObject( "topic" )
                         .put( "id",           topic.getId() )
                         .put( "name",         topic.getTopicName() )
                         .put( "syllabusName", topic.getSyllabusName() ) ;
+                topicNode.putObject( "topicAssociator" )
+                         .put( "actor",      by.actor() )
+                         .put( "model",      by.model() )
+                         .put( "confidence", by.confidence() ) ;
                 JsonFiles.writeAtomically( file, root ) ;
             }
             catch( IOException e ) {
@@ -219,9 +266,10 @@ public final class QuestionTopicAssociator {
                 return Outcome.ERROR ;
             }
         }
-        log.info( "[{}] {} {}-associated with topic {} ({})",
+        log.info( "[{}] {} {}-associated with topic {} ({}) - {} {} {}%",
                   srcDir.getName(), questionId, overwrite ? "manually" : "auto",
-                  topic.getId(), topic.getTopicName() ) ;
+                  topic.getId(), topic.getTopicName(), by.actor(), by.model(),
+                  by.confidence() ) ;
         return Outcome.ASSOCIATED ;
     }
 

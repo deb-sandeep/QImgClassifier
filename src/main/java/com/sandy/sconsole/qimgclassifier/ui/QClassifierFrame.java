@@ -3,6 +3,7 @@ package com.sandy.sconsole.qimgclassifier.ui;
 import com.sandy.sconsole.qimgclassifier.classifier.ClassificationListener;
 import com.sandy.sconsole.qimgclassifier.model.AIAgent;
 import com.sandy.sconsole.qimgclassifier.model.ProcessingState;
+import com.sandy.sconsole.qimgclassifier.model.AttemptRequest;
 import com.sandy.sconsole.qimgclassifier.model.QTask;
 import com.sandy.sconsole.qimgclassifier.model.TaskStatus;
 import com.sandy.sconsole.qimgclassifier.model.Topic;
@@ -262,7 +263,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
 
         table.getSelectionModel().addListSelectionListener( e -> {
             if( e.getValueIsAdjusting() || restoringSelection ) return ;
-            showPreview( selectedNode() ) ;
+            showSelection( selectedNode() ) ;
         } ) ;
 
         previewPanel.setBorder( BorderFactory.createTitledBorder( "Preview" ) ) ;
@@ -509,8 +510,13 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     }
 
     @Override
-    public void taskTranscriptSaved( QTask task ) {
-        SwingUtilities.invokeLater( () -> transcriptPanel.refreshIf( task ) ) ;
+    public void taskRequestSent( AttemptRequest request ) {
+        SwingUtilities.invokeLater( () -> transcriptPanel.requestSent( request ) ) ;
+    }
+
+    @Override
+    public void taskAttemptFinished( QTask task ) {
+        SwingUtilities.invokeLater( () -> transcriptPanel.attemptFinished( task ) ) ;
     }
 
     @Override
@@ -632,10 +638,9 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
 
                 if( !SwingUtilities.isLeftMouseButton( e ) ) return ;
                 Node n = nodeUnder( e ) ;
-                if( e.getClickCount() == 1 && onColumn( e, COL_RESULT ) ) {
-                    QuestionNode q = questionOf( n ) ;
-                    if( q != null ) transcriptPanel.show( q.task ) ;
-                }
+                // Re-shows the transcripts after Clear, when the click does
+                // not change the selection.
+                if( e.getClickCount() == 1 ) showTranscripts( n ) ;
                 if( onAssocButton( e ) ) {
                     if( e.getClickCount() == 1 && n instanceof QuestionNode q
                         && canAssociate( q ) ) {
@@ -787,14 +792,6 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
         }
     }
 
-    /** True if the event is in the association-button column. */
-    /** True if the event is in model column {@code modelCol}. */
-    private boolean onColumn( MouseEvent e, int modelCol ) {
-
-        int viewCol = table.columnAtPoint( e.getPoint() ) ;
-        return viewCol >= 0 && table.convertColumnIndexToModel( viewCol ) == modelCol ;
-    }
-
     /** The question a row belongs to (a part's parent); null for a source. */
     private static QuestionNode questionOf( Node n ) {
         if( n instanceof QuestionNode q ) return q ;
@@ -937,6 +934,25 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
         if( n instanceof QuestionNode q ) return q.task.getImgFiles() ;
         if( n instanceof PartNode p )     return List.of( p.file ) ;
         return null ;
+    }
+
+    /**
+     * Show the selected row's image in the preview and its question's
+     * transcripts in the transcript panel. A source row clears the preview and
+     * leaves the transcripts as they are.
+     */
+    private void showSelection( Node node ) {
+        showPreview( node ) ;
+        showTranscripts( node ) ;
+    }
+
+    /**
+     * Show the transcripts of the row's question (a part shows its parent's),
+     * unless they are on show already.
+     */
+    private void showTranscripts( Node node ) {
+        QuestionNode q = questionOf( node ) ;
+        if( q != null ) transcriptPanel.showIfOther( q.task ) ;
     }
 
     // ---- preview panel -----------------------------------------------

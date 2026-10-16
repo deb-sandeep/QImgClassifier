@@ -2,15 +2,18 @@ package com.sandy.sconsole.qimgclassifier.ai;
 
 import java.time.Duration;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.List;
 
 /**
  * Request-rate bookkeeping for one AI processor: sliding-window limits of
  * requests per minute and per day (rolling 24 hours), plus a suspension set
  * when the backend itself reports that a rate limit was hit.
  * <p>
- * Not thread-safe; {@link AIInvoker} calls it only while holding its slot
- * lock. Counts live in memory, so a restart starts the windows afresh.
+ * Not thread-safe; {@link AIInvoker} calls it only while holding its lock.
+ * Counts live in memory; {@link AIInvoker} saves them to a
+ * {@link RequestHistory} file and restores them at startup.
  */
 final class RateLimiter {
 
@@ -54,6 +57,26 @@ final class RateLimiter {
             at = Math.max( at, nthNewest( rpd ) + DAY_MS ) ;
         }
         return at ;
+    }
+
+    /**
+     * Requests started within the longest window in use, oldest first; empty
+     * if no limit is set.
+     */
+    List<Long> starts( long now ) {
+        prune( now ) ;
+        return new ArrayList<>( starts ) ;
+    }
+
+    /**
+     * Add request start times kept from an earlier run (epoch ms, oldest
+     * first), dropping those outside the windows. Call before
+     * {@link #record}.
+     */
+    void restore( List<Long> times, long now ) {
+        if( rpm == 0 && rpd == 0 ) return ;
+        starts.addAll( times ) ;
+        prune( now ) ;
     }
 
     /** Count a request starting at {@code now}. */

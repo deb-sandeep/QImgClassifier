@@ -1,5 +1,6 @@
 package com.sandy.sconsole.qimgclassifier.workspace;
 
+import com.sandy.sconsole.qimgclassifier.model.AttemptRequest;
 import com.sandy.sconsole.qimgclassifier.model.AttemptTranscript;
 import com.sandy.sconsole.qimgclassifier.model.QTask;
 import com.sandy.sconsole.qimgclassifier.util.JsonText;
@@ -64,12 +65,10 @@ public final class TranscriptStore {
         File dir = dirFor( t.getTask() ) ;
         Files.createDirectories( dir.toPath() ) ;
 
-        String stem = new SimpleDateFormat( "yyyyMMdd-HHmmss-SSS" )
-                              .format( new Date( t.getStartedAt() ) )
-                      + "-a" + t.getAttempt() + "-" + t.getAgent().getLabel() ;
+        String stem = stem( t.getRequest() ) ;
 
         Files.writeString( new File( dir, stem + REQUEST ).toPath(),
-                           requestText( t ), StandardCharsets.UTF_8 ) ;
+                           requestText( t.getRequest() ), StandardCharsets.UTF_8 ) ;
         Files.writeString( new File( dir, stem + RESPONSE ).toPath(),
                            responseText( t ), StandardCharsets.UTF_8 ) ;
     }
@@ -97,7 +96,21 @@ public final class TranscriptStore {
                : name.substring( 0, name.length() - RESPONSE.length() ) + "-1" ;
     }
 
-    private static String requestText( AttemptTranscript t ) {
+    /**
+     * File name stem of an attempt's pair of files, e.g.
+     * {@code 20261016-142301-123-a2-openrouter}.
+     */
+    public static String stem( AttemptRequest r ) {
+        return new SimpleDateFormat( "yyyyMMdd-HHmmss-SSS" )
+                       .format( new Date( r.getStartedAt() ) )
+               + "-a" + r.getAttempt() + "-" + r.getAgent().getLabel() ;
+    }
+
+    /**
+     * Contents of an attempt's request file: a header, {@link #RULE}, then the
+     * prompt with its JSON indented.
+     */
+    public static String requestText( AttemptRequest t ) {
 
         String images = t.getTask().getImgFiles().stream()
                          .map( File::getName )
@@ -123,6 +136,8 @@ public final class TranscriptStore {
         return header( "Time",    timestamp( t.getStartedAt() + t.getElapsedMs() ) )
              + header( "Elapsed", elapsed )
              + header( "Outcome", outcome )
+             + header( "Tokens",  t.getUsage() != null ? t.getUsage().describe()
+                                                       : "not reported" )
              + RULE + "\n"
              + ( t.getResponse() != null ? JsonText.format( t.getResponse() )
                                          : "(no response body)" )

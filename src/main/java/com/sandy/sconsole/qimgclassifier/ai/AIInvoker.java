@@ -1,15 +1,19 @@
 package com.sandy.sconsole.qimgclassifier.ai;
 
+import com.sandy.sconsole.qimgclassifier.model.AttemptRequest;
 import com.sandy.sconsole.qimgclassifier.model.AttemptTranscript;
 import com.sandy.sconsole.qimgclassifier.model.QTask;
 import com.sandy.sconsole.qimgclassifier.model.Subject;
+import com.sandy.sconsole.qimgclassifier.model.TokenUsage;
 import com.sandy.sconsole.qimgclassifier.model.Topic;
 import com.sandy.sconsole.qimgclassifier.model.TopicRepo;
 import com.sandy.sconsole.qimgclassifier.util.ImageCollator;
 import com.sandy.sconsole.qimgclassifier.util.QClassifierConfig;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -19,6 +23,7 @@ import lombok.AllArgsConstructor;
 import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -26,17 +31,16 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.BooleanSupplier;
 
 /**
- * Classifies a question by sending it to one of several {@link AIProcessor}s.
- * Each processor has its own number of parallel slots; a request goes to the
- * least-loaded processor with a free slot, so adding processors adds
- * throughput. A failed attempt is retried, preferring a different processor,
- * until every processor has used up its per-question budget of
- * {@code 1 + getMaxRetries()} attempts.
+ * Sends single classification attempts to the configured
+ * {@link AIProcessor}s, and keeps each processor's rate limits and the
+ * pauses of models that reported a rate limit of their own. Which
+ * processor gets which question, and when to retry, is decided by the caller
+ * (the task scheduler).
  * <p>
  * Prompts come from classpath templates - {@code qclassifier.chemistry.prompt}
  * for Chemistry, {@code qclassifier.prompt} otherwise - with
@@ -49,16 +53,13 @@ import java.util.function.BooleanSupplier;
 public class AIInvoker {
 
     /**
-     * Longest single wait in {@link #acquire}, so a stop request is seen
-     * promptly.
+     * Reads replies and writes topic lists. Fields a reply adds beyond the
+     * known ones are ignored: models echo the topic list's {@code branch}
+     * (Chemistry), and only {@code id} and {@code match_probability} matter.
      */
-    private static final long MAX_WAIT_MS = 1000 ;
-
-    private static final TypeReference<List<Topic>> TOPIC_LIST =
-            new TypeReference<>() {} ;
-
     private final ObjectMapper mapper = new ObjectMapper()
-            .setPropertyNamingStrategy( PropertyNamingStrategies.SNAKE_CASE ) ;
+            .setPropertyNamingStrategy( PropertyNamingStrategies.SNAKE_CASE )
+            .configure( DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false ) ;
 
     /**
      * Complete prompt per subject; {@link Subject#UNKNOWN} gets the default
@@ -70,19 +71,30 @@ public class AIInvoker {
     private final List<AIProcessor> processors ;
 
     /**
-     * Requests in flight per processor (same index as {@link #processors});
-     * guarded by {@link #slotLock}.
-     */
-    private final int[]  busy ;
-    private final Object slotLock = new Object() ;
-
-    /**
-     * Rate bookkeeping per processor (same index); guarded by
-     * {@link #slotLock}.
+     * Rate bookkeeping per processor (same index as {@link #processors});
+     * guarded by {@code this}.
      */
     private final RateLimiter[] limiters ;
 
-    /** Told when an attempt of an {@link #invoke} call starts. */
+    /**
+     * Per processor (same index), model -> epoch ms until which the model is
+     * not asked after a rate limit on it alone; guarded by {@code this}.
+     */
+    private final List<Map<String,Long>> modelPauses = new ArrayList<>() ;
+
+    /**
+     * Where the requests of processors with a per-day limit are kept across
+     * restarts; null to keep them in memory only.
+     */
+    private final RequestHistory history ;
+
+    /**
+     * Requests from the history file for processors not configured now, kept
+     * so saving does not lose them; guarded by {@code this}.
+     */
+    private final Map<String,List<Long>> otherHistory = new HashMap<>() ;
+
+    /** Told when an {@link #attempt} starts and ends. */
     @FunctionalInterface
     public interface AttemptListener {
 
@@ -92,13 +104,16 @@ public class AIInvoker {
          */
         void attemptStarted( AIProcessor processor, String model, int attempt ) ;
 
+        /** The request went out; {@code request} has what was sent. */
+        default void requestSent( AttemptRequest request ) {}
+
         /**
          * An attempt ended; {@code transcript} has what was sent and received.
          */
         default void attemptFinished( AttemptTranscript transcript ) {}
     }
 
-    /** Outcome of an {@link #invoke} call. */
+    /** Outcome of an {@link #attempt}. */
     @Value
     @AllArgsConstructor( access = AccessLevel.PRIVATE )
     public static class InvocationResult {
@@ -108,7 +123,7 @@ public class AIInvoker {
          */
         List<Topic> topics ;
 
-        /** Attempts made (0 if the image could not be prepared). */
+        /** The attempt's 1-based number for the question. */
         int attempts ;
 
         /** Short reason for the failure; null on success. */
@@ -126,20 +141,38 @@ public class AIInvoker {
         }
     }
 
-    /** @throws IllegalArgumentException if {@code processors} is empty */
+    /**
+     * Rate limits are kept in memory only.
+     *
+     * @throws IllegalArgumentException if {@code processors} is empty
+     */
     public AIInvoker( List<AIProcessor> processors ) {
+        this( processors, null ) ;
+    }
+
+    /**
+     * @param historyFile where the request times behind the per-day limits
+     *        are kept across restarts (read now, rewritten on every request);
+     *        null to keep them in memory only
+     * @throws IllegalArgumentException if {@code processors} is empty
+     */
+    public AIInvoker( List<AIProcessor> processors, File historyFile ) {
 
         if( processors.isEmpty() ) {
             throw new IllegalArgumentException(
                     "At least one AI processor is required" ) ;
         }
         this.processors = List.copyOf( processors ) ;
-        this.busy       = new int[ processors.size() ] ;
         this.limiters   = processors.stream()
                                     .map( p -> new RateLimiter(
                                             p.getSettings().getRateLimitRpm(),
                                             p.getSettings().getRateLimitRpd() ) )
                                     .toArray( RateLimiter[]::new ) ;
+
+        processors.forEach( p -> modelPauses.add( new HashMap<>() ) ) ;
+        this.history = historyFile == null ? null
+                                           : new RequestHistory( historyFile ) ;
+        restoreHistory() ;
 
         String defaultTemplate   = loadResource( "/qclassifier.prompt" ) ;
         String chemistryTemplate = loadResource( "/qclassifier.chemistry.prompt" ) ;
@@ -175,201 +208,183 @@ public class AIInvoker {
                 log.info( "AI processor: openrouter - {}", openRouter ) ;
             }
         }
-        return new AIInvoker( ps ) ;
+        return new AIInvoker( ps, config.getRequestHistoryFile() ) ;
     }
 
-    /**
-     * Total parallel slots across all processors - the useful size of a worker
-     * pool feeding this invoker.
-     */
-    public int getMaxParallel() {
-        return processors.stream().mapToInt( AIProcessor::getMaxParallel ).sum() ;
+    /** A question's image, encoded and ready to send. */
+    @Value
+    public static class PreparedImage {
+        String base64 ;
+        String mimeType ;
     }
 
+    /** The configured processors, in a fixed order. */
+    public List<AIProcessor> getProcessors() { return processors ; }
+
     /**
-     * Classify one question, blocking until a processor slot is free and the
-     * request has completed, retrying on failure within each processor's
-     * per-question attempt budget.
+     * The question's image, base64 encoded; a multi-part question's images are
+     * stacked into one so the model sees the whole question.
      *
-     * @param keepGoing checked before each retry; when it turns false no retry
-     *         is made
-     * @param onAttempt told which processor each attempt was given to, just
-     *         before the request is sent
-     * @return the topics, or the failure reason; never throws
+     * @throws IOException if an image cannot be read or stacked
      */
-    public InvocationResult invoke( QTask task, BooleanSupplier keepGoing,
-                                    AttemptListener onAttempt ) {
+    public PreparedImage prepareImage( QTask task ) throws IOException {
 
-        String prompt = promptBySubject.get( task.getSubject() ) ;
-        String image ;
+        List<File> files = task.getImgFiles() ;
+        byte[]     bytes = ImageCollator.collatedBytes( files ) ;
 
-        try {
-            // Multi-part questions are stacked into one image so the model sees
-            // the whole question.
-            byte[] bytes = ImageCollator.collatedBytes( task.getImgFiles() ) ;
-            image = Base64.getEncoder().encodeToString( bytes ) ;
-        }
-        catch( IOException e ) {
-            log.error( "Error preparing image for {}", task, e ) ;
-            return InvocationResult.failure( 0, "image error: " + e.getMessage() ) ;
-        }
-        String mimeType = ImageCollator.collatedMimeType( task.getImgFiles() ) ;
-
-        String      lastFailure = "unknown error" ;
-        AIProcessor lastFailed  = null ;
-        int[]       used        = new int[ processors.size() ] ;
-        int         attempt     = 0 ;
-
-        while( true ) {
-            AIProcessor processor ;
-            try {
-                processor = acquire( lastFailed, used, keepGoing ) ;
-            }
-            catch( InterruptedException e ) {
-                Thread.currentThread().interrupt() ;
-                return InvocationResult.failure( attempt, "interrupted" ) ;
-            }
-            if( processor == null ) {
-                // Every attempt budget is used up, or a stop came while
-                // waiting.
-                if( !keepGoing.getAsBoolean() && attempt == 0 ) {
-                    lastFailure = "stopped while waiting for a free AI target" ;
-                }
-                break ;
-            }
-
-            int    pIndex = processors.indexOf( processor ) ;
-            String model  = processor.modelForAttempt( used[ pIndex ] ) ;
-
-            attempt++ ;
-            onAttempt.attemptStarted( processor, model, attempt ) ;
-
-            InvocationResult outcome ;
-            try {
-                outcome = attemptInvoke( processor, model, task, prompt, image,
-                                         mimeType, attempt, onAttempt ) ;
-            }
-            catch( AIProcessor.RateLimitException e ) {
-                // Not the question's fault: the attempt is handed back and the
-                // processor is taken out of rotation for a while.
-                suspend( processor, e ) ;
-                used[ pIndex ]-- ;   // so the same model is retried later
-                attempt-- ;
-                lastFailure = e.getMessage() ;
-                continue ;
-            }
-            finally {
-                release( processor ) ;
-            }
-            if( outcome.isSuccess() ) return outcome ;
-
-            lastFailure = outcome.getFailureReason() ;
-            lastFailed  = processor ;
-
-            if( !hasBudget( used ) ) break ;
-            if( Thread.currentThread().isInterrupted()
-                || !keepGoing.getAsBoolean() ) {
-                log.debug( "Stop requested - not retrying {}", task ) ;
-                break ;
-            }
-            log.warn( "Retrying invocation for {} (attempt {})", task, attempt + 1 ) ;
-        }
-        return InvocationResult.failure( attempt, lastFailure ) ;
+        return new PreparedImage( Base64.getEncoder().encodeToString( bytes ),
+                                  ImageCollator.collatedMimeType( files ) ) ;
     }
-
-    /** True if some processor can still take an attempt, given {@code used}. */
-    private boolean hasBudget( int[] used ) {
-
-        for( int i = 0 ; i < processors.size() ; i++ ) {
-            if( used[i] <= processors.get( i ).getMaxRetries() ) return true ;
-        }
-        return false ;
-    }
-
-    // ---- processor slots ---------------------------------------------
 
     /**
-     * Claim a slot on the least-loaded processor that has one free and still
-     * has attempt budget for this question, waiting if all such are busy.
-     * {@code avoid} (the processor that just failed) is only chosen when no
-     * other eligible processor has a free slot. Counts the attempt in
-     * {@code used}.
+     * Send one request for {@code task} to {@code model} on
+     * {@code processor} and parse the reply. {@code onAttempt} is told before
+     * the request goes out and gets the transcript afterwards. Does not
+     * record the request against the processor's rate limits; see
+     * {@link #recordUse}.
      *
-     * @param used attempts this question has made per processor (same index
-     *        as {@link #processors})
-     * @return the processor, or null if none has budget left
+     * @param attempt the attempt's 1-based number for the question
+     * @return the topics, or the failure reason
+     * @throws AIProcessor.RateLimitException if the backend reported a rate
+     *         limit; the caller should {@link #suspend} the model
      */
-    private AIProcessor acquire( AIProcessor avoid, int[] used,
-                                 BooleanSupplier keepGoing )
-            throws InterruptedException {
+    public InvocationResult attempt( AIProcessor processor, String model,
+                                     QTask task, PreparedImage image,
+                                     int attempt, AttemptListener onAttempt )
+            throws AIProcessor.RateLimitException {
 
-        synchronized( slotLock ) {
-            while( true ) {
-                if( !hasBudget( used ) ) return null ;
+        onAttempt.attemptStarted( processor, model, attempt ) ;
+        return attemptInvoke( processor, model, task,
+                              promptBySubject.get( task.getSubject() ),
+                              image.getBase64(), image.getMimeType(), attempt,
+                              onAttempt ) ;
+    }
 
-                long   now      = System.currentTimeMillis() ;
-                long   wakeAt   = Long.MAX_VALUE ;
-                int    best     = -1 ;
-                double bestLoad = Double.MAX_VALUE ;
+    // ---- rate limits ---------------------------------------------------
 
-                for( int i = 0 ; i < processors.size() ; i++ ) {
-                    AIProcessor p = processors.get( i ) ;
-                    if( used[i] > p.getMaxRetries() ) continue ;
+    /**
+     * Epoch ms from which {@code processor} may take its next request: now or
+     * earlier if it is free to, later while a rate window is full, it is
+     * suspended, or every one of its models is paused.
+     */
+    public synchronized long availableAt( AIProcessor processor ) {
 
-                    long availableAt = limiters[i].availableAt( now ) ;
-                    if( availableAt > now ) {           // rate limited or suspended
-                        wakeAt = Math.min( wakeAt, availableAt ) ;
-                        continue ;
-                    }
-                    if( busy[i] >= p.getMaxParallel() ) continue ;
-                    double load = (double) busy[i] / p.getMaxParallel()
-                                  + ( p == avoid ? 1 : 0 ) ;
-                    if( load < bestLoad ) {
-                        best     = i ;
-                        bestLoad = load ;
-                    }
-                }
-                if( best >= 0 ) {
-                    busy[best]++ ;
-                    used[best]++ ;
-                    limiters[best].record( now ) ;
-                    return processors.get( best ) ;
-                }
-                if( !keepGoing.getAsBoolean() ) return null ;
+        int  p   = processors.indexOf( processor ) ;
+        long now = System.currentTimeMillis() ;
+        long modelFreeAt = Long.MAX_VALUE ;
 
-                // Wake when a slot frees (notify), when a rate window opens,
-                // and
-                // at least every second to notice a stop request.
-                long waitMs = Math.min( MAX_WAIT_MS, wakeAt - now ) ;
-                slotLock.wait( Math.max( 1, waitMs ) ) ;
-            }
+        for( String model : processor.getModels() ) {
+            modelFreeAt = Math.min( modelFreeAt, pausedUntil( p, model ) ) ;
         }
+        return Math.max( limiters[p].availableAt( now ), modelFreeAt ) ;
     }
 
     /**
-     * Stop routing to {@code processor} after it reported a rate limit: for
-     * the time it asked for, else for its configured cooldown.
+     * Model for a question's {@code n}-th attempt on {@code processor}: the
+     * one {@link AIProcessor#modelForAttempt} names, or, while that one is
+     * paused after a rate limit, the next one in the list that is not.
+     *
+     * @return null if every model of the processor is paused
      */
-    private void suspend( AIProcessor processor, AIProcessor.RateLimitException e ) {
+    public synchronized String modelFor( AIProcessor processor, int n ) {
+
+        int          p      = processors.indexOf( processor ) ;
+        List<String> models = processor.getModels() ;
+        int          first  = models.indexOf( processor.modelForAttempt( n ) ) ;
+        long         now    = System.currentTimeMillis() ;
+
+        for( int i = 0 ; i < models.size() ; i++ ) {
+            String model = models.get( ( first + i ) % models.size() ) ;
+            if( pausedUntil( p, model ) <= now ) return model ;
+        }
+        return null ;
+    }
+
+    /** Epoch ms until which {@code model} is paused; 0 if it is not. */
+    private long pausedUntil( int p, String model ) {
+        return modelPauses.get( p ).getOrDefault( model, 0L ) ;
+    }
+
+    /**
+     * Count a request sent to {@code processor} against its rate limits, and
+     * save it to the history file if the processor has a per-day limit.
+     */
+    public synchronized void recordUse( AIProcessor processor ) {
+
+        long now = System.currentTimeMillis() ;
+        limiters[ processors.indexOf( processor ) ].record( now ) ;
+        if( history != null && hasDailyLimit( processor ) ) saveHistory( now ) ;
+    }
+
+    private static boolean hasDailyLimit( AIProcessor processor ) {
+        return processor.getSettings().getRateLimitRpd() > 0 ;
+    }
+
+    /**
+     * Load the last day's requests of each processor with a per-day limit
+     * from the history file into its rate windows.
+     */
+    private synchronized void restoreHistory() {
+
+        if( history == null ) return ;
+        long now = System.currentTimeMillis() ;
+        Map<String,List<Long>> saved = history.load( now ) ;
+
+        for( int p = 0 ; p < processors.size() ; p++ ) {
+            AIProcessor processor = processors.get( p ) ;
+            List<Long>  times     = saved.remove( processor.getName() ) ;
+
+            if( times == null || !hasDailyLimit( processor ) ) continue ;
+            limiters[p].restore( times, now ) ;
+            log.info( "{}: {} of {} requests per day already used",
+                      processor.getName(), times.size(),
+                      processor.getSettings().getRateLimitRpd() ) ;
+        }
+        otherHistory.putAll( saved ) ;
+    }
+
+    /** Under {@code this}: rewrite the history file. */
+    private void saveHistory( long now ) {
+
+        Map<String,List<Long>> all = new HashMap<>( otherHistory ) ;
+        for( int p = 0 ; p < processors.size() ; p++ ) {
+            AIProcessor processor = processors.get( p ) ;
+            if( hasDailyLimit( processor ) ) {
+                all.put( processor.getName(), limiters[p].starts( now ) ) ;
+            }
+        }
+        history.save( all, now ) ;
+    }
+
+    /**
+     * Stop asking {@code model} on {@code processor} after it reported a rate
+     * limit, or every model of the processor if the limit covers them all
+     * ({@link AIProcessor.RateLimitScope}): for the time the backend asked
+     * for, else for the processor's configured cooldown.
+     */
+    public void suspend( AIProcessor processor, String model,
+                         AIProcessor.RateLimitException e ) {
 
         Duration pause = e.getRetryAfter() != null
                        ? e.getRetryAfter()
                        : processor.getSettings().getRateLimitCooldown() ;
         long until = System.currentTimeMillis() + pause.toMillis() ;
+        int  p     = processors.indexOf( processor ) ;
 
-        synchronized( slotLock ) {
-            limiters[ processors.indexOf( processor ) ].suspendUntil( until ) ;
-            slotLock.notifyAll() ;
-        }
-        log.warn( "{} hit a rate limit - not routing to it for {}s",
-                  processor.getName(), pause.toSeconds() ) ;
-    }
+        boolean wholeProcessor =
+                e.getScope() == AIProcessor.RateLimitScope.PROCESSOR ;
 
-    private void release( AIProcessor processor ) {
-        synchronized( slotLock ) {
-            busy[ processors.indexOf( processor ) ]-- ;
-            slotLock.notifyAll() ;
+        synchronized( this ) {
+            if( wholeProcessor ) {
+                limiters[p].suspendUntil( until ) ;
+            }
+            else {
+                modelPauses.get( p ).merge( model, until, Math::max ) ;
+            }
         }
+        log.warn( "{} - not sending to {} for {}s", e.getMessage(),
+                  wholeProcessor ? processor.getName() : model,
+                  pause.toSeconds() ) ;
     }
 
     // ---- one attempt ---------------------------------------------------
@@ -387,26 +402,36 @@ public class AIInvoker {
                                             int attempt, AttemptListener onAttempt )
             throws AIProcessor.RateLimitException {
 
-        long    startTime   = System.currentTimeMillis() ;
-        String  rawResponse = null ;
-        String  failure     = null ;
-        boolean rateLimited = false ;
+        long       startTime   = System.currentTimeMillis() ;
+        String     rawResponse = null ;
+        String     failure     = null ;
+        boolean    rateLimited = false ;
+        TokenUsage usage       = null ;
+
+        AttemptRequest request = new AttemptRequest(
+                task, processor.getAgent(), model, attempt, mimeType, startTime,
+                prompt ) ;
+        onAttempt.requestSent( request ) ;
 
         try {
             log.debug( "\t  Sending {} to {} {} (attempt {}, prompt {} chars)",
                        task, processor.getName(), model, attempt,
                        prompt.length() ) ;
-            rawResponse = processor.complete( model, prompt, image, mimeType ) ;
+            AIProcessor.Reply reply =
+                    processor.complete( model, prompt, image, mimeType ) ;
+
+            rawResponse = reply.text() ;
+            usage       = reply.usage() ;
             String cleaned = cleanResponse( rawResponse ) ;
 
             try {
-                List<Topic> topics = mapper.readValue( cleaned, TOPIC_LIST ) ;
+                List<Topic> topics = parseTopics( cleaned, task ) ;
                 return InvocationResult.success( topics, attempt ) ;
             }
             catch( JsonProcessingException e ) {
                 log.error( "Error parsing {} response (attempt {}): {}",
                            processor.getName(), attempt, cleaned, e ) ;
-                failure = "unparseable " + processor.getName() + " response" ;
+                failure = "the model's reply was not a topic list" ;
                 return InvocationResult.failure( attempt, failure ) ;
             }
         }
@@ -414,25 +439,59 @@ public class AIInvoker {
             rawResponse = e.getDetail() ;
             failure     = e.getMessage() ;
             rateLimited = true ;
+            usage       = e.getUsage() ;
 
             throw e ;
         }
         catch( AIProcessor.ProcessorException e ) {
             rawResponse = e.getDetail() ;
             failure     = e.getMessage() ;
+            usage       = e.getUsage() ;
 
             return InvocationResult.failure( attempt, failure ) ;
         }
         finally {
             long elapsed = System.currentTimeMillis() - startTime ;
-            log.debug( "\t  {} attempt {} on {} took {}.{}s",
-                       task, attempt, processor.getName(),
-                       elapsed / 1000, elapsed % 1000 ) ;
+            log.info( "{} attempt {} on {} {} took {}.{}s - {}", task, attempt,
+                      processor.getName(), model, elapsed / 1000,
+                      elapsed % 1000 / 100,
+                      usage != null ? usage.describe() : "no token count" ) ;
             onAttempt.attemptFinished( new AttemptTranscript(
-                    task, processor.getAgent(), model, attempt, mimeType,
-                    startTime, elapsed, prompt, rawResponse, failure,
-                    rateLimited ) ) ;
+                    request, elapsed, rawResponse, failure, rateLimited,
+                    usage ) ) ;
         }
+    }
+
+    /**
+     * The topics in a reply's JSON array. An entry that cannot be read (e.g.
+     * {@code "id" : "N/A"} for a topic not in the list) is skipped with a
+     * warning; the rest still count.
+     *
+     * @throws JsonProcessingException if the reply is not a JSON array, or no
+     *         entry in it can be read
+     */
+    List<Topic> parseTopics( String json, QTask task )
+            throws JsonProcessingException {
+
+        JsonNode root = mapper.readTree( json ) ;
+        if( root == null || !root.isArray() ) {
+            throw new JsonMappingException( null, "not a JSON array" ) ;
+        }
+
+        List<Topic> topics = new ArrayList<>() ;
+        for( JsonNode entry : root ) {
+            try {
+                topics.add( mapper.treeToValue( entry, Topic.class ) ) ;
+            }
+            catch( JsonProcessingException e ) {
+                log.warn( "[{}] Skipping an unreadable topic in the reply: {}",
+                          task, entry ) ;
+            }
+        }
+        if( topics.isEmpty() ) {
+            throw new JsonMappingException( null, "no readable topic" ) ;
+        }
+        return topics ;
     }
 
     /**

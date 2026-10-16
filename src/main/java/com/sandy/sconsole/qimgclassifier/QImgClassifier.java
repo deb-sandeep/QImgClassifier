@@ -4,6 +4,7 @@ import com.sandy.sconsole.qimgclassifier.ai.AIInvoker;
 import com.sandy.sconsole.qimgclassifier.classifier.ClassificationListener;
 import com.sandy.sconsole.qimgclassifier.classifier.QSourceClassifier;
 import com.sandy.sconsole.qimgclassifier.classifier.QuestionClassifier;
+import com.sandy.sconsole.qimgclassifier.classifier.TaskScheduler;
 import com.sandy.sconsole.qimgclassifier.model.ProcessingState;
 import com.sandy.sconsole.qimgclassifier.model.QTask;
 import com.sandy.sconsole.qimgclassifier.model.Topic;
@@ -15,6 +16,7 @@ import com.sandy.sconsole.qimgclassifier.workspace.ProcessedList;
 import com.sandy.sconsole.qimgclassifier.workspace.ProcessedListRepair;
 import com.sandy.sconsole.qimgclassifier.workspace.QuestionTopicAssociator;
 import com.sandy.sconsole.qimgclassifier.workspace.TranscriptStore;
+import com.sandy.sconsole.qimgclassifier.workspace.UsageLog;
 import com.sandy.sconsole.qimgclassifier.workspace.WorkspaceTopicMap;
 
 import lombok.extern.slf4j.Slf4j;
@@ -29,10 +31,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -41,10 +39,10 @@ import java.util.stream.Collectors;
  * <p>
  * Discovery walks the sources named in {@code qclassifier.sources.txt} (minus
  * those already in the processed list) and builds a plan of pending tasks per
- * source. Start runs the plan source by source on a batch thread; each
- * {@link QSourceClassifier} feeds a shared worker pool sized to the AI
- * processors' total parallelism. Stop is cooperative: running tasks finish,
- * no new ones start.
+ * source. Start queues every pending question of the plan with the
+ * {@link TaskScheduler}, which routes them across sources by subject (see
+ * there), and waits on a batch thread until they are done. Stop is
+ * cooperative: running tasks finish, no new ones start.
  * <p>
  * Runs with the {@link QClassifierFrame} UI, or with {@code --headless} to
  * process the whole backlog once and exit.
@@ -61,11 +59,8 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     private final QClassifierConfig  config ;
     private final ProcessedList      processedList ;
     private final QuestionClassifier classifier ;
+    private final TaskScheduler      scheduler ;
     private final ClassificationListener listener ;
-
-    /** One thread per processor slot, so every processor can be kept busy. */
-    private final int             maxParallelThreads ;
-    private final ExecutorService executor ;
 
     /** True while a batch thread is alive. */
     private final AtomicBoolean processing = new AtomicBoolean( false ) ;
@@ -83,12 +78,6 @@ public class QImgClassifier implements QClassifierFrame.Controller {
      */
     private volatile List<SourceWork> plan ;
 
-    /**
-     * Sources whose {@code process} has already finished in the current run.
-     */
-    private final Set<QSourceClassifier> finishedThisRun =
-            ConcurrentHashMap.newKeySet() ;
-
     /** A source and the tasks it had pending at discovery. */
     private record SourceWork( QSourceClassifier sc, List<QTask> pending ) {}
 
@@ -96,6 +85,10 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     public QImgClassifier( ClassificationListener listener,
                            QClassifierConfig config ) {
 
+        File workspaceDir = config.getWorkspaceDir() ;
+        if( !workspaceDir.isDirectory() && !workspaceDir.mkdirs() ) {
+            log.error( "Could not create the workspace folder {}", workspaceDir ) ;
+        }
         AIInvoker aiInvoker = AIInvoker.fromConfig( config ) ;
 
         this.config        = config ;
@@ -103,11 +96,13 @@ public class QImgClassifier implements QClassifierFrame.Controller {
                                               : ClassificationListener.NOOP ;
         this.processedList = new ProcessedList( config.getProcessedListFile() ) ;
         this.classifier    = new QuestionClassifier(
-                aiInvoker, this.listener, processedList,
+                this.listener, processedList,
                 new TranscriptStore( config.getWorkspaceDir() ),
+                new UsageLog( config.getUsageLogFile() ),
                 config.getQuestionFilter() ) ;
-        this.maxParallelThreads = aiInvoker.getMaxParallel() ;
-        this.executor = Executors.newFixedThreadPool( maxParallelThreads ) ;
+        this.scheduler     = new TaskScheduler( aiInvoker, classifier ) ;
+
+        scheduler.start() ;
     }
 
     /**
@@ -206,9 +201,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
                        srcName, config.getQBankDir() ) ;
             return null ;
         }
-        QSourceClassifier sc = new QSourceClassifier(
-                srcDir, classifier, executor, this::isProcessing,
-                maxParallelThreads ) ;
+        QSourceClassifier sc = new QSourceClassifier( srcDir, classifier ) ;
         return new SourceWork( sc, sc.discover() ) ;
     }
 
@@ -240,22 +233,35 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     }
 
     /**
-     * Batch thread body: process each planned source in turn until done or
-     * stopped.
+     * Batch thread body: queue the still-unclassified questions of every
+     * planned source, then wait until they are done or the stop has wound
+     * them up.
      */
     private void runPlan() {
 
         try {
             ensureDiscovered() ;
-            finishedThisRun.clear() ;
-            List<SourceWork> p = plan ;
-            for( int i = 0 ; i < p.size() ; i++ ) {
-                if( !isProcessing() ) break ;
-                SourceWork sw = p.get( i ) ;
-                listener.batchProgress( i + 1, p.size(), sw.sc().getSourceName() ) ;
-                sw.sc().process( sw.pending() ) ;
-                finishedThisRun.add( sw.sc() ) ;
+            List<SourceWork> p     = plan ;
+            List<QTask>      batch = new ArrayList<>() ;
+
+            for( SourceWork sw : p ) {
+                File        srcDir     = sw.sc().getSrcDir() ;
+                Set<String> classified =
+                        WorkspaceTopicMap.classifiedQuestionIds( srcDir ) ;
+
+                for( QTask t : sw.pending() ) {
+                    if( !classified.contains( t.getQuestionId() ) ) batch.add( t ) ;
+                }
+                // Covers a source with nothing pending that was never listed.
+                classifier.markProcessedIfComplete( srcDir ) ;
             }
+            listener.batchProgress( p.size(), p.size(),
+                                    batch.size() + " questions queued" ) ;
+            scheduler.submitBatch( batch, this::isProcessing ) ;
+            scheduler.awaitBatch() ;
+        }
+        catch( InterruptedException e ) {
+            Thread.currentThread().interrupt() ;
         }
         finally {
             stopRequested = false ;
@@ -312,26 +318,18 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     @Override
     public void reprocess( QTask task ) {
         log.debug( "Re-queueing {}", task ) ;
-        executor.submit( classifier.classifyCallable( task, () -> true ) ) ;
+        scheduler.submitFirst( task, () -> true ) ;
     }
 
     @Override
     public boolean holdForManualAssociation( QTask task ) {
-        QSourceClassifier sc = sourceOf( task ) ;
-        return sc == null || sc.hold( task ) ;
+        return scheduler.hold( task ) ;
     }
 
     @Override
     public void releaseFromManualAssociation( QTask task, boolean associated ) {
-
-        QSourceClassifier sc = sourceOf( task ) ;
-        if( sc == null || sc.release( task, associated ) || associated ) return ;
-        // Its source already ran in this batch, so nothing would pick it up
-        // until the next Start.
-        if( isProcessing() && finishedThisRun.contains( sc ) ) {
-            log.debug( "Scheduling {} after cancelled manual association", task ) ;
-            executor.submit( classifier.classifyCallable( task,
-                                                          this::isProcessing ) ) ;
+        if( scheduler.release( task, associated ) ) {
+            log.debug( "Re-queued {} after cancelled manual association", task ) ;
         }
     }
 
@@ -353,32 +351,12 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     @Override
     public void shutdown() {
 
-        log.debug( "Shutting down classifier executor" ) ;
+        log.debug( "Shutting down the task scheduler" ) ;
         stopRequested = true ;
-        executor.shutdownNow() ;
-        try {
-            executor.awaitTermination( 10, TimeUnit.SECONDS ) ;
-        }
-        catch( InterruptedException e ) {
-            Thread.currentThread().interrupt() ;
-        }
+        scheduler.shutdown() ;
     }
 
     // ---- helpers -------------------------------------------------------
-
-    /**
-     * The planned source the task belongs to; null before discovery has
-     * finished.
-     */
-    private QSourceClassifier sourceOf( QTask task ) {
-
-        List<SourceWork> p = plan ;
-        if( p == null ) return null ;
-        for( SourceWork sw : p ) {
-            if( sw.sc().getSrcDir().equals( task.getSrcDir() ) ) return sw.sc() ;
-        }
-        return null ;
-    }
 
     /**
      * Source names from {@link #SOURCES_RESOURCE}, skipping blanks and

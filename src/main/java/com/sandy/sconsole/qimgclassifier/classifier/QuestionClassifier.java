@@ -2,6 +2,8 @@ package com.sandy.sconsole.qimgclassifier.classifier;
 
 import com.sandy.sconsole.qimgclassifier.ai.AIInvoker;
 import com.sandy.sconsole.qimgclassifier.ai.AIProcessor;
+import com.sandy.sconsole.qimgclassifier.model.AIAgent;
+import com.sandy.sconsole.qimgclassifier.model.AttemptRequest;
 import com.sandy.sconsole.qimgclassifier.model.AttemptTranscript;
 import com.sandy.sconsole.qimgclassifier.model.QTask;
 import com.sandy.sconsole.qimgclassifier.model.TaskStatus;
@@ -9,6 +11,7 @@ import com.sandy.sconsole.qimgclassifier.model.Topic;
 import com.sandy.sconsole.qimgclassifier.util.FileHelper;
 import com.sandy.sconsole.qimgclassifier.workspace.ProcessedList;
 import com.sandy.sconsole.qimgclassifier.workspace.TranscriptStore;
+import com.sandy.sconsole.qimgclassifier.workspace.UsageLog;
 import com.sandy.sconsole.qimgclassifier.workspace.QuestionTopicAssociator;
 import com.sandy.sconsole.qimgclassifier.workspace.WorkspaceTopicMap;
 
@@ -19,39 +22,41 @@ import java.io.File;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Callable;
-import java.util.function.BooleanSupplier;
 
 /**
- * Classifies single questions and keeps the processed-sources list in step.
- * Shared by every {@link QSourceClassifier} and by the UI's re-queue and
- * manual-association actions. Thread-safe.
+ * What happens to a single question around its AI attempts: lifecycle events,
+ * transcripts, storing the result and auto association, and keeping the
+ * processed-sources list in step. The attempts themselves are scheduled by
+ * {@link TaskScheduler}. Thread-safe.
  */
 @Slf4j
 public class QuestionClassifier {
 
-    private final AIInvoker aiInvoker ;
     @Getter
     private final ClassificationListener listener ;
     private final ProcessedList          processedList ;
     private final TranscriptStore        transcripts ;
+    private final UsageLog               usageLog ;
     private final String                 questionFilter ;
 
     /**
      * @param listener       receives task lifecycle events; may be null
      * @param transcripts    where each attempt's request and response are saved
+     * @param usageLog       where each attempt's token counts are added; may be
+     *         null
      * @param questionFilter debug filter on question ids (the
      *         {@code question.filter} setting)
      */
-    public QuestionClassifier( AIInvoker aiInvoker, ClassificationListener listener,
+    public QuestionClassifier( ClassificationListener listener,
                                ProcessedList processedList,
-                               TranscriptStore transcripts, String questionFilter ) {
+                               TranscriptStore transcripts, UsageLog usageLog,
+                               String questionFilter ) {
 
-        this.aiInvoker      = aiInvoker ;
         this.listener       = listener != null ? listener
                                                : ClassificationListener.NOOP ;
         this.processedList  = processedList ;
         this.transcripts    = transcripts ;
+        this.usageLog       = usageLog ;
         this.questionFilter = questionFilter ;
     }
 
@@ -64,52 +69,58 @@ public class QuestionClassifier {
         return FileHelper.getQuestionImgGroups( srcDir, questionFilter ) ;
     }
 
-    /**
-     * A callable that classifies {@code task}: invokes the model, stores the
-     * recommendations in the source's {@code ai-topic-map.json}, attempts auto
-     * association into {@code question-info.json}, and fires
-     * {@code taskStarted} / {@code taskAttempt} / {@code taskFinished}. Every
-     * attempt's request and response are saved as a transcript (a failure to
-     * save is logged, not fatal). After a successful
-     * classification the source is added to the processed list if that was
-     * its last unclassified question. Never throws.
-     *
-     * @param keepGoing consulted before a retry; false suppresses it
-     * @return a callable yielding true if the task was classified and stored
-     */
-    public Callable<Boolean> classifyCallable( QTask task,
-                                               BooleanSupplier keepGoing ) {
-
-        return () -> {
-            listener.taskStarted( task ) ;
-            try {
-                AIInvoker.InvocationResult r =
-                        aiInvoker.invoke( task, keepGoing, attemptListener( task ) ) ;
-                if( !r.isSuccess() ) {
-                    listener.taskFinished( task, TaskStatus.FAILED,
-                                           r.getAttempts(), r.getFailureReason() ) ;
-                    return false ;
-                }
-                WorkspaceTopicMap.write( task.getSrcDir(), task.getQuestionId(),
-                                         r.getTopics() ) ;
-                listener.taskFinished( task, TaskStatus.DONE, r.getAttempts(),
-                                       summarise( task, r.getTopics() ) ) ;
-                markProcessedIfComplete( task.getSrcDir() ) ;
-                return true ;
-            }
-            catch( Exception e ) {
-                log.error( "Error classifying {}", task, e ) ;
-                listener.taskFinished( task, TaskStatus.FAILED, 0, describe( e ) ) ;
-                return false ;
-            }
-        } ;
+    /** A worker picked the task up for its first attempt. */
+    void started( QTask task ) {
+        listener.taskStarted( task ) ;
     }
 
     /**
-     * Forwards attempt starts to the listener and saves each attempt's
-     * transcript.
+     * Store a successful classification in the source's
+     * {@code ai-topic-map.json}, attempt auto association into
+     * {@code question-info.json}, fire {@code taskFinished}, and add the source
+     * to the processed list if that was its last unclassified question. Never
+     * throws.
+     *
+     * @param agent the backend and {@code model} the model that gave
+     *        {@code topics}; stored with them, and with an auto association
+     * @return true if the result was stored
      */
-    private AIInvoker.AttemptListener attemptListener( QTask task ) {
+    boolean succeeded( QTask task, List<Topic> topics, AIAgent agent,
+                       String model, int attempts ) {
+
+        try {
+            WorkspaceTopicMap.write( task.getSrcDir(), task.getQuestionId(), topics,
+                                     agent, model ) ;
+            listener.taskFinished( task, TaskStatus.DONE, attempts,
+                                   summarise( task, topics ) ) ;
+            markProcessedIfComplete( task.getSrcDir() ) ;
+            return true ;
+        }
+        catch( Exception e ) {
+            log.error( "Error storing the classification of {}", task, e ) ;
+            listener.taskFinished( task, TaskStatus.FAILED, attempts, describe( e ) ) ;
+            return false ;
+        }
+    }
+
+    /** The task failed for good. */
+    void failed( QTask task, int attempts, String reason ) {
+        listener.taskFinished( task, TaskStatus.FAILED, attempts, reason ) ;
+    }
+
+    /**
+     * True if {@code topics} would not be auto-associated because the top
+     * topic does not clear the quality gate.
+     */
+    boolean failsGate( QTask task, List<Topic> topics ) {
+        return !QuestionTopicAssociator.passesGate( task.getQuestionId(), topics ) ;
+    }
+
+    /**
+     * Forwards attempt starts and sent requests to the listener, and saves
+     * each attempt's transcript and token counts.
+     */
+    AIInvoker.AttemptListener attemptListener( QTask task ) {
 
         return new AIInvoker.AttemptListener() {
             @Override
@@ -118,16 +129,22 @@ public class QuestionClassifier {
             }
 
             @Override
+            public void requestSent( AttemptRequest request ) {
+                listener.taskRequestSent( request ) ;
+            }
+
+            @Override
             public void attemptFinished( AttemptTranscript transcript ) {
 
                 try {
                     transcripts.save( transcript ) ;
-                    listener.taskTranscriptSaved( task ) ;
                 }
                 catch( Exception e ) {
                     log.error( "[{}] Could not save the transcript of attempt {}",
                                task, transcript.getAttempt(), e ) ;
                 }
+                if( usageLog != null ) usageLog.append( transcript ) ;
+                listener.taskAttemptFinished( task ) ;
             }
         } ;
     }

@@ -10,7 +10,9 @@ import java.util.List;
  * <p>
  * A question is either a single image or a set of part images
  * ({@code X(1)}, {@code X(2)}, ...) which are collated vertically before being
- * sent to the model. The question id is always the base id (without the
+ * sent to the model. An LCT question's images start with its group's shared
+ * context images ({@code <S>_LCT_<n>_Ctx}), so the context is sent with every
+ * question of the group. The question id is always the base id (without the
  * part suffix).
  * <p>
  * Carries no mutable state - all changing state (status, timing, attempts,
@@ -31,8 +33,8 @@ public final class QTask {
     private final Subject subject ;
 
     /**
-     * The question's image, or its part images in ascending part order. Never
-     * empty.
+     * The question's image, or its part images in ascending part order, after
+     * any LCT context images. Never empty.
      */
     private final List<File> imgFiles ;
 
@@ -50,7 +52,10 @@ public final class QTask {
         this.imgFiles   = List.copyOf( imgFiles ) ;
     }
 
-    /** True if the question is made of more than one part image. */
+    /**
+     * True if the question is made of more than one image (parts, or an LCT
+     * context and the question).
+     */
     public boolean isMultiPart() { return imgFiles.size() > 1 ; }
 
     @Override

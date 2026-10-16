@@ -3,31 +3,17 @@ package com.sandy.sconsole.qimgclassifier.model;
 import lombok.Value;
 
 /**
- * Record of one request to an AI backend and what came back: the prompt that
- * was sent and the raw reply or error. Saved per attempt so a question's
- * classification can be audited later.
+ * Record of one request to an AI backend and what came back: the
+ * {@link AttemptRequest} and the raw reply or error. Saved per attempt so a
+ * question's classification can be audited later.
  */
 @Value
 public class AttemptTranscript {
 
-    QTask   task ;
-    AIAgent agent ;
-
-    /** The model the request was sent to. */
-    String aiModel ;
-
-    /** 1-based attempt number for the question, across all backends. */
-    int attempt ;
-
-    /** Media type of the image sent with the prompt. */
-    String mimeType ;
-
-    /** Epoch millisecond the request was sent. */
-    long startedAt ;
+    /** What was sent. */
+    AttemptRequest request ;
 
     long elapsedMs ;
-
-    String prompt ;
 
     /**
      * The backend's raw reply on success or an unparseable reply, else the raw
@@ -41,6 +27,23 @@ public class AttemptTranscript {
     /** True if the backend refused the request because of a rate limit. */
     boolean rateLimited ;
 
+    /** Tokens the request used; null if the backend did not report them. */
+    TokenUsage usage ;
+
     /** True if the reply was obtained and parsed. */
     public boolean isSuccess() { return failure == null ; }
+
+    public QTask getTask() { return request.getTask() ; }
+
+    public AIAgent getAgent() { return request.getAgent() ; }
+
+    public String getAiModel() { return request.getAiModel() ; }
+
+    public int getAttempt() { return request.getAttempt() ; }
+
+    public String getMimeType() { return request.getMimeType() ; }
+
+    public long getStartedAt() { return request.getStartedAt() ; }
+
+    public String getPrompt() { return request.getPrompt() ; }
 }
