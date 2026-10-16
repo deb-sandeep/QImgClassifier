@@ -2,6 +2,7 @@ package com.sandy.sconsole.qimgclassifier.util.net;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
@@ -22,15 +23,19 @@ import java.util.concurrent.CompletableFuture;
  * image, so it can be repaired there.
  */
 @Slf4j
+@RequiredArgsConstructor
 public class QImgExtractorClient {
-
-    public static final String BASE_URL = "http://127.0.0.1:8082" ;
 
     private static final Duration TIMEOUT = Duration.ofSeconds( 5 ) ;
 
+    /**
+     * Base URL of the remote command API, e.g. {@code http://127.0.0.1:8082}.
+     */
+    private final String baseUrl ;
+
     private final HttpClient   httpClient =
             HttpClient.newBuilder().connectTimeout( TIMEOUT ).build() ;
-    private final ObjectMapper mapper     = new ObjectMapper() ;
+    private final ObjectMapper mapper = new ObjectMapper() ;
 
     /**
      * Fire-and-forget request to show {@code imgFile} in QImgExtractor.
@@ -40,7 +45,7 @@ public class QImgExtractorClient {
     public CompletableFuture<String> showQuestionImage( File imgFile ) {
 
         String imgName = imgFile.getName() ;
-        URI uri = URI.create( BASE_URL + "/api/remote/show-question-image?imgName="
+        URI uri = URI.create( baseUrl + "/api/remote/show-question-image?imgName="
                 + URLEncoder.encode( imgName, StandardCharsets.UTF_8 ) ) ;
         HttpRequest request = HttpRequest.newBuilder( uri )
                 .timeout( TIMEOUT )
@@ -64,7 +69,7 @@ public class QImgExtractorClient {
                               imgName, cause ) ;
                     if( cause instanceof ConnectException ) {
                         return "QImgExtractor is not running " +
-                               "(nothing listening on " + BASE_URL + ")." ;
+                               "(nothing listening on " + baseUrl + ")." ;
                     }
                     String msg = cause.getMessage() ;
                     return cause.getClass().getSimpleName() +

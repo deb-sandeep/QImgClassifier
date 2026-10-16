@@ -10,13 +10,16 @@ import com.sandy.sconsole.qimgclassifier.model.Topic;
 import com.sandy.sconsole.qimgclassifier.ui.QClassifierFrame;
 import com.sandy.sconsole.qimgclassifier.util.FileHelper;
 import com.sandy.sconsole.qimgclassifier.util.QClassifierConfig;
+import com.sandy.sconsole.qimgclassifier.util.net.QImgExtractorClient;
 import com.sandy.sconsole.qimgclassifier.workspace.ProcessedList;
 import com.sandy.sconsole.qimgclassifier.workspace.ProcessedListRepair;
 import com.sandy.sconsole.qimgclassifier.workspace.QuestionTopicAssociator;
+import com.sandy.sconsole.qimgclassifier.workspace.TranscriptStore;
 import com.sandy.sconsole.qimgclassifier.workspace.WorkspaceTopicMap;
 
 import lombok.extern.slf4j.Slf4j;
 
+import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import java.io.File;
 import java.io.IOException;
@@ -61,8 +64,8 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     private final ClassificationListener listener ;
 
     /** One thread per processor slot, so every processor can be kept busy. */
-    private final int                maxParallelThreads ;
-    private final ExecutorService    executor ;
+    private final int             maxParallelThreads ;
+    private final ExecutorService executor ;
 
     /** True while a batch thread is alive. */
     private final AtomicBoolean processing = new AtomicBoolean( false ) ;
@@ -90,17 +93,19 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     private record SourceWork( QSourceClassifier sc, List<QTask> pending ) {}
 
     /** @param listener receives discovery and task events; may be null */
-    public QImgClassifier( ClassificationListener listener ) {
+    public QImgClassifier( ClassificationListener listener,
+                           QClassifierConfig config ) {
 
-        this.config        = QClassifierConfig.load() ;
         AIInvoker aiInvoker = AIInvoker.fromConfig( config ) ;
 
+        this.config        = config ;
         this.listener      = listener != null ? listener
                                               : ClassificationListener.NOOP ;
-        this.processedList = new ProcessedList( QClassifierConfig.PROCESSED_LIST_FILE ) ;
-        this.classifier    = new QuestionClassifier( aiInvoker, this.listener,
-                                                     processedList,
-                                                     config.getQuestionFilter() ) ;
+        this.processedList = new ProcessedList( config.getProcessedListFile() ) ;
+        this.classifier    = new QuestionClassifier(
+                aiInvoker, this.listener, processedList,
+                new TranscriptStore( config.getWorkspaceDir() ),
+                config.getQuestionFilter() ) ;
         this.maxParallelThreads = aiInvoker.getMaxParallel() ;
         this.executor = Executors.newFixedThreadPool( maxParallelThreads ) ;
     }
@@ -111,8 +116,25 @@ public class QImgClassifier implements QClassifierFrame.Controller {
      */
     public static void main( String[] args ) {
 
-        if( Arrays.asList( args ).contains( "--headless" ) ) {
-            QImgClassifier app = new QImgClassifier( ClassificationListener.NOOP ) ;
+        boolean headless = Arrays.asList( args ).contains( "--headless" ) ;
+        QClassifierConfig config ;
+
+        try {
+            config = QClassifierConfig.load() ;
+        }
+        catch( IllegalStateException e ) {
+            log.error( "Invalid configuration: {}", e.getMessage(), e ) ;
+            if( !headless ) {
+                JOptionPane.showMessageDialog( null, e.getMessage(),
+                        "Invalid configuration", JOptionPane.ERROR_MESSAGE ) ;
+            }
+            System.exit( 1 ) ;
+            return ;
+        }
+
+        if( headless ) {
+            QImgClassifier app = new QImgClassifier( ClassificationListener.NOOP,
+                                                     config ) ;
             app.startProcessing() ;
             app.awaitBatch() ;
             app.shutdown() ;
@@ -122,8 +144,13 @@ public class QImgClassifier implements QClassifierFrame.Controller {
         QImgClassifier[] holder = new QImgClassifier[1] ;
         try {
             SwingUtilities.invokeAndWait( () -> {
-                QClassifierFrame frame = new QClassifierFrame() ;
-                QImgClassifier app = new QImgClassifier( frame ) ;
+                QImgExtractorClient extractor =
+                        new QImgExtractorClient( config.getQImgExtractorApiUrl() ) ;
+                TranscriptStore transcripts =
+                        new TranscriptStore( config.getWorkspaceDir() ) ;
+                QClassifierFrame frame = new QClassifierFrame( extractor, transcripts ) ;
+                QImgClassifier   app   = new QImgClassifier( frame, config ) ;
+
                 frame.setController( app ) ;
                 frame.setVisible( true ) ;
                 holder[0] = app ;
@@ -152,6 +179,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
         Set<String>  processed = processedList.load() ;
         List<String> sources   = loadSourceNames() ;
         List<SourceWork> p = new ArrayList<>() ;
+
         for( int i = 0 ; i < sources.size() ; i++ ) {
             String srcName = sources.get( i ) ;
             listener.batchProgress( i + 1, sources.size(), srcName ) ;
@@ -161,6 +189,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
         }
         plan = p ;
         int pendingCount = p.stream().mapToInt( sw -> sw.pending().size() ).sum() ;
+
         log.info( "Discovered {} pending tasks across {} sources",
                   pendingCount, p.size() ) ;
     }
@@ -270,6 +299,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
                                   .map( sw -> sw.sc().getSourceName() )
                                   .collect( Collectors.toSet() ) ;
         List<SourceWork> p = new ArrayList<>( plan ) ;
+
         for( String srcName : report.getRemoved() ) {
             if( planned.contains( srcName ) ) continue ;
             SourceWork sw = discoverSource( srcName ) ;
@@ -312,6 +342,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
         log.debug( "Manually associating {} with topic {}", task, topic.getId() ) ;
         File   srcDir = task.getSrcDir() ;
         String qId    = task.getQuestionId() ;
+
         WorkspaceTopicMap.writeManual( srcDir, qId, topic ) ;
         QuestionTopicAssociator.Outcome outcome =
                 QuestionTopicAssociator.associateManual( srcDir, qId, topic ) ;

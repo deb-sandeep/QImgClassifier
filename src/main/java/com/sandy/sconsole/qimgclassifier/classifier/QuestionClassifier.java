@@ -1,11 +1,14 @@
 package com.sandy.sconsole.qimgclassifier.classifier;
 
 import com.sandy.sconsole.qimgclassifier.ai.AIInvoker;
+import com.sandy.sconsole.qimgclassifier.ai.AIProcessor;
+import com.sandy.sconsole.qimgclassifier.model.AttemptTranscript;
 import com.sandy.sconsole.qimgclassifier.model.QTask;
 import com.sandy.sconsole.qimgclassifier.model.TaskStatus;
 import com.sandy.sconsole.qimgclassifier.model.Topic;
 import com.sandy.sconsole.qimgclassifier.util.FileHelper;
 import com.sandy.sconsole.qimgclassifier.workspace.ProcessedList;
+import com.sandy.sconsole.qimgclassifier.workspace.TranscriptStore;
 import com.sandy.sconsole.qimgclassifier.workspace.QuestionTopicAssociator;
 import com.sandy.sconsole.qimgclassifier.workspace.WorkspaceTopicMap;
 
@@ -27,26 +30,30 @@ import java.util.function.BooleanSupplier;
 @Slf4j
 public class QuestionClassifier {
 
-    private final AIInvoker              aiInvoker ;
+    private final AIInvoker aiInvoker ;
     @Getter
     private final ClassificationListener listener ;
     private final ProcessedList          processedList ;
+    private final TranscriptStore        transcripts ;
     private final String                 questionFilter ;
 
     /**
      * @param listener       receives task lifecycle events; may be null
-     * @param questionFilter debug filter on question ids (see
-     *         {@code QClassifierConfig.questionFilter})
+     * @param transcripts    where each attempt's request and response are saved
+     * @param questionFilter debug filter on question ids (the
+     *         {@code question.filter} setting)
      */
     public QuestionClassifier( AIInvoker aiInvoker, ClassificationListener listener,
-                               ProcessedList processedList, String questionFilter ) {
+                               ProcessedList processedList,
+                               TranscriptStore transcripts, String questionFilter ) {
+
         this.aiInvoker      = aiInvoker ;
         this.listener       = listener != null ? listener
                                                : ClassificationListener.NOOP ;
         this.processedList  = processedList ;
+        this.transcripts    = transcripts ;
         this.questionFilter = questionFilter ;
     }
-
 
     /**
      * The source's question images grouped by base question id, honouring the
@@ -61,7 +68,9 @@ public class QuestionClassifier {
      * A callable that classifies {@code task}: invokes the model, stores the
      * recommendations in the source's {@code ai-topic-map.json}, attempts auto
      * association into {@code question-info.json}, and fires
-     * {@code taskStarted} / {@code taskFinished}. After a successful
+     * {@code taskStarted} / {@code taskAttempt} / {@code taskFinished}. Every
+     * attempt's request and response are saved as a transcript (a failure to
+     * save is logged, not fatal). After a successful
      * classification the source is added to the processed list if that was
      * its last unclassified question. Never throws.
      *
@@ -74,7 +83,8 @@ public class QuestionClassifier {
         return () -> {
             listener.taskStarted( task ) ;
             try {
-                AIInvoker.InvocationResult r = aiInvoker.invoke( task, keepGoing ) ;
+                AIInvoker.InvocationResult r =
+                        aiInvoker.invoke( task, keepGoing, attemptListener( task ) ) ;
                 if( !r.isSuccess() ) {
                     listener.taskFinished( task, TaskStatus.FAILED,
                                            r.getAttempts(), r.getFailureReason() ) ;
@@ -91,6 +101,33 @@ public class QuestionClassifier {
                 log.error( "Error classifying {}", task, e ) ;
                 listener.taskFinished( task, TaskStatus.FAILED, 0, describe( e ) ) ;
                 return false ;
+            }
+        } ;
+    }
+
+    /**
+     * Forwards attempt starts to the listener and saves each attempt's
+     * transcript.
+     */
+    private AIInvoker.AttemptListener attemptListener( QTask task ) {
+
+        return new AIInvoker.AttemptListener() {
+            @Override
+            public void attemptStarted( AIProcessor p, String model, int attempt ) {
+                listener.taskAttempt( task, p.getAgent(), model, attempt ) ;
+            }
+
+            @Override
+            public void attemptFinished( AttemptTranscript transcript ) {
+
+                try {
+                    transcripts.save( transcript ) ;
+                    listener.taskTranscriptSaved( task ) ;
+                }
+                catch( Exception e ) {
+                    log.error( "[{}] Could not save the transcript of attempt {}",
+                               task, transcript.getAttempt(), e ) ;
+                }
             }
         } ;
     }
@@ -122,6 +159,7 @@ public class QuestionClassifier {
         int    confidence = Math.round( top.getMatchProbability() * 100 ) ;
         String summary    = WorkspaceTopicMap.summary( top.getTopicName(),
                                                        confidence, false ) ;
+
         try {
             QuestionTopicAssociator.Outcome outcome = QuestionTopicAssociator
                     .associate( task.getSrcDir(), task.getQuestionId() ) ;

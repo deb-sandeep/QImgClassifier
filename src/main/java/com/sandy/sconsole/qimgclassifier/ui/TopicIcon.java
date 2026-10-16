@@ -45,6 +45,7 @@ final class TopicIcon implements Icon {
                                             g2.getFontRenderContext() ).getBounds() ;
             float tx = x + ( SIZE - (float) b.getWidth() ) / 2f - (float) b.getX() ;
             float ty = y + ( SIZE - (float) b.getHeight() ) / 2f - (float) b.getY() ;
+
             g2.drawString( "T", tx, ty ) ;
         }
         finally {

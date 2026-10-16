@@ -16,7 +16,7 @@ import java.awt.GridLayout;
 final class RepairProgressDialog extends JDialog {
 
     private final JProgressBar bar       = new JProgressBar() ;
-    private final JLabel       current   =
+    private final JLabel       current =
             new JLabel( "Waiting for discovery to finish..." ) ;
     private final JLabel       done      = new JLabel( "-" ) ;
     private final JLabel       remaining = new JLabel( "-" ) ;
@@ -26,6 +26,7 @@ final class RepairProgressDialog extends JDialog {
     private final JLabel       notFound  = new JLabel( "-" ) ;
 
     RepairProgressDialog( Frame owner ) {
+
         super( owner, "Repairing processed list", true ) ;
         setDefaultCloseOperation( DO_NOTHING_ON_CLOSE ) ;
         bar.setIndeterminate( true ) ;
@@ -57,6 +58,7 @@ final class RepairProgressDialog extends JDialog {
 
     /** Show the latest progress snapshot. Call on the EDT. */
     void update( ProcessedListRepair.Progress p ) {
+
         bar.setIndeterminate( false ) ;
         bar.setMaximum( Math.max( p.getTotal(), 1 ) ) ;
         bar.setValue( p.getDone() ) ;

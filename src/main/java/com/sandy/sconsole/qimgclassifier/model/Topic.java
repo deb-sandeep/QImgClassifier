@@ -22,5 +22,5 @@ public class Topic {
     private String topicName ;
 
     /** Model confidence in 0..1; only set on a model recommendation. */
-    private float  matchProbability ;
+    private float matchProbability ;
 }

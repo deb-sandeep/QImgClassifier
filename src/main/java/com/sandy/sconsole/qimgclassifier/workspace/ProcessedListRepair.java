@@ -42,16 +42,16 @@ public final class ProcessedListRepair {
          * questions again).
          */
         @Getter
-        final List<String> removed          = new ArrayList<>() ;
+        final List<String> removed = new ArrayList<>() ;
 
         /** Complete and already listed. */
-        final List<String> keptListed       = new ArrayList<>() ;
+        final List<String> keptListed = new ArrayList<>() ;
 
         /** Incomplete and not listed. */
-        final List<String> keptUnlisted     = new ArrayList<>() ;
+        final List<String> keptUnlisted = new ArrayList<>() ;
 
         /** Folder missing - entry left untouched. */
-        final List<String> notFound         = new ArrayList<>() ;
+        final List<String> notFound = new ArrayList<>() ;
 
         /** No question images (treated as incomplete). */
         final List<String> noImages         = new ArrayList<>() ;
@@ -116,8 +116,8 @@ public final class ProcessedListRepair {
      */
     @Getter
     public static final class Progress {
-        private final int    done ;
-        private final int    total ;
+        private final int done ;
+        private final int total ;
 
         /** Source just checked; null before the first. */
         private final String current ;
@@ -154,8 +154,8 @@ public final class ProcessedListRepair {
      *
      * @param qBankDir       root folder the sources are searched under
      * @param sources        the configured source names
-     * @param questionFilter debug question filter (see
-     *         {@code QClassifierConfig.questionFilter})
+     * @param questionFilter debug question filter (the
+     *         {@code question.filter} setting)
      * @param progress       called on this thread before the first and after
      *         each source
      * @return the report; {@code error} is set if the list could not be
@@ -174,6 +174,7 @@ public final class ProcessedListRepair {
         Set<String> updated = new LinkedHashSet<>( processed ) ;
         int total = toCheck.size() ;
         int done  = 0 ;
+
         progress.progress( new Progress( 0, total, null, r ) ) ;
         for( String srcName : toCheck ) {
             checkSource( qBankDir, questionFilter, srcName, processed, updated, r ) ;
@@ -204,6 +205,7 @@ public final class ProcessedListRepair {
 
         boolean listed = processed.contains( srcName ) ;
         File srcDir = FileHelper.findDir( qBankDir, srcName ) ;
+
         if( srcDir == null ) {
             r.notFound.add( srcName ) ;
             return ;
@@ -213,6 +215,7 @@ public final class ProcessedListRepair {
         Map<String,List<File>> groups =
                 FileHelper.getQuestionImgGroups( srcDir, questionFilter ) ;
         boolean complete ;
+
         if( groups == null || groups.isEmpty() ) {
             r.noImages.add( srcName ) ;
             complete = false ;
@@ -221,6 +224,7 @@ public final class ProcessedListRepair {
             Set<String> classified =
                     WorkspaceTopicMap.classifiedQuestionIds( srcDir ) ;
             int unassociated = 0 ;
+
             for( Map.Entry<String,List<File>> e : groups.entrySet() ) {
                 r.questionsChecked++ ;
                 r.imagesChecked += e.getValue().size() ;

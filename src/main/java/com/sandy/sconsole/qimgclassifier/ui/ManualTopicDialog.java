@@ -73,15 +73,15 @@ final class ManualTopicDialog extends JDialog {
     private static final int   DIALOG_WIDTH   = 760 ;
     private static ManualTopicDialog instance ;
 
-    private Flow                    flow ;
-    private final TopicTableModel   tableModel = new TopicTableModel() ;
-    private final JTable            table      = new JTable( tableModel ) ;
-    private final JTextField        filter     = new JTextField() ;
-    private final JLabel            imageLabel =
+    private Flow                  flow ;
+    private final TopicTableModel tableModel = new TopicTableModel() ;
+    private final JTable          table      = new JTable( tableModel ) ;
+    private final JTextField      filter     = new JTextField() ;
+    private final JLabel          imageLabel =
             new JLabel( "", SwingConstants.CENTER ) ;
-    private final JCheckBox         continueBox =
+    private final JCheckBox       continueBox =
             new JCheckBox( "Continue with next queued / failed question" ) ;
-    private final JButton           ok         = new JButton( "OK" ) ;
+    private final JButton         ok         = new JButton( "OK" ) ;
 
     private QTask         task ;
     private List<Topic>   topics = List.of() ;
@@ -96,6 +96,7 @@ final class ManualTopicDialog extends JDialog {
     static void open( Component parent, QTask task, Flow flow ) {
         Window owner = SwingUtilities.getWindowAncestor( parent ) ;
         boolean created = instance == null || instance.getOwner() != owner ;
+
         if( created ) {
             if( instance != null ) instance.dispose() ;
             instance = new ManualTopicDialog( owner ) ;
@@ -110,6 +111,7 @@ final class ManualTopicDialog extends JDialog {
     }
 
     private ManualTopicDialog( Window owner ) {
+
         super( owner, "Manual Topic Association", ModalityType.APPLICATION_MODAL ) ;
 
         table.setSelectionMode( ListSelectionModel.SINGLE_SELECTION ) ;
@@ -163,6 +165,7 @@ final class ManualTopicDialog extends JDialog {
 
         JPanel top = new JPanel( new BorderLayout( 6, 0 ) ) ;
         JLabel filterLabel = new JLabel( "Filter:" ) ;
+
         enlargeFont( filterLabel ) ;
         top.add( filterLabel, BorderLayout.WEST ) ;
         top.add( filter, BorderLayout.CENTER ) ;
@@ -202,6 +205,7 @@ final class ManualTopicDialog extends JDialog {
      * its image.
      */
     private void load( QTask task ) {
+
         this.task = task ;
         setTitle( "Manual Topic Association - " + task ) ;
 
@@ -237,6 +241,7 @@ final class ManualTopicDialog extends JDialog {
      * size the dialog then has.
      */
     private void fitInitialSize() {
+
         int viewportWidth = table.getPreferredScrollableViewportSize().width ;
         table.setPreferredScrollableViewportSize( new Dimension(
                 viewportWidth, topics.size() * table.getRowHeight() ) ) ;
@@ -251,6 +256,7 @@ final class ManualTopicDialog extends JDialog {
      * has moved on meanwhile.
      */
     private void loadImage( QTask forTask ) {
+
         image = null ;
         imageLabel.setIcon( null ) ;
         imageLabel.setText( "Loading image…" ) ;
@@ -279,16 +285,19 @@ final class ManualTopicDialog extends JDialog {
      * upscaled.
      */
     private void rescaleImage() {
+
         if( image == null ) return ;
         Insets in = imageLabel.getInsets() ;
         int availW = imageLabel.getWidth()  - in.left - in.right - 8 ;
         int availH = imageLabel.getHeight() - in.top - in.bottom - 8 ;
+
         if( availW <= 0 || availH <= 0 ) return ;
         double fit   = Math.min( (double) availW / image.getWidth(),
                                  (double) availH / image.getHeight() ) ;
         double scale = Math.min( 1.0, fit ) ;
         int w = Math.max( 1, (int) Math.round( image.getWidth()  * scale ) ) ;
         int h = Math.max( 1, (int) Math.round( image.getHeight() * scale ) ) ;
+
         imageLabel.setIcon( new ImageIcon(
                 image.getScaledInstance( w, h, Image.SCALE_SMOOTH ) ) ) ;
     }
@@ -298,9 +307,11 @@ final class ManualTopicDialog extends JDialog {
      * keeping the selection if it survives, else selecting the first match.
      */
     private void applyFilter() {
+
         Topic selected = selectedTopic() ;
         String text = filter.getText().trim().toLowerCase() ;
         List<Topic> rows = new ArrayList<>() ;
+
         for( Topic t : topics ) {
             String section = t.getSection() == null ? "" : t.getSection() ;
             if( text.isEmpty()
@@ -339,6 +350,7 @@ final class ManualTopicDialog extends JDialog {
      * {@code delta} rows.
      */
     private void bindListMove( int keyCode, int delta ) {
+
         String key = "move" + delta ;
         filter.getInputMap().put( KeyStroke.getKeyStroke( keyCode, 0 ), key ) ;
         filter.getActionMap().put( key, new AbstractAction() {
@@ -356,6 +368,7 @@ final class ManualTopicDialog extends JDialog {
      * or close.
      */
     private void confirm() {
+
         Topic topic = selectedTopic() ;
         if( topic == null || saving ) return ;
         QTask current = task ;

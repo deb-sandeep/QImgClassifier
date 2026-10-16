@@ -41,21 +41,21 @@ public class QSourceClassifier {
     private final int                maxInFlight ;
 
     /** Guards {@link #queue}, {@link #inFlight} and {@link #held}. */
-    private final Object      lock     = new Object() ;
+    private final Object lock = new Object() ;
 
     /**
      * Tasks waiting to be dispatched by the running {@link #process}; null when
      * it isn't running.
      */
-    private Deque<QTask>      queue ;
+    private Deque<QTask> queue ;
 
     /** Tasks dispatched to the executor and not yet finished. */
-    private final Set<QTask>  inFlight = new HashSet<>() ;
+    private final Set<QTask> inFlight = new HashSet<>() ;
 
     /**
      * Tasks taken out of scheduling while they are being manually associated.
      */
-    private final Set<QTask>  held     = new HashSet<>() ;
+    private final Set<QTask> held = new HashSet<>() ;
 
     /**
      * @param executor    pool the classification tasks run on (shared across
@@ -103,6 +103,7 @@ public class QSourceClassifier {
             String qId  = e.getKey() ;
             QTask  task = new QTask( srcDir, qId, e.getValue() ) ;
             String storedResult = stored.get( qId ) ;
+
             if( storedResult != null ) {
                 storedResult += QuestionTopicAssociator.indicator(
                         assignedIds.get( qId ), aiTopIds.get( qId ) ) ;
@@ -137,6 +138,7 @@ public class QSourceClassifier {
         ExecutorCompletionService<Boolean> completion =
                 new ExecutorCompletionService<>( executor ) ;
         int running = 0 ;
+
         try {
             while( true ) {
                 QTask next ;

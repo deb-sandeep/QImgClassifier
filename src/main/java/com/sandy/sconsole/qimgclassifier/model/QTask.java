@@ -23,12 +23,12 @@ import java.util.List;
 public final class QTask {
 
     /** Name of the source folder, e.g. {@code AITS-17-M-FT2}. */
-    private final String     sourceName ;
-    private final File       srcDir ;
+    private final String sourceName ;
+    private final File   srcDir ;
 
     /** Base question id (without any part suffix). */
-    private final String     questionId ;
-    private final Subject    subject ;
+    private final String  questionId ;
+    private final Subject subject ;
 
     /**
      * The question's image, or its part images in ascending part order. Never

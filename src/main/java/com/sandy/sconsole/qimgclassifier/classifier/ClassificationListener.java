@@ -1,5 +1,6 @@
 package com.sandy.sconsole.qimgclassifier.classifier;
 
+import com.sandy.sconsole.qimgclassifier.model.AIAgent;
 import com.sandy.sconsole.qimgclassifier.model.ProcessingState;
 import com.sandy.sconsole.qimgclassifier.model.QTask;
 import com.sandy.sconsole.qimgclassifier.model.TaskStatus;
@@ -22,6 +23,19 @@ public interface ClassificationListener {
 
     /** A worker picked the task up. */
     void taskStarted( QTask task ) ;
+
+    /**
+     * An attempt for the task was handed to a backend. Fires once per attempt,
+     * so a retry on the other backend fires again.
+     *
+     * @param model   the model the request goes to
+     * @param attempt 1-based attempt number
+     */
+    default void taskAttempt( QTask task, AIAgent agent, String model,
+                              int attempt ) {}
+
+    /** A transcript of one of the task's attempts was saved. */
+    default void taskTranscriptSaved( QTask task ) {}
 
     /**
      * The task finished.

@@ -1,6 +1,7 @@
 package com.sandy.sconsole.qimgclassifier.ui;
 
 import com.sandy.sconsole.qimgclassifier.classifier.ClassificationListener;
+import com.sandy.sconsole.qimgclassifier.model.AIAgent;
 import com.sandy.sconsole.qimgclassifier.model.ProcessingState;
 import com.sandy.sconsole.qimgclassifier.model.QTask;
 import com.sandy.sconsole.qimgclassifier.model.TaskStatus;
@@ -9,6 +10,7 @@ import com.sandy.sconsole.qimgclassifier.util.ImageCollator;
 import com.sandy.sconsole.qimgclassifier.util.net.QImgExtractorClient;
 import com.sandy.sconsole.qimgclassifier.workspace.ProcessedListRepair;
 import com.sandy.sconsole.qimgclassifier.workspace.QuestionTopicAssociator;
+import com.sandy.sconsole.qimgclassifier.workspace.TranscriptStore;
 import com.sandy.sconsole.qimgclassifier.workspace.WorkspaceTopicMap;
 
 import com.sandy.sconsole.qimgclassifier.ui.QTaskTreeTableModel.Node;
@@ -123,14 +125,20 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
         void shutdown() ;
     }
 
-    private static final int   PREVIEW_PANEL_HEIGHT = 300 ;
-    private static final int   INITIAL_WIDTH = 1000 ;
+    private static final int PREVIEW_PANEL_HEIGHT = 300 ;
+
+    /**
+     * Share of the window width given to the table; the rest is transcripts.
+     */
+    private static final double SPLIT_RATIO = 0.6 ;
+
     /** Horizontal padding added to a fixed column's widest text. */
-    private static final int   COL_PAD     = 16 ;
-    private static final int   INDENT      = 18 ;
-    private static final int   LEFT_PAD    = 4 ;
-    private static final int   ICON_GAP    = 4 ;
-    private static final Color SOURCE_BG     = new Color( 0xE3E8EF ) ;
+    private static final int   COL_PAD   = 16 ;
+    private static final int   INDENT    = 18 ;
+    private static final int   LEFT_PAD  = 4 ;
+    private static final int   ICON_GAP  = 4 ;
+    private static final Color SOURCE_BG = new Color( 0xE3E8EF ) ;
+
     /**
      * The RUNNING / DONE / FAILED shades are shared by question rows and their
      * source row.
@@ -140,12 +148,14 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     private static final Color FAILED_BG     = new Color( 0xEF9A9A ) ;
     private static final Color REQUEUED_BG   = new Color( 0xFFF8E1 ) ;
     private static final Color ASSOCIATED_BG = new Color( 0xF0F0F0 ) ;
+
     /** ⌘E on macOS, Ctrl+E elsewhere. */
     private static final KeyStroke SHOW_IN_EXTRACTOR_KEY = KeyStroke.getKeyStroke(
             KeyEvent.VK_E, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() ) ;
 
     private final QTaskTreeTableModel model = new QTaskTreeTableModel() ;
-    private final QImgExtractorClient extractorClient = new QImgExtractorClient() ;
+    private final QImgExtractorClient extractorClient ;
+    private final TranscriptPanel     transcriptPanel ;
     private final JTable              table ;
     private final JLabel              statusBar = new JLabel( " " ) ;
     private final JPanel              previewPanel =
@@ -157,6 +167,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     private final JMenuItem stopItem  = new JMenuItem( "Stop processing" ) ;
     private final JMenuItem repairItem = new JMenuItem( "Repair processed list" ) ;
     private boolean repairRunning ;
+
     /**
      * QUEUED tasks currently held out of the scheduler for manual association.
      */
@@ -167,6 +178,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * filter) into one rebuild.
      */
     private final Timer rebuildTimer = new Timer( 150, e -> rebuildTree() ) ;
+
     /**
      * Set while a rebuild restores the selection, so the preview isn't
      * reloaded.
@@ -194,14 +206,24 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      */
     private BufferedImage previewImage ;
     private List<File>    previewFiles ;
+
     /**
      * Monotonic token so a slow load for an old selection cannot overwrite a
      * newer one.
      */
-    private long          previewToken ;
+    private long previewToken ;
 
-    public QClassifierFrame() {
+    /** @param extractorClient used for "Show in QImgExtractor" */
+    /**
+     * @param extractorClient used for "Show in QImgExtractor"
+     * @param transcripts     source of the transcripts shown in the right panel
+     */
+    public QClassifierFrame( QImgExtractorClient extractorClient,
+                             TranscriptStore transcripts ) {
+
         super( "Question Image Classifier" ) ;
+        this.extractorClient = extractorClient ;
+        this.transcriptPanel = new TranscriptPanel( transcripts ) ;
 
         table = new JTable( model ) {
             @Override
@@ -210,6 +232,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
 
                 Component c = super.prepareRenderer( r, row, col ) ;
                 Node n = model.nodeAt( row ) ;
+
                 if( n instanceof SourceNode ) {
                     c.setFont( c.getFont().deriveFont( Font.BOLD ) ) ;
                 }
@@ -231,6 +254,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
         TableColumnModel columns = table.getColumnModel() ;
         columns.getColumn( COL_NAME ).setCellRenderer( new TreeCellRenderer() ) ;
         columns.getColumn( COL_ASSOC ).setCellRenderer( new AssocButtonRenderer() ) ;
+        columns.getColumn( COL_AGENT ).setCellRenderer( new AgentCellRenderer() ) ;
         sizeColumns() ;
 
         installMouseHandlers() ;
@@ -252,22 +276,33 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
 
         setJMenuBar( buildMenuBar() ) ;
 
-        setLayout( new BorderLayout() ) ;
-        add( new JScrollPane( table ), BorderLayout.CENTER ) ;
+        // Table and preview on the left, transcripts on the right, status
+        // bar across the bottom.
+        JPanel left = new JPanel( new BorderLayout() ) ;
+        left.add( new JScrollPane( table ), BorderLayout.CENTER ) ;
+        left.add( previewPanel, BorderLayout.SOUTH ) ;
+
+        JSplitPane split = new JSplitPane( JSplitPane.HORIZONTAL_SPLIT,
+                                           left, transcriptPanel ) ;
+        split.setResizeWeight( SPLIT_RATIO ) ;
+        split.setContinuousLayout( true ) ;
 
         statusBar.setBorder( BorderFactory.createEmptyBorder( 4, 8, 4, 8 ) ) ;
-        JPanel south = new JPanel( new BorderLayout() ) ;
-        south.add( previewPanel, BorderLayout.CENTER ) ;
-        south.add( statusBar, BorderLayout.SOUTH ) ;
-        add( south, BorderLayout.SOUTH ) ;
+        setLayout( new BorderLayout() ) ;
+        add( split, BorderLayout.CENTER ) ;
+        add( statusBar, BorderLayout.SOUTH ) ;
 
-        // Full usable screen height (excluding menu bar / dock), fixed width.
+        // Open maximised; the divider can only be placed once there is a size.
         Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment()
                                               .getMaximumWindowBounds() ;
-        setBounds( screen.x, screen.y,
-                   Math.min( INITIAL_WIDTH, screen.width ), screen.height ) ;
+        setBounds( screen ) ;
+        setExtendedState( MAXIMIZED_BOTH ) ;
         setDefaultCloseOperation( WindowConstants.DO_NOTHING_ON_CLOSE ) ;
         addWindowListener( new WindowAdapter() {
+            @Override public void windowOpened( WindowEvent e ) {
+                split.setDividerLocation( SPLIT_RATIO ) ;
+            }
+
             @Override public void windowClosing( WindowEvent e ) {
                 if( controller != null ) controller.shutdown() ;
                 dispose() ;
@@ -288,10 +323,12 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * share whatever width is left.
      */
     private void sizeColumns() {
+
         FontMetrics cell = table.getFontMetrics( table.getFont() ) ;
         Font        headFont = table.getTableHeader().getFont().deriveFont( Font.BOLD ) ;
         FontMetrics head     = table.getFontMetrics( headFont ) ;
         String statusWidest = "" ;
+
         for( TaskStatus st : TaskStatus.values() ) {
             if( st.name().length() > statusWidest.length() ) {
                 statusWidest = st.name() ;
@@ -307,12 +344,22 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
             int w = Math.max( head.stringWidth( samples[i][0] + "  ▲  *" ),
                               cell.stringWidth( samples[i][1] ) ) + COL_PAD ;
             TableColumn col = table.getColumnModel().getColumn( fixedCols[i] ) ;
+
             col.setMinWidth( w ) ;
             col.setMaxWidth( w ) ;
             col.setPreferredWidth( w ) ;
         }
+        int agentW = Math.max( head.stringWidth( "AI  ▲  *" ), AgentIcon.SIZE )
+                     + COL_PAD ;
+        TableColumn agent = table.getColumnModel().getColumn( COL_AGENT ) ;
+
+        agent.setMinWidth( agentW ) ;
+        agent.setMaxWidth( agentW ) ;
+        agent.setPreferredWidth( agentW ) ;
+
         int assocW = TopicIcon.SIZE + 10 ;
         TableColumn assoc = table.getColumnModel().getColumn( COL_ASSOC ) ;
+
         assoc.setMinWidth( assocW ) ;
         assoc.setMaxWidth( assocW ) ;
         assoc.setPreferredWidth( assocW ) ;
@@ -325,6 +372,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * Maintenance (repair) menus.
      */
     private JMenuBar buildMenuBar() {
+
         JMenu file = new JMenu( "File" ) ;
 
         // Enablement is driven entirely by processingStateChanged(); the
@@ -349,6 +397,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
 
         JMenu view = new JMenu( "View" ) ;
         JMenuItem expandAll = new JMenuItem( "Expand all sources" ) ;
+
         expandAll.addActionListener( a -> setAllSourcesExpanded( true ) ) ;
         view.add( expandAll ) ;
         JMenuItem collapseAll = new JMenuItem( "Collapse all sources" ) ;
@@ -375,6 +424,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * progress dialog, then show its report.
      */
     private void repairProcessedList() {
+
         if( controller == null || repairRunning ) return ;
         repairRunning = true ;
         updateRepairEnablement() ;
@@ -420,6 +470,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * Show the repair report text in a scrollable, monospaced message dialog.
      */
     private void showRepairReport( ProcessedListRepair.Report report ) {
+
         JTextArea text = new JTextArea( report.toText() ) ;
         text.setEditable( false ) ;
         text.setFont( new Font( Font.MONOSPACED, Font.PLAIN, 12 ) ) ;
@@ -449,6 +500,20 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     }
 
     @Override
+    public void taskAttempt( QTask task, AIAgent agent, String aiModel,
+                             int attempt ) {
+        SwingUtilities.invokeLater( () -> {
+            model.attempting( task, agent, aiModel, attempt ) ;
+            afterStatusChange() ;
+        } ) ;
+    }
+
+    @Override
+    public void taskTranscriptSaved( QTask task ) {
+        SwingUtilities.invokeLater( () -> transcriptPanel.refreshIf( task ) ) ;
+    }
+
+    @Override
     public void taskFinished( QTask task, TaskStatus status, int attempts,
                               String result ) {
         SwingUtilities.invokeLater( () -> {
@@ -467,9 +532,11 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
 
     @Override
     public void processingStateChanged( ProcessingState state ) {
+
         SwingUtilities.invokeLater( () -> {
             boolean wasActive = procState != ProcessingState.STOPPED ;
             boolean nowActive = state != ProcessingState.STOPPED ;
+
             if( nowActive && !wasActive ) {
                 processingStartedMs = System.currentTimeMillis() ;
             }
@@ -508,9 +575,11 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * still visible.
      */
     private void rebuildTree() {
+
         rebuildTimer.stop() ;
         Node selected = selectedNode() ;
         restoringSelection = true ;
+
         try {
             model.rebuild() ;
             if( selected != null && selected.viewIndex >= 0 ) {
@@ -547,6 +616,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * context menu.
      */
     private void installMouseHandlers() {
+
         table.addMouseListener( new MouseAdapter() {
             @Override public void mousePressed( MouseEvent e ) {
 
@@ -562,6 +632,10 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
 
                 if( !SwingUtilities.isLeftMouseButton( e ) ) return ;
                 Node n = nodeUnder( e ) ;
+                if( e.getClickCount() == 1 && onColumn( e, COL_RESULT ) ) {
+                    QuestionNode q = questionOf( n ) ;
+                    if( q != null ) transcriptPanel.show( q.task ) ;
+                }
                 if( onAssocButton( e ) ) {
                     if( e.getClickCount() == 1 && n instanceof QuestionNode q
                         && canAssociate( q ) ) {
@@ -582,9 +656,11 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * go to parent.
      */
     private void installKeyBindings() {
+
         InputMap  im = table.getInputMap(
                 JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT ) ;
         ActionMap am = table.getActionMap() ;
+
         table.getInputMap( JComponent.WHEN_IN_FOCUSED_WINDOW )
              .put( SHOW_IN_EXTRACTOR_KEY, "qc-show-in-extractor" ) ;
         am.put( "qc-show-in-extractor", new AbstractAction() {
@@ -638,6 +714,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * node.
      */
     private boolean onExpander( MouseEvent e, Node n ) {
+
         if( !n.isExpandable() ) return false ;
         int viewCol = table.columnAtPoint( e.getPoint() ) ;
         if( viewCol < 0 || table.convertColumnIndexToModel( viewCol ) != COL_NAME ) {
@@ -645,6 +722,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
         }
         int x = e.getX() - table.getCellRect( n.viewIndex, viewCol, false ).x ;
         int start = LEFT_PAD + n.depth() * INDENT ;
+
         return x >= start - 2 && x <= start + ExpanderIcon.SIZE + ICON_GAP ;
     }
 
@@ -652,6 +730,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * Show the row's context menu if {@code e} is the platform's popup trigger.
      */
     private void maybePopup( MouseEvent e ) {
+
         if( !e.isPopupTrigger() ) return ;
         int viewRow = table.rowAtPoint( e.getPoint() ) ;
         if( viewRow < 0 ) return ;
@@ -699,6 +778,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * open the image.
      */
     private void activate( Node n ) {
+
         if( n instanceof QuestionNode q && canAssociate( q ) ) {
             associateManually( q ) ;
         }
@@ -708,6 +788,20 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     }
 
     /** True if the event is in the association-button column. */
+    /** True if the event is in model column {@code modelCol}. */
+    private boolean onColumn( MouseEvent e, int modelCol ) {
+
+        int viewCol = table.columnAtPoint( e.getPoint() ) ;
+        return viewCol >= 0 && table.convertColumnIndexToModel( viewCol ) == modelCol ;
+    }
+
+    /** The question a row belongs to (a part's parent); null for a source. */
+    private static QuestionNode questionOf( Node n ) {
+        if( n instanceof QuestionNode q ) return q ;
+        if( n instanceof PartNode p )     return p.parent ;
+        return null ;
+    }
+
     private boolean onAssocButton( MouseEvent e ) {
         int viewCol = table.columnAtPoint( e.getPoint() ) ;
         return viewCol >= 0
@@ -732,6 +826,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * QUEUED one in turn.
      */
     private void associateManually( QuestionNode q ) {
+
         if( q.status == TaskStatus.QUEUED && !hold( q.task ) ) {
             JOptionPane.showMessageDialog( this,
                     q.task + " has already started classifying.",
@@ -756,6 +851,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
                         outcome == QuestionTopicAssociator.Outcome.ASSOCIATED ;
                 String summary =
                         WorkspaceTopicMap.summary( topic.getTopicName(), 100, true ) ;
+
                 if( associated ) summary += QuestionTopicAssociator.MATCHES_AI_MARK ;
                 model.manuallyAssociated( task, summary ) ;
                 afterStatusChange() ;
@@ -803,8 +899,10 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * skipped if it has already been dispatched.
      */
     private QuestionNode nextPendingAfter( QTask task ) {
+
         List<QuestionNode> qs = model.questionsInDiscoveryOrder() ;
         int from = qs.indexOf( model.questionFor( task ) ) ;
+
         for( int i = 1 ; i < qs.size() ; i++ ) {
             QuestionNode q = qs.get( ( from + i + qs.size() ) % qs.size() ) ;
             if( !canAssociate( q ) ) continue ;
@@ -848,6 +946,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * source clears it.
      */
     private void showPreview( Node node ) {
+
         List<File> files = node == null ? null : imageFilesOf( node ) ;
         if( Objects.equals( files, previewFiles ) ) return ;
 
@@ -895,11 +994,13 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * preserving aspect ratio.
      */
     private void rescalePreview() {
+
         if( previewImage == null ) return ;
 
         Insets in = previewPanel.getInsets() ;
         int availW = previewPanel.getWidth()  - in.left - in.right  - 8 ;
         int availH = previewPanel.getHeight() - in.top  - in.bottom - 8 ;
+
         if( availW <= 0 || availH <= 0 ) return ;
 
         int iw = previewImage.getWidth() ;
@@ -909,6 +1010,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
 
         int w = Math.max( 1, (int) Math.round( iw * scale ) ) ;
         int h = Math.max( 1, (int) Math.round( ih * scale ) ) ;
+
         previewLabel.setIcon( new ImageIcon(
                 previewImage.getScaledInstance( w, h, Image.SCALE_SMOOTH ) ) ) ;
         previewLabel.setText( null ) ;
@@ -920,6 +1022,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * reported in a dialog.
      */
     private void showInExtractor( Node n ) {
+
         List<File> files = imageFilesOf( n ) ;
         if( files == null ) return ;
         File img = files.get( 0 ) ;
@@ -937,6 +1040,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * first.
      */
     private void openImage( Node n ) {
+
         List<File> files = imageFilesOf( n ) ;
         if( files == null ) return ;
         try {
@@ -945,6 +1049,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
                 String id = q.task.getQuestionId()
                                   .replaceAll( "[^A-Za-z0-9_-]", "_" ) ;
                 target = File.createTempFile( "qclassifier-" + id + "-", ".png" ) ;
+
                 target.deleteOnExit() ;
                 ImageIO.write( ImageCollator.collate( files ), "png", target ) ;
             }
@@ -963,6 +1068,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * source.
      */
     private void refreshStatusBar() {
+
         Map<TaskStatus,Integer> c = model.statusCounts() ;
         long runMs   = processingStartedMs > 0
                      ? System.currentTimeMillis() - processingStartedMs : 0 ;
@@ -983,6 +1089,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
                 + sep + String.format( "Processing time %02d:%02d:%02d",
                                        elapsed / 3600, ( elapsed / 60 ) % 60,
                                        elapsed % 60 ) ;
+
         if( !batchProgress.isEmpty() ) text += sep + batchProgress ;
         statusBar.setText( text ) ;
     }
@@ -1014,6 +1121,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * shade.
      */
     private static Color sourceBackground( SourceNode s ) {
+
         return switch( s.aggregateStatus() ) {
             case RUNNING          -> RUNNING_BG ;
             case FAILED           -> FAILED_BG ;
@@ -1023,6 +1131,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     }
 
     private static Color colorFor( TaskStatus status ) {
+
         return switch( status ) {
             case QUEUED     -> Color.WHITE ;
             case REQUEUED   -> REQUEUED_BG ;
@@ -1041,7 +1150,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     private class AssocButtonRenderer implements TableCellRenderer {
         private final JLabel button =
                 new JLabel( new TopicIcon(), SwingConstants.CENTER ) ;
-        private final JLabel blank  = new JLabel() ;
+        private final JLabel blank = new JLabel() ;
 
         AssocButtonRenderer() {
             button.setOpaque( true ) ;
@@ -1066,6 +1175,35 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * Name column: indentation by depth plus an expand / collapse triangle for
      * expandable nodes.
      */
+    /**
+     * AI column: the icon of the backend that handled the question's latest
+     * attempt, with the backend and model as tooltip; blank otherwise.
+     */
+    private class AgentCellRenderer extends DefaultTableCellRenderer {
+
+        AgentCellRenderer() {
+            setHorizontalAlignment( SwingConstants.CENTER ) ;
+        }
+
+        @Override
+        public Component getTableCellRendererComponent( JTable t, Object value,
+                                                        boolean sel, boolean foc,
+                                                        int row, int col ) {
+
+            super.getTableCellRendererComponent( t, null, sel, foc, row, col ) ;
+            Node n = model.nodeAt( row ) ;
+            if( n instanceof QuestionNode q && q.agent != null ) {
+                setIcon( AgentIcon.of( q.agent ) ) ;
+                setToolTipText( q.agent.getLabel() + " · " + q.agentModel ) ;
+            }
+            else {
+                setIcon( null ) ;
+                setToolTipText( null ) ;
+            }
+            return this ;
+        }
+    }
+
     private class TreeCellRenderer extends DefaultTableCellRenderer {
         @Override
         public Component getTableCellRendererComponent( JTable t, Object value,

@@ -45,6 +45,7 @@ public final class TopicRepo {
             ObjectMapper mapper = new ObjectMapper().setPropertyNamingStrategy(
                     PropertyNamingStrategies.SNAKE_CASE ) ;
             List<Topic> topics = mapper.readValue( is, new TypeReference<>() {} ) ;
+
             for( Topic topic : topics ) {
                 topicById.put( topic.getId(), topic ) ;
                 topicsBySyllabus.computeIfAbsent( topic.getSyllabusName(),

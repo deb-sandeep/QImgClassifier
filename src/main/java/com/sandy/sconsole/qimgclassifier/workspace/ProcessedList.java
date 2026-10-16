@@ -87,6 +87,7 @@ public final class ProcessedList {
         synchronized( lock ) {
             Path tmp = new File( file.getAbsolutePath() + ".tmp" ).toPath() ;
             StringBuilder sb = new StringBuilder() ;
+
             for( String n : srcNames ) {
                 sb.append( n ).append( System.lineSeparator() ) ;
             }

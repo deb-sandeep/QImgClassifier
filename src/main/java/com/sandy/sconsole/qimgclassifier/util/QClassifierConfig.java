@@ -2,158 +2,261 @@ package com.sandy.sconsole.qimgclassifier.util;
 
 import lombok.AccessLevel;
 import lombok.Getter;
+import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
-import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Properties;
 
 /**
- * Application settings, read from {@code ~/.qclassifier.properties} when it
- * exists. Every key is optional; a JVM system property of the same name
- * (e.g. {@code -Dopenrouter.model=...}) overrides the file.
- *
- * <pre>
- * question.bank.dir       = /Users/sandeep/Documents/StudyNotes/question-bank
- * question.filter         =     # debug: one question id / subject letter
- *
- * gemma.enabled           = true
- * gemma.server.url        = http://192.168.0.149:11434/api/generate
- * gemma.model             = gemma4:latest
- * gemma.max.parallel      = 5
- *
- * openrouter.enabled      = true     # default: true if the API key file exists
- * openrouter.model        = google/gemini-2.5-flash
- * openrouter.max.parallel = 5
- * openrouter.api.key.file = ~/.open-router.api.key
- * </pre>
+ * Application settings, read from the {@code /qimgclassifier.properties}
+ * classpath resource (see that file for what each key means). A JVM system
+ * property of the same name, e.g. {@code -Dopenrouter.model=...}, overrides
+ * the file.
+ * <p>
+ * Every key must be present ({@code question.filter} may be blank); a missing
+ * or malformed value fails {@link #load()} with an
+ * {@link IllegalStateException} naming the key. Paths may start with
+ * {@code ~/} for the user's home directory.
  */
 @Slf4j
 @Getter
 public final class QClassifierConfig {
 
-    public static final File CONFIG_FILE = userFile( ".qclassifier.properties" ) ;
-
-    /**
-     * Names of the sources whose every question has been classified, one per
-     * line.
-     */
-    public static final File PROCESSED_LIST_FILE =
-            userFile( ".qclassifier.processed.list" ) ;
-
-    private static final String DEFAULT_Q_BANK_DIR  =
-            "/Users/sandeep/Documents/StudyNotes/question-bank" ;
-    private static final String DEFAULT_GEMMA_URL   =
-            "http://192.168.0.149:11434/api/generate" ;
-    private static final String DEFAULT_GEMMA_MODEL = "gemma4:latest" ;
-    private static final String DEFAULT_OR_MODEL    = "google/gemini-2.5-flash" ;
-    private static final String DEFAULT_OR_KEY_FILE = "~/.open-router.api.key" ;
-    private static final int    DEFAULT_PARALLEL    = 5 ;
+    /** Classpath location of the configuration file. */
+    public static final String RESOURCE = "/qimgclassifier.properties" ;
 
     /** Root folder searched (recursively) for the source folders. */
-    private final File    qBankDir ;
+    private final File qBankDir ;
 
     /**
      * Debug filter on question ids: blank for all questions, a single letter
      * for one subject (e.g. "C"), otherwise an exact base or part id.
      */
-    private final String  questionFilter ;
+    private final String questionFilter ;
 
-    private final boolean gemmaEnabled ;
-    private final String  gemmaServerUrl ;
-    private final String  gemmaModel ;
-    private final int     gemmaMaxParallel ;
+    /** Names of the sources whose every question has been classified. */
+    private final File processedListFile ;
 
-    private final boolean openRouterEnabled ;
-    private final String  openRouterModel ;
-    private final int     openRouterMaxParallel ;
+    /**
+     * Root of the per-source, per-question AI request / response transcripts.
+     */
+    private final File workspaceDir ;
+
+    /**
+     * Settings of one AI invocation target ({@code gemma.*},
+     * {@code openrouter.*}).
+     */
+    @Value
+    public static class Target {
+
+        boolean enabled ;
+
+        /**
+         * Primary model, used for a question's first attempt on this target.
+         */
+        String model ;
+
+        /** Models tried, in order, on retries on this target; may be empty. */
+        List<String> backupModels ;
+
+        /** Requests that may be in flight at once. */
+        int maxParallel ;
+
+        /**
+         * Retries a question may get on this target after a failed attempt on
+         * it.
+         */
+        int maxRetries ;
+
+        Duration connectTimeout ;
+
+        /** Limit on a whole request, from sending it to the full reply. */
+        Duration requestTimeout ;
+
+        /** Requests per minute; 0 for no limit. */
+        int rateLimitRpm ;
+
+        /** Requests per rolling 24 hours; 0 for no limit. */
+        int rateLimitRpd ;
+
+        /**
+         * Pause after the backend reports a rate limit without saying how long.
+         */
+        Duration rateLimitCooldown ;
+    }
+
+    private final Target gemma ;
+
+    /** Full URL of Ollama's generate endpoint. */
+    private final String gemmaServerUrl ;
+
+    private final Target openRouter ;
 
     /** Null when the key file is missing or empty. */
-    private final String  openRouterApiKey ;
+    private final String openRouterApiKey ;
+
+    /** Mark the prompt cacheable on OpenRouter models that support caching. */
+    private final boolean openRouterPromptCaching ;
+
+    /** Base URL of QImgExtractor's remote command API. */
+    private final String qImgExtractorApiUrl ;
 
     @Getter( AccessLevel.NONE )
-    private final Properties props = new Properties() ;
+    private final Properties props ;
 
-    private QClassifierConfig() {
+    private QClassifierConfig( Properties props ) {
 
-        if( CONFIG_FILE.isFile() ) {
-            try( Reader r = new FileReader( CONFIG_FILE, StandardCharsets.UTF_8 ) ) {
+        this.props = props ;
+
+        qBankDir          = path( "question.bank.dir" ) ;
+        questionFilter    = value( "question.filter", true ) ;
+        processedListFile = path( "processed.list.file" ) ;
+        workspaceDir      = path( "workspace.dir" ) ;
+
+        gemma          = target( "gemma" ) ;
+        gemmaServerUrl = str( "gemma.server.url" ) ;
+
+        openRouter       = target( "openrouter" ) ;
+        openRouterApiKey = readKey( path( "openrouter.api.key.file" ) ) ;
+        openRouterPromptCaching = bool( "openrouter.prompt.caching" ) ;
+
+        qImgExtractorApiUrl = str( "qimgextractor.api.url" ) ;
+    }
+
+    /**
+     * Read the settings from {@link #RESOURCE} and system properties.
+     *
+     * @throws IllegalStateException if the resource is missing or unreadable,
+     *         or a key is missing or malformed
+     */
+    public static QClassifierConfig load() {
+
+        Properties props = new Properties() ;
+        try( InputStream is =
+                     QClassifierConfig.class.getResourceAsStream( RESOURCE ) ) {
+            if( is == null ) {
+                throw new IllegalStateException(
+                        RESOURCE + " not found on the classpath" ) ;
+            }
+            try( Reader r = new InputStreamReader( is, StandardCharsets.UTF_8 ) ) {
                 props.load( r ) ;
             }
-            catch( Exception e ) {
-                log.error( "Error reading {} - using defaults", CONFIG_FILE, e ) ;
-            }
         }
-
-        qBankDir       = expandHome( str( "question.bank.dir",
-                                          DEFAULT_Q_BANK_DIR ) ) ;
-        questionFilter = str( "question.filter", "" ) ;
-
-        gemmaEnabled     = bool( "gemma.enabled", true ) ;
-        gemmaServerUrl   = str( "gemma.server.url", DEFAULT_GEMMA_URL ) ;
-        gemmaModel       = str( "gemma.model", DEFAULT_GEMMA_MODEL ) ;
-        gemmaMaxParallel = num( "gemma.max.parallel", DEFAULT_PARALLEL ) ;
-
-        openRouterApiKey      = readKey( expandHome(
-                                    str( "openrouter.api.key.file",
-                                         DEFAULT_OR_KEY_FILE ) ) ) ;
-        openRouterEnabled     = bool( "openrouter.enabled",
-                                      openRouterApiKey != null ) ;
-        openRouterModel       = str( "openrouter.model", DEFAULT_OR_MODEL ) ;
-        openRouterMaxParallel = num( "openrouter.max.parallel", DEFAULT_PARALLEL ) ;
+        catch( IOException e ) {
+            throw new IllegalStateException( "Could not read " + RESOURCE, e ) ;
+        }
+        return new QClassifierConfig( props ) ;
     }
 
-    /** Read the settings afresh from the config file and system properties. */
-    public static QClassifierConfig load() {
-        return new QClassifierConfig() ;
+    // ---- typed accessors ---------------------------------------------
+
+    /**
+     * The common settings of the target whose keys start with {@code prefix.}.
+     */
+    private Target target( String prefix ) {
+
+        return new Target( bool( prefix + ".enabled" ),
+                           str( prefix + ".model" ),
+                           list( prefix + ".backup.models" ),
+                           positiveInt( prefix + ".max.parallel" ),
+                           wholeNumber( prefix + ".max.retries", 0 ),
+                           seconds( prefix + ".connect.timeout.seconds" ),
+                           seconds( prefix + ".request.timeout.seconds" ),
+                           wholeNumber( prefix + ".rate.limit.rpm", 0 ),
+                           wholeNumber( prefix + ".rate.limit.rpd", 0 ),
+                           seconds( prefix + ".rate.limit.cooldown.seconds" ) ) ;
     }
 
     /**
-     * Trimmed value of {@code key}, or {@code def} when it is unset or blank.
+     * Trimmed value of {@code key}; a system property wins over the file.
+     *
+     * @param blankAllowed whether an empty value is acceptable
      */
-    private String str( String key, String def ) {
+    private String value( String key, boolean blankAllowed ) {
+
         String v = System.getProperty( key, props.getProperty( key ) ) ;
-        return v == null || v.isBlank() ? def : v.trim() ;
+        if( v == null ) throw invalid( key, "is missing" ) ;
+        v = v.trim() ;
+        if( v.isEmpty() && !blankAllowed ) throw invalid( key, "is blank" ) ;
+        return v ;
     }
 
-    private boolean bool( String key, boolean def ) {
-        String v = str( key, null ) ;
-        return v == null ? def : Boolean.parseBoolean( v ) ;
+    private String str( String key ) {
+        return value( key, false ) ;
     }
 
-    /**
-     * A positive whole number; {@code def} when unset or malformed, at least 1
-     * otherwise.
-     */
-    private int num( String key, int def ) {
+    /** {@code true} or {@code false}, case-insensitive. */
+    private boolean bool( String key ) {
 
-        String v = str( key, null ) ;
-        if( v == null ) return def ;
+        String v = str( key ) ;
+        if( v.equalsIgnoreCase( "true" ) )  return true ;
+        if( v.equalsIgnoreCase( "false" ) ) return false ;
+        throw invalid( key, "must be true or false, not '" + v + "'" ) ;
+    }
+
+    /** A whole number of at least 1. */
+    private int positiveInt( String key ) {
+        return wholeNumber( key, 1 ) ;
+    }
+
+    /** A whole number of at least {@code min}. */
+    private int wholeNumber( String key, int min ) {
+
+        String v = str( key ) ;
         try {
-            return Math.max( 1, Integer.parseInt( v ) ) ;
+            int n = Integer.parseInt( v ) ;
+            if( n >= min ) return n ;
         }
         catch( NumberFormatException e ) {
-            log.error( "{} '{}' is not a whole number - using {}", key, v, def ) ;
-            return def ;
+            // reported below
         }
+        throw invalid( key, "must be a whole number of at least " + min +
+                            ", not '" + v + "'" ) ;
     }
 
-    private static File expandHome( String path ) {
-        if( path.startsWith( "~/" ) ) return userFile( path.substring( 2 ) ) ;
-        return new File( path ) ;
+    /** Comma-separated values, trimmed, blanks dropped; may be empty. */
+    private List<String> list( String key ) {
+
+        return Arrays.stream( value( key, true ).split( "," ) )
+                     .map( String::trim )
+                     .filter( s -> !s.isEmpty() )
+                     .toList() ;
     }
 
-    /** {@code name} inside the user's home directory. */
-    private static File userFile( String name ) {
-        return new File( System.getProperty( "user.home" ), name ) ;
+    /** A positive whole number of seconds. */
+    private Duration seconds( String key ) {
+        return Duration.ofSeconds( positiveInt( key ) ) ;
+    }
+
+    /**
+     * A file path, with a leading {@code ~/} expanded to the home directory.
+     */
+    private File path( String key ) {
+
+        String v = str( key ) ;
+        if( v.startsWith( "~/" ) ) {
+            return new File( System.getProperty( "user.home" ), v.substring( 2 ) ) ;
+        }
+        return new File( v ) ;
+    }
+
+    private static IllegalStateException invalid( String key, String problem ) {
+        return new IllegalStateException( RESOURCE + ": " + key + " " + problem ) ;
     }
 
     /**
      * The key file's trimmed contents, or null if it is missing, empty or
-     * unreadable.
+     * unreadable (logged).
      */
     private static String readKey( File keyFile ) {
 
@@ -163,7 +266,7 @@ public final class QClassifierConfig {
                                            StandardCharsets.UTF_8 ).trim() ;
             return key.isEmpty() ? null : key ;
         }
-        catch( Exception e ) {
+        catch( IOException e ) {
             log.error( "Error reading OpenRouter API key from {}", keyFile, e ) ;
             return null ;
         }

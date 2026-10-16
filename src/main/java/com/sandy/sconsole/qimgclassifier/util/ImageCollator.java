@@ -32,6 +32,7 @@ public final class ImageCollator {
 
         List<BufferedImage> parts = new ArrayList<>() ;
         int width = 0, height = 0 ;
+
         for( File f : imgFiles ) {
             BufferedImage img = ImageIO.read( f ) ;
             if( img == null ) throw new IOException( "Unreadable image " + f ) ;
@@ -44,6 +45,7 @@ public final class ImageCollator {
         BufferedImage out = new BufferedImage( width, height,
                                                BufferedImage.TYPE_INT_RGB ) ;
         Graphics2D g = out.createGraphics() ;
+
         try {
             g.setColor( Color.WHITE ) ;
             g.fillRect( 0, 0, width, height ) ;

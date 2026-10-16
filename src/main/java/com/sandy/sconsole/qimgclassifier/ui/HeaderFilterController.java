@@ -43,7 +43,7 @@ class HeaderFilterController {
     private final QTaskTreeTableModel model ;
 
     /** Invoked after the filter or sort changed, to rebuild the view. */
-    private final Runnable            onChange ;
+    private final Runnable onChange ;
 
     /** model column -> "contains" text. */
     private final Map<Integer,String> textFilters = new LinkedHashMap<>() ;
@@ -91,6 +91,7 @@ class HeaderFilterController {
                 int modelCol = t.convertColumnIndexToModel( viewCol ) ;
                 boolean filtered = hasFilter( modelCol ) ;
                 String text = String.valueOf( value ) ;
+
                 if( model.getSortColumn() == modelCol ) {
                     text += model.isSortAscending() ? "  ▲" : "  ▼" ;
                 }
@@ -146,6 +147,7 @@ class HeaderFilterController {
         if( !e.isPopupTrigger() ) return ;
         JTableHeader header = table.getTableHeader() ;
         int viewCol = header.columnAtPoint( e.getPoint() ) ;
+
         if( viewCol < 0 ) return ;
         int modelCol = table.convertColumnIndexToModel( viewCol ) ;
         if( modelCol == COL_ASSOC ) return ;   // button column

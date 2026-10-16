@@ -99,6 +99,7 @@ public final class QuestionTopicAssociator {
 
         File file = infoFile( srcDir ) ;
         Map<String,Integer> ids = new HashMap<>() ;
+
         if( !file.exists() ) return ids ;
         synchronized( JsonFiles.lockFor( file ) ) {
             try {
@@ -184,10 +185,12 @@ public final class QuestionTopicAssociator {
 
         File file = infoFile( srcDir ) ;
         String qid = toQid( questionId ) ;
+
         synchronized( JsonFiles.lockFor( file ) ) {
             try {
                 ObjectNode root = JsonFiles.readObject( file ) ;
                 ObjectNode question = null ;
+
                 for( JsonNode q : root.path( "questions" ) ) {
                     if( qid.equals( q.path( "qid" ).asText() )
                         && q instanceof ObjectNode obj ) {
@@ -231,6 +234,7 @@ public final class QuestionTopicAssociator {
 
         StoredMapping top = sorted.get( 0 ) ;
         Topic topic = TopicRepo.instance().getTopicById( top.topicId() ) ;
+
         if( topic == null ) return null ;
 
         int topConfidence = top.confidenceLevel() ;

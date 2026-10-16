@@ -90,8 +90,8 @@ public final class FileHelper {
      * question split into part images ({@code X(1)}, {@code X(2)}, ...) maps to
      * its parts in ascending part order.
      *
-     * @param questionFilter debug filter (see
-     *         {@code QClassifierConfig.questionFilter}); blank for all
+     * @param questionFilter debug filter (the
+     *         {@code question.filter} setting); blank for all
      *         questions
      * @return the groups, or null if the source has no {@code question-images}
      *         directory
@@ -110,6 +110,7 @@ public final class FileHelper {
         for( File f : allFiles ) {
             String questionId = extractQuestionId( f ) ;
             String baseId = baseQuestionId( questionId ) ;
+
             if( !matchesFilter( questionFilter, questionId, baseId ) ) continue ;
             groups.computeIfAbsent( baseId, k -> new ArrayList<>() ).add( f ) ;
         }
@@ -137,6 +138,7 @@ public final class FileHelper {
     public static String extractQuestionId( File f ) {
         String nameWithoutExt = f.getName().replaceAll( "\\.[^.]+$", "" ) ;
         String[] parts = nameWithoutExt.split( "\\." ) ;
+
         return parts[ parts.length - 1 ] ;
     }
 
@@ -195,6 +197,7 @@ public final class FileHelper {
                 while( j < b.length() && Character.isDigit( b.charAt( j ) ) ) j++ ;
                 String na = a.substring( si, i ).replaceFirst( "^0+(?=\\d)", "" ) ;
                 String nb = b.substring( sj, j ).replaceFirst( "^0+(?=\\d)", "" ) ;
+
                 if( na.length() != nb.length() ) return na.length() - nb.length() ;
                 int cmp = na.compareTo( nb ) ;
                 if( cmp != 0 ) return cmp ;

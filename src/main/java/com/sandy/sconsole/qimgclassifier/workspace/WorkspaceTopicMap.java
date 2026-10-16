@@ -101,6 +101,7 @@ public final class WorkspaceTopicMap {
         List<StoredMapping> mappings = new ArrayList<>() ;
         JsonNode stored = readOrEmpty( srcDir ).path( questionId )
                                                .path( "topicMappings" ) ;
+
         for( JsonNode m : stored ) {
             mappings.add( new StoredMapping( m.path( "topicId" ).asInt(),
                                              m.path( "confidenceLevel" ).asInt() ) ) ;
@@ -135,6 +136,7 @@ public final class WorkspaceTopicMap {
 
         TopicRepo topicRepo = TopicRepo.instance() ;
         ArrayNode topicMappings = MAPPER.createArrayNode() ;
+
         for( Topic t : matchedTopics ) {
             Topic master = topicRepo.getTopicById( t.getId() ) ;
             if( master == null ) {

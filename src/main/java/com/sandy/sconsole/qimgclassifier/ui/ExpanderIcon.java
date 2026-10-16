@@ -41,6 +41,7 @@ final class ExpanderIcon implements Icon {
                                    new int[]{ y + 3, y + 3, y + s - 3 }, 3 )
                     : new Polygon( new int[]{ x + 3, x + s - 3, x + 3 },
                                    new int[]{ y + 2, y + s / 2, y + s - 2 }, 3 ) ;
+
             g2.fillPolygon( p ) ;
         }
         finally {

@@ -1,5 +1,6 @@
 package com.sandy.sconsole.qimgclassifier.ui;
 
+import com.sandy.sconsole.qimgclassifier.model.AIAgent;
 import com.sandy.sconsole.qimgclassifier.model.QTask;
 import com.sandy.sconsole.qimgclassifier.model.TaskStatus;
 import com.sandy.sconsole.qimgclassifier.util.FileHelper;
@@ -38,14 +39,16 @@ public class QTaskTreeTableModel extends AbstractTableModel {
     static final int COL_NAME     = 0 ;
     static final int COL_SUBJ     = 1 ;
     static final int COL_STATUS   = 2 ;
-    static final int COL_ATTEMPTS = 3 ;
-    static final int COL_TIME     = 4 ;
-    static final int COL_RESULT   = 5 ;
+    static final int COL_AGENT    = 3 ;
+    static final int COL_ATTEMPTS = 4 ;
+    static final int COL_TIME     = 5 ;
+    static final int COL_RESULT   = 6 ;
+
     /** Holds the manual topic association button; no value of its own. */
-    static final int COL_ASSOC    = 6 ;
+    static final int COL_ASSOC = 7 ;
 
     private static final String[] COLS =
-            { "Source / Question", "Subj", "Status", "Attempts", "Time",
+            { "Source / Question", "Subj", "Status", "AI", "Attempts", "Time",
               "Result", "" } ;
 
     // ---- nodes -------------------------------------------------------
@@ -105,6 +108,7 @@ public class QTaskTreeTableModel extends AbstractTableModel {
             TaskStatus[] byActivity = { TaskStatus.RUNNING, TaskStatus.REQUEUED,
                                         TaskStatus.QUEUED, TaskStatus.FAILED,
                                         TaskStatus.DONE } ;
+
             for( TaskStatus s : byActivity ) {
                 if( c.get( s ) > 0 ) return s ;
             }
@@ -120,6 +124,7 @@ public class QTaskTreeTableModel extends AbstractTableModel {
             Map<TaskStatus,Integer> c = counts() ;
             StringBuilder sb = new StringBuilder()
                     .append( children.size() ).append( " questions" ) ;
+
             c.forEach( ( s, n ) -> {
                 if( n > 0 ) sb.append( "  ·  " ).append( s ).append( ' ' ).append( n ) ;
             } ) ;
@@ -138,11 +143,18 @@ public class QTaskTreeTableModel extends AbstractTableModel {
         long       finishedAtMs ;
         String     result = "" ;
 
+        /** Backend of the latest attempt in this session; null if none. */
+        AIAgent agent ;
+
+        /** Model of the latest attempt; null if none. */
+        String agentModel ;
+
         QuestionNode( SourceNode parent, QTask task, TaskStatus status ) {
 
             this.parent = parent ;
             this.task   = task ;
             this.status = status ;
+
             if( task.isMultiPart() ) {
                 for( File f : task.getImgFiles() ) {
                     parts.add( new PartNode( this, f ) ) ;
@@ -185,16 +197,16 @@ public class QTaskTreeTableModel extends AbstractTableModel {
 
     // ---- state -------------------------------------------------------
 
-    private final List<SourceNode>        sources      = new ArrayList<>() ;
-    private final Map<String,SourceNode>  sourceByDir  = new HashMap<>() ;
-    private final Map<QTask,QuestionNode> byTask       = new HashMap<>() ;
-    private final List<Node>              visible      = new ArrayList<>() ;
+    private final List<SourceNode>        sources     = new ArrayList<>() ;
+    private final Map<String,SourceNode>  sourceByDir = new HashMap<>() ;
+    private final Map<QTask,QuestionNode> byTask      = new HashMap<>() ;
+    private final List<Node>              visible     = new ArrayList<>() ;
 
     /** Questions passing the filter at the last {@link #rebuild()}. */
     @Getter( AccessLevel.PACKAGE )
-    private int                           matchingQuestionCount ;
+    private int matchingQuestionCount ;
 
-    private Predicate<QuestionNode> filter ;     // null = everything passes
+    private Predicate<QuestionNode> filter ; // null = everything passes
 
     /** Model column the questions are sorted by; -1 for discovery order. */
     @Getter( AccessLevel.PACKAGE )
@@ -213,6 +225,7 @@ public class QTaskTreeTableModel extends AbstractTableModel {
      *         ASSOCIATED), or null (row starts QUEUED)
      */
     public void discovered( QTask task, String storedResult ) {
+
         if( byTask.containsKey( task ) ) return ;
         String     dirKey = task.getSrcDir().getAbsolutePath() ;
         SourceNode src    = sourceByDir.computeIfAbsent( dirKey, k -> {
@@ -232,6 +245,7 @@ public class QTaskTreeTableModel extends AbstractTableModel {
      * worker picks it up.
      */
     public void requeued( QTask task ) {
+
         QuestionNode q = byTask.get( task ) ;
         if( q == null ) return ;
         q.status       = TaskStatus.REQUEUED ;
@@ -239,6 +253,8 @@ public class QTaskTreeTableModel extends AbstractTableModel {
         q.startedAtMs  = 0 ;
         q.finishedAtMs = 0 ;
         q.result       = "" ;
+
+        clearAgent( q ) ;
         fireQuestionUpdated( q ) ;
     }
 
@@ -246,25 +262,46 @@ public class QTaskTreeTableModel extends AbstractTableModel {
      * A worker picked the task up: RUNNING, timer started, its source expanded.
      */
     public void started( QTask task ) {
+
         QuestionNode q = byTask.get( task ) ;
         if( q == null ) return ;
         q.status       = TaskStatus.RUNNING ;
         q.startedAtMs  = System.currentTimeMillis() ;
         q.finishedAtMs = 0 ;
         q.result       = "" ;
+
+        clearAgent( q ) ;
         setExpanded( q.parent, true ) ;   // show the source being processed
+        fireQuestionUpdated( q ) ;
+    }
+
+    /**
+     * An attempt of the running task went to {@code agent}; the AI and
+     * Attempts columns follow it, including a retry on the other backend.
+     */
+    public void attempting( QTask task, AIAgent agent, String model,
+                            int attempt ) {
+
+        QuestionNode q = byTask.get( task ) ;
+        if( q == null ) return ;
+        q.agent      = agent ;
+        q.agentModel = model ;
+        q.attempts   = attempt ;
+
         fireQuestionUpdated( q ) ;
     }
 
     /** The task finished; its source collapses once nothing in it is active. */
     public void finished( QTask task, TaskStatus status, int attempts,
                           String result ) {
+
         QuestionNode q = byTask.get( task ) ;
         if( q == null ) return ;
         q.status       = status ;
         q.attempts     = attempts ;
         q.finishedAtMs = System.currentTimeMillis() ;
         q.result       = result != null ? result : "" ;
+
         if( q.parent.isFullyProcessed() ) setExpanded( q.parent, false ) ;
         fireQuestionUpdated( q ) ;
     }
@@ -274,6 +311,7 @@ public class QTaskTreeTableModel extends AbstractTableModel {
      * {@code result}.
      */
     public void manuallyAssociated( QTask task, String result ) {
+
         QuestionNode q = byTask.get( task ) ;
         if( q == null ) return ;
         q.status       = TaskStatus.ASSOCIATED ;
@@ -281,8 +319,15 @@ public class QTaskTreeTableModel extends AbstractTableModel {
         q.startedAtMs  = 0 ;
         q.finishedAtMs = 0 ;
         q.result       = result ;
+
+        clearAgent( q ) ;
         if( q.parent.isFullyProcessed() ) setExpanded( q.parent, false ) ;
         fireQuestionUpdated( q ) ;
+    }
+
+    private static void clearAgent( QuestionNode q ) {
+        q.agent      = null ;
+        q.agentModel = null ;
     }
 
     /** Repaint the elapsed-time cell of visible questions still running. */
@@ -342,9 +387,11 @@ public class QTaskTreeTableModel extends AbstractTableModel {
      * events so the table keeps its selection.
      */
     void setExpanded( Node n, boolean expanded ) {
+
         if( !n.isExpandable() || n.expanded == expanded ) return ;
         n.expanded = expanded ;
         int idx = n.viewIndex ;
+
         if( idx < 0 ) return ;
 
         if( expanded ) {
@@ -375,6 +422,7 @@ public class QTaskTreeTableModel extends AbstractTableModel {
      * expansion.
      */
     void rebuild() {
+
         visible.forEach( n -> n.viewIndex = -1 ) ;
         visible.clear() ;
         matchingQuestionCount = 0 ;
@@ -397,6 +445,7 @@ public class QTaskTreeTableModel extends AbstractTableModel {
 
     /** Append the visible descendants of an expanded node. */
     private void appendChildren( Node n, List<Node> out ) {
+
         if( n instanceof SourceNode s ) {
             appendQuestions( matchingChildren( s ), out ) ;
         }
@@ -414,6 +463,7 @@ public class QTaskTreeTableModel extends AbstractTableModel {
 
     /** The source's questions passing the filter, in the current sort order. */
     private List<QuestionNode> matchingChildren( SourceNode s ) {
+
         List<QuestionNode> qs = new ArrayList<>() ;
         for( QuestionNode q : s.children ) {
             if( filter == null || filter.test( q ) ) qs.add( q ) ;
@@ -433,6 +483,7 @@ public class QTaskTreeTableModel extends AbstractTableModel {
      * by name or status).
      */
     private <T extends Node> Comparator<T> comparator() {
+
         Comparator<T> c = switch( sortColumn ) {
             case COL_NAME     -> QTaskTreeTableModel::compareNames ;
             case COL_STATUS   -> Comparator.comparing(
@@ -507,6 +558,7 @@ public class QTaskTreeTableModel extends AbstractTableModel {
 
     /** Cell value of a node; also the basis for sorting and value filters. */
     Object valueAt( Node n, int c ) {
+
         if( n instanceof SourceNode s ) {
             return switch( c ) {
                 case COL_NAME   -> s.name ;
@@ -523,6 +575,7 @@ public class QTaskTreeTableModel extends AbstractTableModel {
             case COL_NAME     -> q.task.getQuestionId() ;
             case COL_SUBJ     -> q.task.getSubject().getCode() ;
             case COL_STATUS   -> q.status ;
+            case COL_AGENT    -> q.agent != null ? q.agent.getLabel() : "" ;
             case COL_ATTEMPTS -> q.attempts > 0 ? String.valueOf( q.attempts ) : "" ;
             case COL_TIME     -> formatElapsed( q.elapsedSeconds() ) ;
             case COL_RESULT   -> q.result ;
