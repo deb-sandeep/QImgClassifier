@@ -280,15 +280,26 @@ public class AIInvoker {
      * suspended, or every one of its models is paused.
      */
     public synchronized long availableAt( AIProcessor processor ) {
+        return availableAt( processors.indexOf( processor ),
+                            System.currentTimeMillis() ) ;
+    }
 
-        int  p   = processors.indexOf( processor ) ;
-        long now = System.currentTimeMillis() ;
-        long modelFreeAt = Long.MAX_VALUE ;
+    /** Under {@code this}: {@link #availableAt(AIProcessor)} as of now. */
+    private long availableAt( int p, long now ) {
+        return Math.max( limiters[p].availableAt( now ), modelsFreeAt( p ) ) ;
+    }
 
-        for( String model : processor.getModels() ) {
-            modelFreeAt = Math.min( modelFreeAt, pausedUntil( p, model ) ) ;
+    /**
+     * Under {@code this}: epoch ms from which some model of processor
+     * {@code p} is not paused; 0 or earlier if one is not paused now.
+     */
+    private long modelsFreeAt( int p ) {
+
+        long freeAt = Long.MAX_VALUE ;
+        for( String model : processors.get( p ).getModels() ) {
+            freeAt = Math.min( freeAt, pausedUntil( p, model ) ) ;
         }
-        return Math.max( limiters[p].availableAt( now ), modelFreeAt ) ;
+        return freeAt ;
     }
 
     /**
@@ -319,8 +330,11 @@ public class AIInvoker {
     }
 
     /**
-     * The processors, and models of otherwise free processors, that may not
-     * be sent requests right now, with why and until when.
+     * The processors, and models of otherwise free processors, held back by
+     * a rate limit right now, with why and until when: a limit the backend
+     * reported (or the backend being unreachable), the daily limit, or every
+     * model being paused. The per-minute window is not reported; it only
+     * paces requests.
      */
     public synchronized List<RateLimitNotice> rateLimitNotices() {
 
@@ -328,16 +342,18 @@ public class AIInvoker {
         List<RateLimitNotice> notices = new ArrayList<>() ;
 
         for( int p = 0 ; p < processors.size() ; p++ ) {
-            AIProcessor processor = processors.get( p ) ;
-            AIAgent     agent     = processor.getAgent() ;
-            long        until     = availableAt( processor ) ;
+            AIAgent     agent   = processors.get( p ).getAgent() ;
+            RateLimiter limiter = limiters[p] ;
 
-            if( until > now ) {
-                String reason = limiters[p].isSuspended( now )
-                              ? suspendReasons[p]
-                              : limiters[p].windowReason( now ) ;
-                if( reason == null ) reason = "every model is rate limited" ;
-                notices.add( new RateLimitNotice( agent, null, reason, until ) ) ;
+            String reason = limiter.isSuspended( now )
+                          ? suspendReasons[p]
+                          : limiter.dailyLimitReason( now ) ;
+            if( reason == null && modelsFreeAt( p ) > now ) {
+                reason = "every model is rate limited" ;
+            }
+            if( reason != null ) {
+                notices.add( new RateLimitNotice( agent, null, reason,
+                                                  availableAt( p, now ) ) ) ;
                 continue ;
             }
             modelPauses.get( p ).forEach( ( model, pause ) -> {

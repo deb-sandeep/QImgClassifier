@@ -71,17 +71,15 @@ final class RateLimiter {
     boolean isSuspended( long now ) { return suspendedUntil > now ; }
 
     /**
-     * Which window holds requests back at {@code now}: the daily or the
-     * per-minute limit, as a readable reason; null if neither is full.
+     * Why the daily limit holds requests back at {@code now}, as a readable
+     * reason; null if it does not. The per-minute window is left out: it is
+     * routine pacing, full for a moment before each request at the cap.
      */
-    String windowReason( long now ) {
+    String dailyLimitReason( long now ) {
 
         prune( now ) ;
         if( rpd > 0 && countSince( utcDayStart( now ) - 1 ) >= rpd ) {
             return "daily limit of " + rpd + " requests reached" ;
-        }
-        if( rpm > 0 && countSince( now - MINUTE_MS ) >= rpm ) {
-            return "limit of " + rpm + " requests per minute reached" ;
         }
         return null ;
     }
