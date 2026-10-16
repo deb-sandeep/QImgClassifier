@@ -7,6 +7,7 @@ import com.sandy.sconsole.qimgclassifier.classifier.QuestionClassifier;
 import com.sandy.sconsole.qimgclassifier.classifier.TaskScheduler;
 import com.sandy.sconsole.qimgclassifier.model.ProcessingState;
 import com.sandy.sconsole.qimgclassifier.model.QTask;
+import com.sandy.sconsole.qimgclassifier.model.RateLimitNotice;
 import com.sandy.sconsole.qimgclassifier.model.Topic;
 import com.sandy.sconsole.qimgclassifier.ui.QClassifierFrame;
 import com.sandy.sconsole.qimgclassifier.util.FileHelper;
@@ -57,6 +58,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     private static final String SOURCES_RESOURCE = "/qclassifier.sources.txt" ;
 
     private final QClassifierConfig  config ;
+    private final AIInvoker          aiInvoker ;
     private final ProcessedList      processedList ;
     private final QuestionClassifier classifier ;
     private final TaskScheduler      scheduler ;
@@ -89,9 +91,8 @@ public class QImgClassifier implements QClassifierFrame.Controller {
         if( !workspaceDir.isDirectory() && !workspaceDir.mkdirs() ) {
             log.error( "Could not create the workspace folder {}", workspaceDir ) ;
         }
-        AIInvoker aiInvoker = AIInvoker.fromConfig( config ) ;
-
         this.config        = config ;
+        this.aiInvoker     = AIInvoker.fromConfig( config ) ;
         this.listener      = listener != null ? listener
                                               : ClassificationListener.NOOP ;
         this.processedList = new ProcessedList( config.getProcessedListFile() ) ;
@@ -313,6 +314,11 @@ public class QImgClassifier implements QClassifierFrame.Controller {
         }
         plan = p ;
         return report ;
+    }
+
+    @Override
+    public List<RateLimitNotice> rateLimitNotices() {
+        return aiInvoker.rateLimitNotices() ;
     }
 
     @Override

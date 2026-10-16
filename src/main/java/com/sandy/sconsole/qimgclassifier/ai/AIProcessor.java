@@ -188,6 +188,12 @@ public interface AIProcessor {
 
         private final RateLimitScope scope ;
 
+        /**
+         * The backend's own explanation of the limit (e.g. OpenRouter's
+         * error message and remedy hint); null if it gave none.
+         */
+        private final String explanation ;
+
         /** A limit on the model asked ({@link RateLimitScope#MODEL}). */
         public RateLimitException( String reason, Duration retryAfter,
                                    String detail ) {
@@ -196,14 +202,23 @@ public interface AIProcessor {
 
         public RateLimitException( String reason, Duration retryAfter,
                                    String detail, RateLimitScope scope ) {
+            this( reason, retryAfter, detail, scope, null ) ;
+        }
+
+        public RateLimitException( String reason, Duration retryAfter,
+                                   String detail, RateLimitScope scope,
+                                   String explanation ) {
             super( reason, detail ) ;
-            this.retryAfter = retryAfter ;
-            this.scope      = scope ;
+            this.retryAfter  = retryAfter ;
+            this.scope       = scope ;
+            this.explanation = explanation ;
         }
 
         public Duration getRetryAfter() { return retryAfter ; }
 
         public RateLimitScope getScope() { return scope ; }
+
+        public String getExplanation() { return explanation ; }
 
         /**
          * From a 429 response: honours a {@code Retry-After} header given in

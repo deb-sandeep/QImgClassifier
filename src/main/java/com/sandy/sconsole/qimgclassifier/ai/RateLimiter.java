@@ -1,15 +1,19 @@
 package com.sandy.sconsole.qimgclassifier.ai;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 
 /**
- * Request-rate bookkeeping for one AI processor: sliding-window limits of
- * requests per minute and per day (rolling 24 hours), plus a suspension set
- * when the backend itself reports that a rate limit was hit.
+ * Request-rate bookkeeping for one AI processor: limits of requests per
+ * minute (sliding window) and per UTC calendar day (reset at 00:00 UTC, as
+ * OpenRouter's daily free-model quota is), plus a suspension set when the
+ * backend itself reports that a rate limit was hit.
  * <p>
  * Not thread-safe; {@link AIInvoker} calls it only while holding its lock.
  * Counts live in memory; {@link AIInvoker} saves them to a
@@ -23,11 +27,12 @@ final class RateLimiter {
     /** Requests allowed per minute; 0 for no limit. */
     private final int rpm ;
 
-    /** Requests allowed per rolling day; 0 for no limit. */
+    /** Requests allowed per UTC day; 0 for no limit. */
     private final int rpd ;
 
     /**
-     * Start times of requests in the last day (or minute, if only RPM is set).
+     * Start times of requests in the current UTC day and the last minute (or
+     * only the last minute, if only RPM is set).
      */
     private final Deque<Long> starts = new ArrayDeque<>() ;
 
@@ -53,10 +58,32 @@ final class RateLimiter {
                 at = Math.max( at, nthNewest( rpm ) + MINUTE_MS ) ;
             }
         }
-        if( rpd > 0 && starts.size() >= rpd ) {
-            at = Math.max( at, nthNewest( rpd ) + DAY_MS ) ;
+        if( rpd > 0 ) {
+            long dayStart = utcDayStart( now ) ;
+            if( countSince( dayStart - 1 ) >= rpd ) {
+                at = Math.max( at, dayStart + DAY_MS ) ;   // next 00:00 UTC
+            }
         }
         return at ;
+    }
+
+    /** True while a backend-reported limit holds every request back. */
+    boolean isSuspended( long now ) { return suspendedUntil > now ; }
+
+    /**
+     * Which window holds requests back at {@code now}: the daily or the
+     * per-minute limit, as a readable reason; null if neither is full.
+     */
+    String windowReason( long now ) {
+
+        prune( now ) ;
+        if( rpd > 0 && countSince( utcDayStart( now ) - 1 ) >= rpd ) {
+            return "daily limit of " + rpd + " requests reached" ;
+        }
+        if( rpm > 0 && countSince( now - MINUTE_MS ) >= rpm ) {
+            return "limit of " + rpm + " requests per minute reached" ;
+        }
+        return null ;
     }
 
     /**
@@ -92,10 +119,14 @@ final class RateLimiter {
         suspendedUntil = Math.max( suspendedUntil, until ) ;
     }
 
-    /** Drop starts older than the longest window in use. */
+    /**
+     * Drop starts that no window in use covers: the last minute, and with a
+     * daily limit, the current UTC day.
+     */
     private void prune( long now ) {
 
-        long horizon = now - ( rpd > 0 ? DAY_MS : MINUTE_MS ) ;
+        long horizon = rpd > 0 ? dailyHorizon( now ) : now - MINUTE_MS ;
+
         while( !starts.isEmpty() && starts.peekFirst() <= horizon ) {
             starts.pollFirst() ;
         }
@@ -109,6 +140,21 @@ final class RateLimiter {
             n++ ;
         }
         return n ;
+    }
+
+    /**
+     * Latest epoch ms that neither the minute window nor the current UTC day
+     * covers; starts at or before it no longer count.
+     */
+    static long dailyHorizon( long now ) {
+        return Math.min( now - MINUTE_MS, utcDayStart( now ) - 1 ) ;
+    }
+
+    /** Epoch ms of the most recent 00:00 UTC at or before {@code now}. */
+    private static long utcDayStart( long now ) {
+        return LocalDate.ofInstant( Instant.ofEpochMilli( now ), ZoneOffset.UTC )
+                        .atStartOfDay( ZoneOffset.UTC )
+                        .toInstant().toEpochMilli() ;
     }
 
     /** Start time of the {@code n}-th most recent request (1-based). */

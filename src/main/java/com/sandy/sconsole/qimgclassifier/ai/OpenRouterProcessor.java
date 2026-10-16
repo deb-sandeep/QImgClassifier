@@ -175,27 +175,29 @@ public class OpenRouterProcessor implements AIProcessor {
      * A 429, sorted by what it limits. The account's own limits on free
      * models (per minute, per day) and OpenRouter's own limits apply to every
      * model; a limit reported by the model's upstream provider applies to
-     * that model only.
+     * that model only. OpenRouter's message, and the {@code remedy_hint} it
+     * sometimes adds to the metadata, go with it as the explanation.
      */
     private static RateLimitException rateLimit( String model, JsonNode error,
                                                  HttpResponse<String> response ) {
 
-        String   message    = error.path( "message" ).asText( "" ) ;
-        String   provider   = provider( error ) ;
-        Duration retryAfter = retryAfter( error, response ) ;
+        JsonNode metadata    = error.path( "metadata" ) ;
+        String   message     = error.path( "message" ).asText( "" ) ;
+        String   limitSource = metadata.path( "limit_source" ).asText( "" ) ;
+        String   provider    = provider( error ) ;
+        Duration retryAfter  = retryAfter( error, response ) ;
 
         String         reason ;
         RateLimitScope scope = RateLimitScope.PROCESSOR ;
 
-        if( message.contains( "per-day" ) ) {
+        if( message.contains( "per-day" ) || limitSource.contains( "per_day" ) ) {
             reason = "OpenRouter daily request limit reached" ;
         }
-        else if( message.contains( "per-min" ) ) {
+        else if( message.contains( "per-min" )
+                 || limitSource.contains( "per_minute" ) ) {
             reason = "OpenRouter requests-per-minute limit reached" ;
         }
-        else if( provider != null || error.path( "metadata" )
-                                          .path( "limit_source" )
-                                          .asText( "" ).startsWith( "upstream" ) ) {
+        else if( provider != null || limitSource.startsWith( "upstream" ) ) {
             reason = model + " is busy at its provider" +
                      ( provider != null ? " (" + provider + ")" : "" ) ;
             scope  = RateLimitScope.MODEL ;
@@ -203,13 +205,28 @@ public class OpenRouterProcessor implements AIProcessor {
         else {
             reason = "OpenRouter rate limit reached" ;
         }
-        return new RateLimitException( reason, retryAfter, response.body(), scope ) ;
+        return new RateLimitException( reason, retryAfter, response.body(),
+                                       scope, explanation( message, metadata ) ) ;
+    }
+
+    /**
+     * OpenRouter's message and remedy hint as one sentence-spaced text; null
+     * if it gave neither.
+     */
+    private static String explanation( String message, JsonNode metadata ) {
+
+        String text = message.trim() ;
+        String hint = metadata.path( "remedy_hint" ).asText( "" ).trim() ;
+
+        if( !hint.isEmpty() ) text = text.isEmpty() ? hint : text + " " + hint ;
+        return text.isEmpty() ? null : text ;
     }
 
     /**
      * How long to wait after a 429: the {@code Retry-After} header (seconds),
-     * else the {@code X-RateLimit-Reset} time (epoch ms) OpenRouter puts in the
-     * error's metadata; null if neither is given.
+     * else the {@code X-RateLimit-Reset} time, from the response headers or
+     * the copy OpenRouter puts in the error's metadata; null if none is
+     * given or the reset time has passed.
      */
     private static Duration retryAfter( JsonNode error,
                                         HttpResponse<String> response ) {
@@ -217,12 +234,25 @@ public class OpenRouterProcessor implements AIProcessor {
         Duration header = RateLimitException.from( "", response ).getRetryAfter() ;
         if( header != null ) return header ;
 
-        JsonNode reset = error.path( "metadata" ).path( "headers" )
-                              .path( "X-RateLimit-Reset" ) ;
-        if( !reset.asText( "" ).matches( "\\d+" ) ) return null ;
+        String reset = response.headers()
+                .firstValue( "X-RateLimit-Reset" )
+                .orElse( error.path( "metadata" ).path( "headers" )
+                              .path( "X-RateLimit-Reset" ).asText( "" ) )
+                .trim() ;
+        if( !reset.matches( "\\d+" ) ) return null ;
 
-        long ms = Long.parseLong( reset.asText() ) - System.currentTimeMillis() ;
+        long ms = resetEpochMs( Long.parseLong( reset ) )
+                  - System.currentTimeMillis() ;
         return ms > 0 ? Duration.ofMillis( ms ) : null ;
+    }
+
+    /**
+     * An {@code X-RateLimit-Reset} value as epoch ms. OpenRouter sends epoch
+     * ms, but its docs don't state the unit, so a value too small to be ms
+     * (before 1973) is taken as epoch seconds.
+     */
+    private static long resetEpochMs( long value ) {
+        return value < 100_000_000_000L ? value * 1000 : value ;
     }
 
     /** Readable reason for an error status (HTTP, or the error's own code). */

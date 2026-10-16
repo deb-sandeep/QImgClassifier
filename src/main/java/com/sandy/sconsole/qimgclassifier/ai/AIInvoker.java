@@ -1,8 +1,10 @@
 package com.sandy.sconsole.qimgclassifier.ai;
 
+import com.sandy.sconsole.qimgclassifier.model.AIAgent;
 import com.sandy.sconsole.qimgclassifier.model.AttemptRequest;
 import com.sandy.sconsole.qimgclassifier.model.AttemptTranscript;
 import com.sandy.sconsole.qimgclassifier.model.QTask;
+import com.sandy.sconsole.qimgclassifier.model.RateLimitNotice;
 import com.sandy.sconsole.qimgclassifier.model.Subject;
 import com.sandy.sconsole.qimgclassifier.model.TokenUsage;
 import com.sandy.sconsole.qimgclassifier.model.Topic;
@@ -77,10 +79,19 @@ public class AIInvoker {
     private final RateLimiter[] limiters ;
 
     /**
-     * Per processor (same index), model -> epoch ms until which the model is
-     * not asked after a rate limit on it alone; guarded by {@code this}.
+     * Per processor (same index), the reason given when it was last
+     * suspended as a whole; guarded by {@code this}.
      */
-    private final List<Map<String,Long>> modelPauses = new ArrayList<>() ;
+    private final String[] suspendReasons ;
+
+    /**
+     * Per processor (same index), model -> its pause after a rate limit on it
+     * alone; guarded by {@code this}.
+     */
+    private final List<Map<String,Pause>> modelPauses = new ArrayList<>() ;
+
+    /** A model not asked before {@code until} (epoch ms), and why. */
+    private record Pause( long until, String reason ) {}
 
     /**
      * Where the requests of processors with a per-day limit are kept across
@@ -169,6 +180,7 @@ public class AIInvoker {
                                             p.getSettings().getRateLimitRpd() ) )
                                     .toArray( RateLimiter[]::new ) ;
 
+        this.suspendReasons = new String[ processors.size() ] ;
         processors.forEach( p -> modelPauses.add( new HashMap<>() ) ) ;
         this.history = historyFile == null ? null
                                            : new RequestHistory( historyFile ) ;
@@ -302,7 +314,41 @@ public class AIInvoker {
 
     /** Epoch ms until which {@code model} is paused; 0 if it is not. */
     private long pausedUntil( int p, String model ) {
-        return modelPauses.get( p ).getOrDefault( model, 0L ) ;
+        Pause pause = modelPauses.get( p ).get( model ) ;
+        return pause != null ? pause.until() : 0 ;
+    }
+
+    /**
+     * The processors, and models of otherwise free processors, that may not
+     * be sent requests right now, with why and until when.
+     */
+    public synchronized List<RateLimitNotice> rateLimitNotices() {
+
+        long                  now     = System.currentTimeMillis() ;
+        List<RateLimitNotice> notices = new ArrayList<>() ;
+
+        for( int p = 0 ; p < processors.size() ; p++ ) {
+            AIProcessor processor = processors.get( p ) ;
+            AIAgent     agent     = processor.getAgent() ;
+            long        until     = availableAt( processor ) ;
+
+            if( until > now ) {
+                String reason = limiters[p].isSuspended( now )
+                              ? suspendReasons[p]
+                              : limiters[p].windowReason( now ) ;
+                if( reason == null ) reason = "every model is rate limited" ;
+                notices.add( new RateLimitNotice( agent, null, reason, until ) ) ;
+                continue ;
+            }
+            modelPauses.get( p ).forEach( ( model, pause ) -> {
+                if( pause.until() > now ) {
+                    notices.add( new RateLimitNotice( agent, model,
+                                                      pause.reason(),
+                                                      pause.until() ) ) ;
+                }
+            } ) ;
+        }
+        return notices ;
     }
 
     /**
@@ -321,7 +367,7 @@ public class AIInvoker {
     }
 
     /**
-     * Load the last day's requests of each processor with a per-day limit
+     * Load today's (UTC) requests of each processor with a per-day limit
      * from the history file into its rate windows.
      */
     private synchronized void restoreHistory() {
@@ -373,13 +419,19 @@ public class AIInvoker {
 
         boolean wholeProcessor =
                 e.getScope() == AIProcessor.RateLimitScope.PROCESSOR ;
+        String  reason = e.getExplanation() != null ? e.getExplanation()
+                                                    : e.getMessage() ;
 
         synchronized( this ) {
             if( wholeProcessor ) {
                 limiters[p].suspendUntil( until ) ;
+                suspendReasons[p] = reason ;
             }
             else {
-                modelPauses.get( p ).merge( model, until, Math::max ) ;
+                modelPauses.get( p ).merge(
+                        model, new Pause( until, reason ),
+                        ( a, b ) -> new Pause( Math.max( a.until(), b.until() ),
+                                               b.reason() ) ) ;
             }
         }
         log.warn( "{} - not sending to {} for {}s", e.getMessage(),

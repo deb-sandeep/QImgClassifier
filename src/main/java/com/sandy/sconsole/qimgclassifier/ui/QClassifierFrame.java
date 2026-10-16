@@ -5,6 +5,7 @@ import com.sandy.sconsole.qimgclassifier.model.AIAgent;
 import com.sandy.sconsole.qimgclassifier.model.ProcessingState;
 import com.sandy.sconsole.qimgclassifier.model.AttemptRequest;
 import com.sandy.sconsole.qimgclassifier.model.QTask;
+import com.sandy.sconsole.qimgclassifier.model.RateLimitNotice;
 import com.sandy.sconsole.qimgclassifier.model.TaskStatus;
 import com.sandy.sconsole.qimgclassifier.model.Topic;
 import com.sandy.sconsole.qimgclassifier.util.ImageCollator;
@@ -39,6 +40,9 @@ import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -122,6 +126,12 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
         ProcessedListRepair.Report repairProcessedList(
                 ProcessedListRepair.ProgressListener progress ) ;
 
+        /**
+         * The AI targets and models held back by a rate limit right now; empty
+         * when none is.
+         */
+        List<RateLimitNotice> rateLimitNotices() ;
+
         /** Stop the worker pool; called when the window closes. */
         void shutdown() ;
     }
@@ -149,6 +159,12 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     private static final Color FAILED_BG     = new Color( 0xEF9A9A ) ;
     private static final Color REQUEUED_BG   = new Color( 0xFFF8E1 ) ;
     private static final Color ASSOCIATED_BG = new Color( 0xF0F0F0 ) ;
+    private static final Color RATE_LIMIT_BG = new Color( 0xFFE0B2 ) ;
+    private static final Color RATE_LIMIT_FG = new Color( 0x6D3A00 ) ;
+
+    /** Clock time shown for a rate limit that lifts in an hour or more. */
+    private static final DateTimeFormatter RESUME_TIME =
+            DateTimeFormatter.ofPattern( "HH:mm" ) ;
 
     /** ⌘E on macOS, Ctrl+E elsewhere. */
     private static final KeyStroke SHOW_IN_EXTRACTOR_KEY = KeyStroke.getKeyStroke(
@@ -159,6 +175,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     private final TranscriptPanel     transcriptPanel ;
     private final JTable              table ;
     private final JLabel              statusBar = new JLabel( " " ) ;
+    private final JLabel              rateLimitStrip = new JLabel() ;
     private final JPanel              previewPanel =
             new JPanel( new BorderLayout() ) ;
     private final JLabel              previewLabel =
@@ -279,8 +296,21 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
 
         // Table and preview on the left, transcripts on the right, status
         // bar across the bottom.
+        // A strip under the table shows while a rate limit holds requests
+        // back.
+        rateLimitStrip.setOpaque( true ) ;
+        rateLimitStrip.setBackground( RATE_LIMIT_BG ) ;
+        rateLimitStrip.setForeground( RATE_LIMIT_FG ) ;
+        rateLimitStrip.setFont( rateLimitStrip.getFont().deriveFont( 11f ) ) ;
+        rateLimitStrip.setBorder( BorderFactory.createEmptyBorder( 2, 8, 2, 8 ) ) ;
+        rateLimitStrip.setVisible( false ) ;
+
+        JPanel tablePanel = new JPanel( new BorderLayout() ) ;
+        tablePanel.add( new JScrollPane( table ), BorderLayout.CENTER ) ;
+        tablePanel.add( rateLimitStrip, BorderLayout.SOUTH ) ;
+
         JPanel left = new JPanel( new BorderLayout() ) ;
-        left.add( new JScrollPane( table ), BorderLayout.CENTER ) ;
+        left.add( tablePanel, BorderLayout.CENTER ) ;
         left.add( previewPanel, BorderLayout.SOUTH ) ;
 
         JSplitPane split = new JSplitPane( JSplitPane.HORIZONTAL_SPLIT,
@@ -314,6 +344,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
         new Timer( 1000, e -> {
             model.tickRunningRows() ;
             refreshStatusBar() ;
+            refreshRateLimitStrip() ;
         } ).start() ;
         refreshStatusBar() ;
     }
@@ -1108,6 +1139,59 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
 
         if( !batchProgress.isEmpty() ) text += sep + batchProgress ;
         statusBar.setText( text ) ;
+    }
+
+    /**
+     * Show the strip under the table while any AI target or model is held
+     * back by a rate limit, with why and when it lifts; hide it otherwise.
+     */
+    private void refreshRateLimitStrip() {
+
+        List<RateLimitNotice> notices = controller != null
+                                      ? controller.rateLimitNotices()
+                                      : List.of() ;
+        if( notices.isEmpty() ) {
+            rateLimitStrip.setVisible( false ) ;
+            return ;
+        }
+
+        long          now  = System.currentTimeMillis() ;
+        StringBuilder text = new StringBuilder( "Rate limit encountered  -  " ) ;
+
+        for( int i = 0 ; i < notices.size() ; i++ ) {
+            RateLimitNotice n = notices.get( i ) ;
+            if( i > 0 ) text.append( "   |   " ) ;
+            text.append( agentName( n.agent() ) ) ;
+            if( n.model() != null ) text.append( " " ).append( n.model() ) ;
+            text.append( ": " ).append( n.reason().replaceAll( "[.\\s]+$", "" ) )
+                .append( " - resumes " ).append( resumesIn( n.until(), now ) ) ;
+        }
+        rateLimitStrip.setText( text.toString() ) ;
+        rateLimitStrip.setToolTipText( text.toString() ) ;
+        rateLimitStrip.setVisible( true ) ;
+    }
+
+    private static String agentName( AIAgent agent ) {
+        return switch( agent ) {
+            case GEMMA      -> "Gemma" ;
+            case OPENROUTER -> "OpenRouter" ;
+        } ;
+    }
+
+    /**
+     * "in 4m 05s", or "at 05:30 (in 12h 44m)" when an hour or more away.
+     */
+    private static String resumesIn( long until, long now ) {
+
+        long secs = Math.max( 0, ( until - now + 999 ) / 1000 ) ;
+        if( secs < 60 ) return "in " + secs + "s" ;
+        if( secs < 3600 ) {
+            return String.format( "in %dm %02ds", secs / 60, secs % 60 ) ;
+        }
+        String at = RESUME_TIME.format( Instant.ofEpochMilli( until )
+                                               .atZone( ZoneId.systemDefault() ) ) ;
+        return String.format( "at %s (in %dh %02dm)", at, secs / 3600,
+                              ( secs / 60 ) % 60 ) ;
     }
 
     /** {@code RUNNING} -> {@code Running}. */

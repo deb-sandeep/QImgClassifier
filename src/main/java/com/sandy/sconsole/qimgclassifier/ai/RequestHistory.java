@@ -11,7 +11,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -19,8 +18,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The file that keeps the start times of requests made in the last 24 hours,
- * per processor, so the per-day rate limits survive a restart:
+ * The file that keeps the start times of requests made in the current UTC
+ * day (and the last minute), per processor, so the per-day rate limits
+ * survive a restart:
  * <pre>
  * { "openrouter" : [ 1792141131000, 1792141145000, ... ] }
  * </pre>
@@ -30,8 +30,6 @@ import java.util.Map;
  */
 @Slf4j
 final class RequestHistory {
-
-    private static final long DAY_MS = Duration.ofDays( 1 ).toMillis() ;
 
     private static final ObjectMapper MAPPER =
             new ObjectMapper().enable( SerializationFeature.INDENT_OUTPUT ) ;
@@ -43,7 +41,7 @@ final class RequestHistory {
     }
 
     /**
-     * The requests of the last 24 hours, per processor name. Older entries
+     * The requests of the current UTC day, per processor name. Older entries
      * are dropped, and the file is rewritten without them. A missing file
      * reads as empty; an unreadable one is logged and reads as empty, and is
      * replaced at the next save.
@@ -63,14 +61,16 @@ final class RequestHistory {
             return history ;
         }
 
-        int dropped = 0 ;
+        long horizon = RateLimiter.dailyHorizon( now ) ;
+        int  dropped = 0 ;
+
         for( Iterator<Map.Entry<String,JsonNode>> it = root.fields() ;
              it.hasNext() ; ) {
             Map.Entry<String,JsonNode> e = it.next() ;
             List<Long> times = new ArrayList<>() ;
 
             for( JsonNode t : e.getValue() ) {
-                if( t.canConvertToLong() && t.asLong() > now - DAY_MS ) {
+                if( t.canConvertToLong() && t.asLong() > horizon ) {
                     times.add( t.asLong() ) ;
                 }
                 else {
@@ -81,7 +81,7 @@ final class RequestHistory {
             history.put( e.getKey(), times ) ;
         }
         if( dropped > 0 ) {
-            log.info( "Dropped {} request times older than a day from {}",
+            log.info( "Dropped {} request times before today (UTC) from {}",
                       dropped, file ) ;
             save( history, now ) ;
         }
@@ -89,15 +89,17 @@ final class RequestHistory {
     }
 
     /**
-     * Replace the file with {@code history}, leaving out times older than 24
-     * hours. A failure is logged, never thrown.
+     * Replace the file with {@code history}, leaving out times before the
+     * current UTC day. A failure is logged, never thrown.
      */
     void save( Map<String,List<Long>> history, long now ) {
 
-        ObjectNode root = MAPPER.createObjectNode() ;
+        ObjectNode root    = MAPPER.createObjectNode() ;
+        long       horizon = RateLimiter.dailyHorizon( now ) ;
+
         history.forEach( ( name, times ) -> {
             ArrayNode array = root.putArray( name ) ;
-            times.stream().filter( t -> t > now - DAY_MS ).forEach( array::add ) ;
+            times.stream().filter( t -> t > horizon ).forEach( array::add ) ;
         } ) ;
 
         File tmp = new File( file.getAbsoluteFile().getParentFile(),
