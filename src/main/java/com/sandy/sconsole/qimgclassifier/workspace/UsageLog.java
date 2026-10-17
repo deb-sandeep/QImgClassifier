@@ -56,10 +56,9 @@ public final class UsageLog {
 
     private static String row( AttemptTranscript t ) {
 
-        TokenUsage u = t.getUsage() ;
-        String outcome = t.isSuccess()     ? "ok"
-                       : t.isRateLimited() ? "rate-limited"
-                       : "failed" ;
+        TokenUsage u       = t.getUsage() ;
+        String     outcome = t.getOutcome().name().toLowerCase()
+                              .replace( '_', '-' ) ;   // e.g. rate-limited
 
         return String.join( ",",
                 new SimpleDateFormat( "yyyy-MM-dd HH:mm:ss" )

@@ -1,27 +1,17 @@
 package com.sandy.sconsole.qimgclassifier.util;
 
-import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Value;
-import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.time.Duration;
-import java.util.Arrays;
 import java.util.List;
-import java.util.Properties;
 
 /**
  * Application settings, read from the {@code /qimgclassifier.properties}
  * classpath resource (see that file for what each key means). A JVM system
  * property of the same name, e.g. {@code -Dopenrouter.model=...}, overrides
- * the file.
+ * the file (see {@link ConfigProperties}).
  * <p>
  * Every key must be present ({@code question.filter} may be blank); a missing
  * or malformed value fails {@link #load()} with an
@@ -30,7 +20,6 @@ import java.util.Properties;
  * list, request history, usage log, API key) may be given relative to
  * {@code workspace.dir}.
  */
-@Slf4j
 @Getter
 public final class QClassifierConfig {
 
@@ -128,28 +117,23 @@ public final class QClassifierConfig {
     /** Base URL of QImgExtractor's remote command API. */
     private final String qImgExtractorApiUrl ;
 
-    @Getter( AccessLevel.NONE )
-    private final Properties props ;
+    private QClassifierConfig( ConfigProperties props ) {
 
-    private QClassifierConfig( Properties props ) {
+        qBankDir           = props.path( "question.bank.dir" ) ;
+        questionFilter     = props.value( "question.filter", true ) ;
+        workspaceDir       = props.workspaceDir( "workspace.dir" ) ;
+        processedListFile  = props.workspacePath( "processed.list.file" ) ;
+        requestHistoryFile = props.workspacePath( "request.history.file" ) ;
+        usageLogFile       = props.workspacePath( "usage.log.file" ) ;
 
-        this.props = props ;
+        gemma          = props.target( "gemma" ) ;
+        gemmaServerUrl = props.str( "gemma.server.url" ) ;
 
-        qBankDir           = path( "question.bank.dir" ) ;
-        questionFilter     = value( "question.filter", true ) ;
-        workspaceDir       = path( "workspace.dir" ) ;
-        processedListFile  = workspacePath( "processed.list.file" ) ;
-        requestHistoryFile = workspacePath( "request.history.file" ) ;
-        usageLogFile       = workspacePath( "usage.log.file" ) ;
+        openRouter       = props.target( "openrouter" ) ;
+        openRouterApiKey = props.apiKey( "openrouter.api.key.file" ) ;
+        openRouterPromptCaching = props.bool( "openrouter.prompt.caching" ) ;
 
-        gemma          = target( "gemma" ) ;
-        gemmaServerUrl = str( "gemma.server.url" ) ;
-
-        openRouter       = target( "openrouter" ) ;
-        openRouterApiKey = readKey( workspacePath( "openrouter.api.key.file" ) ) ;
-        openRouterPromptCaching = bool( "openrouter.prompt.caching" ) ;
-
-        qImgExtractorApiUrl = str( "qimgextractor.api.url" ) ;
+        qImgExtractorApiUrl = props.str( "qimgextractor.api.url" ) ;
     }
 
     /**
@@ -159,145 +143,6 @@ public final class QClassifierConfig {
      *         or a key is missing or malformed
      */
     public static QClassifierConfig load() {
-
-        Properties props = new Properties() ;
-        try( InputStream is =
-                     QClassifierConfig.class.getResourceAsStream( RESOURCE ) ) {
-            if( is == null ) {
-                throw new IllegalStateException(
-                        RESOURCE + " not found on the classpath" ) ;
-            }
-            try( Reader r = new InputStreamReader( is, StandardCharsets.UTF_8 ) ) {
-                props.load( r ) ;
-            }
-        }
-        catch( IOException e ) {
-            throw new IllegalStateException( "Could not read " + RESOURCE, e ) ;
-        }
-        return new QClassifierConfig( props ) ;
-    }
-
-    // ---- typed accessors ---------------------------------------------
-
-    /**
-     * The common settings of the target whose keys start with {@code prefix.}.
-     */
-    private Target target( String prefix ) {
-
-        return new Target( bool( prefix + ".enabled" ),
-                           str( prefix + ".model" ),
-                           list( prefix + ".backup.models" ),
-                           positiveInt( prefix + ".max.parallel" ),
-                           wholeNumber( prefix + ".max.retries", 0 ),
-                           seconds( prefix + ".connect.timeout.seconds" ),
-                           seconds( prefix + ".request.timeout.seconds" ),
-                           wholeNumber( prefix + ".rate.limit.rpm", 0 ),
-                           wholeNumber( prefix + ".rate.limit.rpd", 0 ),
-                           seconds( prefix + ".rate.limit.cooldown.seconds" ),
-                           bool( prefix + ".reasoning" ) ) ;
-    }
-
-    /**
-     * Trimmed value of {@code key}; a system property wins over the file.
-     *
-     * @param blankAllowed whether an empty value is acceptable
-     */
-    private String value( String key, boolean blankAllowed ) {
-
-        String v = System.getProperty( key, props.getProperty( key ) ) ;
-        if( v == null ) throw invalid( key, "is missing" ) ;
-        v = v.trim() ;
-        if( v.isEmpty() && !blankAllowed ) throw invalid( key, "is blank" ) ;
-        return v ;
-    }
-
-    private String str( String key ) {
-        return value( key, false ) ;
-    }
-
-    /** {@code true} or {@code false}, case-insensitive. */
-    private boolean bool( String key ) {
-
-        String v = str( key ) ;
-        if( v.equalsIgnoreCase( "true" ) )  return true ;
-        if( v.equalsIgnoreCase( "false" ) ) return false ;
-        throw invalid( key, "must be true or false, not '" + v + "'" ) ;
-    }
-
-    /** A whole number of at least 1. */
-    private int positiveInt( String key ) {
-        return wholeNumber( key, 1 ) ;
-    }
-
-    /** A whole number of at least {@code min}. */
-    private int wholeNumber( String key, int min ) {
-
-        String v = str( key ) ;
-        try {
-            int n = Integer.parseInt( v ) ;
-            if( n >= min ) return n ;
-        }
-        catch( NumberFormatException e ) {
-            // reported below
-        }
-        throw invalid( key, "must be a whole number of at least " + min +
-                            ", not '" + v + "'" ) ;
-    }
-
-    /** Comma-separated values, trimmed, blanks dropped; may be empty. */
-    private List<String> list( String key ) {
-
-        return Arrays.stream( value( key, true ).split( "," ) )
-                     .map( String::trim )
-                     .filter( s -> !s.isEmpty() )
-                     .toList() ;
-    }
-
-    /** A positive whole number of seconds. */
-    private Duration seconds( String key ) {
-        return Duration.ofSeconds( positiveInt( key ) ) ;
-    }
-
-    /**
-     * A file path, with a leading {@code ~/} expanded to the home directory.
-     */
-    private File path( String key ) {
-
-        String v = str( key ) ;
-        if( v.startsWith( "~/" ) ) {
-            return new File( System.getProperty( "user.home" ), v.substring( 2 ) ) ;
-        }
-        return new File( v ) ;
-    }
-
-    /**
-     * A file path as {@link #path}, with a relative path taken as relative to
-     * {@code workspace.dir}.
-     */
-    private File workspacePath( String key ) {
-        File f = path( key ) ;
-        return f.isAbsolute() ? f : new File( workspaceDir, f.getPath() ) ;
-    }
-
-    private static IllegalStateException invalid( String key, String problem ) {
-        return new IllegalStateException( RESOURCE + ": " + key + " " + problem ) ;
-    }
-
-    /**
-     * The key file's trimmed contents, or null if it is missing, empty or
-     * unreadable (logged).
-     */
-    private static String readKey( File keyFile ) {
-
-        if( !keyFile.isFile() ) return null ;
-        try {
-            String key = Files.readString( keyFile.toPath(),
-                                           StandardCharsets.UTF_8 ).trim() ;
-            return key.isEmpty() ? null : key ;
-        }
-        catch( IOException e ) {
-            log.error( "Error reading OpenRouter API key from {}", keyFile, e ) ;
-            return null ;
-        }
+        return new QClassifierConfig( ConfigProperties.load( RESOURCE ) ) ;
     }
 }

@@ -30,7 +30,7 @@ import java.util.Set;
  * {@link TaskScheduler}. Thread-safe.
  */
 @Slf4j
-public class QuestionClassifier {
+public class QuestionClassifier implements TaskOutcomes {
 
     @Getter
     private final ClassificationListener listener ;
@@ -69,8 +69,8 @@ public class QuestionClassifier {
         return FileHelper.getQuestionImgGroups( srcDir, questionFilter ) ;
     }
 
-    /** A worker picked the task up for its first attempt. */
-    void started( QTask task ) {
+    @Override
+    public void started( QTask task ) {
         listener.taskStarted( task ) ;
     }
 
@@ -85,8 +85,9 @@ public class QuestionClassifier {
      *        {@code topics}; stored with them, and with an auto association
      * @return true if the result was stored
      */
-    boolean succeeded( QTask task, List<Topic> topics, AIAgent agent,
-                       String model, int attempts ) {
+    @Override
+    public boolean succeeded( QTask task, List<Topic> topics, AIAgent agent,
+                              String model, int attempts ) {
 
         try {
             WorkspaceTopicMap.write( task.getSrcDir(), task.getQuestionId(), topics,
@@ -103,8 +104,8 @@ public class QuestionClassifier {
         }
     }
 
-    /** The task failed for good. */
-    void failed( QTask task, int attempts, String reason ) {
+    @Override
+    public void failed( QTask task, int attempts, String reason ) {
         listener.taskFinished( task, TaskStatus.FAILED, attempts, reason ) ;
     }
 
@@ -112,7 +113,8 @@ public class QuestionClassifier {
      * True if {@code topics} would not be auto-associated because the top
      * topic does not clear the quality gate.
      */
-    boolean failsGate( QTask task, List<Topic> topics ) {
+    @Override
+    public boolean failsGate( QTask task, List<Topic> topics ) {
         return !QuestionTopicAssociator.passesGate( task.getQuestionId(), topics ) ;
     }
 
@@ -120,7 +122,8 @@ public class QuestionClassifier {
      * Forwards attempt starts and sent requests to the listener, and saves
      * each attempt's transcript and token counts.
      */
-    AIInvoker.AttemptListener attemptListener( QTask task ) {
+    @Override
+    public AIInvoker.AttemptListener attemptListener( QTask task ) {
 
         return new AIInvoker.AttemptListener() {
             @Override

@@ -24,14 +24,29 @@ public class AttemptTranscript {
     /** Short failure reason; null on success. */
     String failure ;
 
-    /** True if the backend refused the request because of a rate limit. */
-    boolean rateLimited ;
+    Outcome outcome ;
 
     /** Tokens the request used; null if the backend did not report them. */
     TokenUsage usage ;
 
+    /** How an attempt ended. */
+    public enum Outcome {
+
+        /** The reply was obtained and parsed. */
+        OK,
+
+        /** The request or its reply failed; it used one of the retries. */
+        FAILED,
+
+        /** The backend refused it with a rate limit; handed back. */
+        RATE_LIMITED,
+
+        /** The backend could not be reached; handed back. */
+        UNREACHABLE
+    }
+
     /** True if the reply was obtained and parsed. */
-    public boolean isSuccess() { return failure == null ; }
+    public boolean isSuccess() { return outcome == Outcome.OK ; }
 
     public QTask getTask() { return request.getTask() ; }
 

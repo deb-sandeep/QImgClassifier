@@ -13,10 +13,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The topic master: every syllabus topic, loaded once from the
- * {@code /topic_master.json} classpath resource. Topic ids are the ones
- * QImgExtractor and the SConsole database use. If the resource is missing or
- * unreadable the repo is empty (and the error logged).
+ * A set of syllabus topics. The classifier uses the topic master
+ * ({@link #instance()}), loaded once from the {@code /topic_master.json}
+ * classpath resource; if that is missing or unreadable the repo is empty
+ * (and the error logged). The topic reviewer builds one from the server's
+ * topic list. Topic ids are the ones QImgExtractor and the SConsole database
+ * use.
  */
 @Slf4j
 public final class TopicRepo {
@@ -35,6 +37,12 @@ public final class TopicRepo {
     private final Map<Integer,Topic>     topicById        = new HashMap<>() ;
     private final Map<String,List<Topic>> topicsBySyllabus = new HashMap<>() ;
 
+    /** A repo of {@code topics}, e.g. the server's topic list. */
+    public TopicRepo( List<Topic> topics ) {
+        topics.forEach( this::add ) ;
+        freeze() ;
+    }
+
     private TopicRepo() {
 
         try( InputStream is = TopicRepo.class.getResourceAsStream( RESOURCE ) ) {
@@ -46,18 +54,25 @@ public final class TopicRepo {
                     PropertyNamingStrategies.SNAKE_CASE ) ;
             List<Topic> topics = mapper.readValue( is, new TypeReference<>() {} ) ;
 
-            for( Topic topic : topics ) {
-                topicById.put( topic.getId(), topic ) ;
-                topicsBySyllabus.computeIfAbsent( topic.getSyllabusName(),
-                                                  k -> new ArrayList<>() )
-                                .add( topic ) ;
-            }
-            topicsBySyllabus.replaceAll(
-                    ( k, v ) -> Collections.unmodifiableList( v ) ) ;
+            topics.forEach( this::add ) ;
         }
         catch( Exception e ) {
             log.error( "Error loading topics from {}", RESOURCE, e ) ;
         }
+        freeze() ;
+    }
+
+    private void add( Topic topic ) {
+        topicById.put( topic.getId(), topic ) ;
+        topicsBySyllabus.computeIfAbsent( topic.getSyllabusName(),
+                                          k -> new ArrayList<>() )
+                        .add( topic ) ;
+    }
+
+    /** Make the per-syllabus lists unmodifiable once loaded. */
+    private void freeze() {
+        topicsBySyllabus.replaceAll(
+                ( k, v ) -> Collections.unmodifiableList( v ) ) ;
     }
 
     /** The master topic with this id, or null if there is none. */

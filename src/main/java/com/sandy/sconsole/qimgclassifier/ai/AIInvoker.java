@@ -3,6 +3,7 @@ package com.sandy.sconsole.qimgclassifier.ai;
 import com.sandy.sconsole.qimgclassifier.model.AIAgent;
 import com.sandy.sconsole.qimgclassifier.model.AttemptRequest;
 import com.sandy.sconsole.qimgclassifier.model.AttemptTranscript;
+import com.sandy.sconsole.qimgclassifier.model.AttemptTranscript.Outcome;
 import com.sandy.sconsole.qimgclassifier.model.QTask;
 import com.sandy.sconsole.qimgclassifier.model.RateLimitNotice;
 import com.sandy.sconsole.qimgclassifier.model.Subject;
@@ -72,6 +73,9 @@ public class AIInvoker {
 
     private final List<AIProcessor> processors ;
 
+    /** The topics offered to the model, per subject. */
+    private final TopicRepo topicRepo ;
+
     /**
      * Rate bookkeeping per processor (same index as {@link #processors});
      * guarded by {@code this}.
@@ -79,19 +83,10 @@ public class AIInvoker {
     private final RateLimiter[] limiters ;
 
     /**
-     * Per processor (same index), the reason given when it was last
-     * suspended as a whole; guarded by {@code this}.
-     */
-    private final String[] suspendReasons ;
-
-    /**
      * Per processor (same index), model -> its pause after a rate limit on it
      * alone; guarded by {@code this}.
      */
     private final List<Map<String,Pause>> modelPauses = new ArrayList<>() ;
-
-    /** A model not asked before {@code until} (epoch ms), and why. */
-    private record Pause( long until, String reason ) {}
 
     /**
      * Where the requests of processors with a per-day limit are kept across
@@ -162,25 +157,39 @@ public class AIInvoker {
     }
 
     /**
+     * Offers the model the topic master's topics.
+     *
      * @param historyFile where the request times behind the per-day limits
      *        are kept across restarts (read now, rewritten on every request);
      *        null to keep them in memory only
      * @throws IllegalArgumentException if {@code processors} is empty
      */
     public AIInvoker( List<AIProcessor> processors, File historyFile ) {
+        this( processors, historyFile, TopicRepo.instance() ) ;
+    }
+
+    /**
+     * @param historyFile where the request times behind the per-day limits
+     *        are kept across restarts (read now, rewritten on every request);
+     *        null to keep them in memory only
+     * @param topicRepo   the topics offered to the model in the prompt
+     * @throws IllegalArgumentException if {@code processors} is empty
+     */
+    public AIInvoker( List<AIProcessor> processors, File historyFile,
+                      TopicRepo topicRepo ) {
 
         if( processors.isEmpty() ) {
             throw new IllegalArgumentException(
                     "At least one AI processor is required" ) ;
         }
         this.processors = List.copyOf( processors ) ;
+        this.topicRepo  = topicRepo ;
         this.limiters   = processors.stream()
                                     .map( p -> new RateLimiter(
                                             p.getSettings().getRateLimitRpm(),
                                             p.getSettings().getRateLimitRpd() ) )
                                     .toArray( RateLimiter[]::new ) ;
 
-        this.suspendReasons = new String[ processors.size() ] ;
         processors.forEach( p -> modelPauses.add( new HashMap<>() ) ) ;
         this.history = historyFile == null ? null
                                            : new RequestHistory( historyFile ) ;
@@ -346,10 +355,8 @@ public class AIInvoker {
      */
     private String heldBackReason( int p, long now ) {
 
-        if( limiters[p].isSuspended( now ) ) return suspendReasons[p] ;
-
-        String daily = limiters[p].dailyLimitReason( now ) ;
-        if( daily != null ) return daily ;
+        String reason = limiters[p].heldBackReason( now ) ;
+        if( reason != null ) return reason ;
         return modelsFreeAt( p ) > now ? "every model is rate limited" : null ;
     }
 
@@ -374,7 +381,7 @@ public class AIInvoker {
                 continue ;
             }
             modelPauses.get( p ).forEach( ( model, pause ) -> {
-                if( pause.until() > now ) {
+                if( pause.isActive( now ) ) {
                     notices.add( new RateLimitNotice( agent, model,
                                                       pause.reason(),
                                                       pause.until() ) ) ;
@@ -457,14 +464,11 @@ public class AIInvoker {
 
         synchronized( this ) {
             if( wholeProcessor ) {
-                limiters[p].suspendUntil( until ) ;
-                suspendReasons[p] = reason ;
+                limiters[p].suspend( until, reason ) ;
             }
             else {
-                modelPauses.get( p ).merge(
-                        model, new Pause( until, reason ),
-                        ( a, b ) -> new Pause( Math.max( a.until(), b.until() ),
-                                               b.reason() ) ) ;
+                modelPauses.get( p ).merge( model, new Pause( until, reason ),
+                                            Pause::later ) ;
             }
         }
         log.warn( "{} - not sending to {} for {}s", e.getMessage(),
@@ -490,7 +494,7 @@ public class AIInvoker {
         long       startTime   = System.currentTimeMillis() ;
         String     rawResponse = null ;
         String     failure     = null ;
-        boolean    rateLimited = false ;
+        Outcome    outcome     = Outcome.FAILED ;
         TokenUsage usage       = null ;
 
         AttemptRequest request = new AttemptRequest(
@@ -511,6 +515,8 @@ public class AIInvoker {
 
             try {
                 List<Topic> topics = parseTopics( cleaned, task ) ;
+
+                outcome = Outcome.OK ;
                 return InvocationResult.success( topics, attempt ) ;
             }
             catch( JsonProcessingException e ) {
@@ -523,7 +529,8 @@ public class AIInvoker {
         catch( AIProcessor.RateLimitException e ) {
             rawResponse = e.getDetail() ;
             failure     = e.getMessage() ;
-            rateLimited = true ;
+            outcome     = e instanceof AIProcessor.UnreachableException
+                        ? Outcome.UNREACHABLE : Outcome.RATE_LIMITED ;
             usage       = e.getUsage() ;
 
             throw e ;
@@ -542,8 +549,7 @@ public class AIInvoker {
                       elapsed % 1000 / 100,
                       usage != null ? usage.describe() : "no token count" ) ;
             onAttempt.attemptFinished( new AttemptTranscript(
-                    request, elapsed, rawResponse, failure, rateLimited,
-                    usage ) ) ;
+                    request, elapsed, rawResponse, failure, outcome, usage ) ) ;
         }
     }
 
@@ -618,7 +624,7 @@ public class AIInvoker {
      */
     private String topicListJson( Subject subject ) {
 
-        List<Topic> topics = TopicRepo.instance().getTopics( subject ) ;
+        List<Topic> topics = topicRepo.getTopics( subject ) ;
         if( topics.isEmpty() ) return "" ;
 
         ArrayNode topicsArray = mapper.createArrayNode() ;

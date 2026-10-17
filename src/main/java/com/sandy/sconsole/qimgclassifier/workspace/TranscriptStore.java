@@ -128,9 +128,9 @@ public final class TranscriptStore {
 
     private static String responseText( AttemptTranscript t ) {
 
-        String outcome = t.isSuccess()     ? "OK"
-                       : t.isRateLimited() ? "RATE LIMITED: " + t.getFailure()
-                       : "FAILED: " + t.getFailure() ;
+        String outcome = t.isSuccess() ? "OK"
+                       : t.getOutcome().name().replace( '_', ' ' ) + ": "
+                         + t.getFailure() ;
         String elapsed = String.format( "%.1f s", t.getElapsedMs() / 1000.0 ) ;
 
         return header( "Time",    timestamp( t.getStartedAt() + t.getElapsedMs() ) )

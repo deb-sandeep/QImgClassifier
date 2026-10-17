@@ -39,7 +39,13 @@ import java.util.function.BooleanSupplier;
  * {@code 1 + max.retries} attempts per processor. An HTTP 429 hands the
  * attempt back without using the budget, and pauses the model that reported
  * it (the next attempt goes to the processor's next model), or the whole
- * processor when the limit covers all its models.
+ * processor when the limit covers all its models. A backend that cannot be
+ * reached is paused as a whole the same way, so a host that is down does
+ * not fail every queued question in turn.
+ * <p>
+ * A second opinion waits for OpenRouter however long it is held back (until
+ * the next 00:00 UTC after the daily limit); stopping the batch stores
+ * Gemma's reply instead.
  * <p>
  * Every question carries a {@code keepGoing} check. Once it turns false, a
  * question that has not started is dropped, and a started one is finished
@@ -53,7 +59,7 @@ public class TaskScheduler {
     private static final long MAX_WAIT_MS = 1000 ;
 
     private final AIInvoker          aiInvoker ;
-    private final QuestionClassifier classifier ;
+    private final TaskOutcomes       classifier ;
     private final List<AIProcessor>  processors ;
 
     /** Index of the OpenRouter processor in {@link #processors}; -1 if none. */
@@ -143,7 +149,7 @@ public class TaskScheduler {
     /** A job handed to a worker; {@code attempt} if one was counted for it. */
     private record Taken( Job job, boolean attempt ) {}
 
-    public TaskScheduler( AIInvoker aiInvoker, QuestionClassifier classifier ) {
+    public TaskScheduler( AIInvoker aiInvoker, TaskOutcomes classifier ) {
 
         this.aiInvoker  = aiInvoker ;
         this.classifier = classifier ;

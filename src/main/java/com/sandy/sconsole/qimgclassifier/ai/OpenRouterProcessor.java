@@ -231,7 +231,7 @@ public class OpenRouterProcessor implements AIProcessor {
     private static Duration retryAfter( JsonNode error,
                                         HttpResponse<String> response ) {
 
-        Duration header = RateLimitException.from( "", response ).getRetryAfter() ;
+        Duration header = RateLimitException.retryAfter( response ) ;
         if( header != null ) return header ;
 
         String reset = response.headers()

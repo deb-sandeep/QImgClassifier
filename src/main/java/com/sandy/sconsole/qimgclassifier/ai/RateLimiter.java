@@ -13,7 +13,8 @@ import java.util.List;
  * Request-rate bookkeeping for one AI processor: limits of requests per
  * minute (sliding window) and per UTC calendar day (reset at 00:00 UTC, as
  * OpenRouter's daily free-model quota is), plus a suspension set when the
- * backend itself reports that a rate limit was hit.
+ * backend itself reports a rate limit covering every model, or cannot be
+ * reached.
  * <p>
  * Not thread-safe; {@link AIInvoker} calls it only while holding its lock.
  * Counts live in memory; {@link AIInvoker} saves them to a
@@ -36,8 +37,8 @@ final class RateLimiter {
      */
     private final Deque<Long> starts = new ArrayDeque<>() ;
 
-    /** No requests before this epoch millisecond; 0 when not suspended. */
-    private long suspendedUntil ;
+    /** The latest suspension; null if there has been none. */
+    private Pause suspension ;
 
     RateLimiter( int rpm, int rpd ) {
         this.rpm = rpm ;
@@ -51,37 +52,32 @@ final class RateLimiter {
     long availableAt( long now ) {
 
         prune( now ) ;
-        long at = Math.max( now, suspendedUntil ) ;
-        if( rpm > 0 ) {
-            int inLastMinute = countSince( now - MINUTE_MS ) ;
-            if( inLastMinute >= rpm ) {
-                at = Math.max( at, nthNewest( rpm ) + MINUTE_MS ) ;
-            }
+        long at = suspension != null ? Math.max( now, suspension.until() )
+                                     : now ;
+        if( rpm > 0 && countSince( now - MINUTE_MS ) >= rpm ) {
+            at = Math.max( at, nthNewest( rpm ) + MINUTE_MS ) ;
         }
-        if( rpd > 0 ) {
-            long dayStart = utcDayStart( now ) ;
-            if( countSince( dayStart - 1 ) >= rpd ) {
-                at = Math.max( at, dayStart + DAY_MS ) ;   // next 00:00 UTC
-            }
+        if( dailyLimitReached( now ) ) {
+            at = Math.max( at, utcDayStart( now ) + DAY_MS ) ;   // next 00:00 UTC
         }
         return at ;
     }
 
-    /** True while a backend-reported limit holds every request back. */
-    boolean isSuspended( long now ) { return suspendedUntil > now ; }
-
     /**
-     * Why the daily limit holds requests back at {@code now}, as a readable
-     * reason; null if it does not. The per-minute window is left out: it is
-     * routine pacing, full for a moment before each request at the cap.
+     * Why requests are held back at {@code now} for longer than routine
+     * pacing: the suspension's reason, else the daily limit; null if neither
+     * applies. A full per-minute window is left out: at the cap it is full
+     * for a moment before every request.
      */
-    String dailyLimitReason( long now ) {
+    String heldBackReason( long now ) {
 
-        prune( now ) ;
-        if( rpd > 0 && countSince( utcDayStart( now ) - 1 ) >= rpd ) {
-            return "daily limit of " + rpd + " requests reached" ;
+        if( suspension != null && suspension.isActive( now ) ) {
+            return suspension.reason() ;
         }
-        return null ;
+        prune( now ) ;
+        return dailyLimitReached( now )
+               ? "daily limit of " + rpd + " requests reached"
+               : null ;
     }
 
     /**
@@ -110,11 +106,16 @@ final class RateLimiter {
     }
 
     /**
-     * Send nothing before {@code until} (epoch ms); never shortens a
-     * suspension.
+     * Send nothing before {@code until} (epoch ms), because of
+     * {@code reason}; never shortens a suspension.
      */
-    void suspendUntil( long until ) {
-        suspendedUntil = Math.max( suspendedUntil, until ) ;
+    void suspend( long until, String reason ) {
+        suspension = Pause.later( suspension, new Pause( until, reason ) ) ;
+    }
+
+    /** Under a pruned window: true if today's (UTC) requests use up the rpd. */
+    private boolean dailyLimitReached( long now ) {
+        return rpd > 0 && countSince( utcDayStart( now ) - 1 ) >= rpd ;
     }
 
     /**

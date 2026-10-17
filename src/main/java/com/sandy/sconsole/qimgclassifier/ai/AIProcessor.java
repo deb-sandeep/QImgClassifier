@@ -138,25 +138,26 @@ public interface AIProcessor {
                 Thread.currentThread().interrupt() ;
                 return new ProcessorException( "interrupted" ) ;
             }
-            String reason ;
+            String detail = String.valueOf( e ) ;
+
+            // HttpConnectTimeoutException is an HttpTimeoutException, so it
+            // is checked first.
             if( e instanceof HttpConnectTimeoutException ) {
                 return new UnreachableException(
                         "could not connect to " + backend + " (timed out)",
-                        String.valueOf( e ) ) ;
+                        detail ) ;
             }
-            else if( e instanceof HttpTimeoutException ) {
-                reason = backend + " took too long to reply (timed out)" ;
-            }
-            else if( e instanceof ConnectException ) {
+            if( e instanceof ConnectException ) {
                 return new UnreachableException(
-                        "could not connect to " + backend,
-                        String.valueOf( e ) ) ;
+                        "could not connect to " + backend, detail ) ;
             }
-            else {
-                reason = e.getClass().getSimpleName() +
-                         ( e.getMessage() != null ? ": " + e.getMessage() : "" ) ;
+            if( e instanceof HttpTimeoutException ) {
+                return new ProcessorException(
+                        backend + " took too long to reply (timed out)", detail ) ;
             }
-            return new ProcessorException( reason, String.valueOf( e ) ) ;
+            String reason = e.getClass().getSimpleName() +
+                    ( e.getMessage() != null ? ": " + e.getMessage() : "" ) ;
+            return new ProcessorException( reason, detail ) ;
         }
     }
 
@@ -221,20 +222,26 @@ public interface AIProcessor {
         public String getExplanation() { return explanation ; }
 
         /**
-         * From a 429 response: honours a {@code Retry-After} header given in
-         * seconds (the HTTP-date form is ignored).
+         * A limit on the model asked, from a 429 response; honours its
+         * {@code Retry-After} header.
          */
         public static RateLimitException from( String reason,
                                                HttpResponse<?> response ) {
+            return new RateLimitException( reason, retryAfter( response ),
+                                           String.valueOf( response.body() ) ) ;
+        }
 
-            Duration retryAfter = response.headers()
+        /**
+         * The response's {@code Retry-After} header given in seconds; null if
+         * it has none (the HTTP-date form is ignored).
+         */
+        public static Duration retryAfter( HttpResponse<?> response ) {
+            return response.headers()
                     .firstValue( "Retry-After" )
                     .map( String::trim )
                     .filter( v -> v.matches( "\\d+" ) )
                     .map( v -> Duration.ofSeconds( Long.parseLong( v ) ) )
                     .orElse( null ) ;
-            return new RateLimitException( reason, retryAfter,
-                                           String.valueOf( response.body() ) ) ;
         }
     }
 
