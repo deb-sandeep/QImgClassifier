@@ -172,9 +172,15 @@ public interface AIProcessor {
 
         /**
          * Every model of the processor (e.g. the account's own requests per
-         * minute or day).
+         * minute).
          */
-        PROCESSOR
+        PROCESSOR,
+
+        /**
+         * Every model of the processor until its daily quota resets (e.g.
+         * the account's free-model requests per day).
+         */
+        DAY
     }
 
     /**

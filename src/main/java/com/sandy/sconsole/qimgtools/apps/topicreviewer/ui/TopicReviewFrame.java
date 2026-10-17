@@ -3,6 +3,7 @@ package com.sandy.sconsole.qimgtools.apps.topicreviewer.ui;
 import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
 import com.sandy.sconsole.qimgtools.core.model.ProcessingState;
 import com.sandy.sconsole.qimgtools.core.model.RateLimitNotice;
+import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewCriteria;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewDecision;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewItem;
@@ -19,12 +20,15 @@ import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.AbstractAction;
+import javax.swing.Action;
 import javax.swing.ActionMap;
 import javax.swing.BorderFactory;
+import javax.swing.ButtonGroup;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.Icon;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
+import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
@@ -32,9 +36,12 @@ import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JOptionPane;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.JRadioButtonMenuItem;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.InputMap;
@@ -46,15 +53,15 @@ import javax.swing.RowFilter;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
-import javax.swing.UIManager;
 import javax.swing.WindowConstants;
+import javax.swing.event.MenuEvent;
+import javax.swing.event.MenuListener;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableRowSorter;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
@@ -62,14 +69,20 @@ import java.awt.RenderingHints;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
+import java.awt.event.ItemEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -85,14 +98,17 @@ import com.sandy.sconsole.qimgtools.core.util.ModelNames;
 /**
  * The topic reviewer's window. The table lists questions of the server's
  * review queue; Load fetches its first questions in place of those shown,
- * Start sends those not yet judged to the review model, and Stop winds that down. Selecting a row shows its image, its AI
- * transcripts and a {@link ReviewDecisionPanel} to keep the server's topic,
- * use the model's, or choose another, for every selected row. Decisions
- * stay in the table, where they can be changed or cleared, until Save
- * decisions sends them to the server off the EDT, with their provenance
- * from {@link ReviewDecision#of}; it accepts every Agreed question it
- * covers that has no decision. The decision keys and buttons,
- * sending, saving and clearing are also on the table's right-click menu.
+ * Start sends those not yet judged to the review model, and Stop winds that
+ * down. Selecting a row shows its image, its AI transcripts and a
+ * {@link ReviewDecisionPanel} to keep the server's topic, use the model's,
+ * or choose another, for every selected row. Decisions stay in the table,
+ * where they can be changed or cleared, until Save decisions sends them to
+ * the server off the EDT, with their provenance from
+ * {@link ReviewDecision#of}; it accepts every Agreed question it covers
+ * that has no decision. Every command is an {@code Action} on the menu bar,
+ * the main ones also as icon buttons ({@link ToolIcon}) on the toolbar; the
+ * decision keys and buttons, sending, saving and clearing are also on the
+ * table's right-click menu.
  * <p>
  * Implements {@link ReviewListener}; its calls arrive on worker threads and
  * are moved to the EDT, where all row state lives.
@@ -154,6 +170,9 @@ public class TopicReviewFrame extends JFrame
 
         List<RateLimitNotice> rateLimitNotices() ;
 
+        /** The OpenRouter queue: questions waiting, running and done. */
+        TaskScheduler.Counts queueCounts() ;
+
         /** What is reviewed, for the title, e.g. "Physics, Maths". */
         String scope() ;
 
@@ -169,6 +188,12 @@ public class TopicReviewFrame extends JFrame
     private static final double SPLIT_RATIO          = 0.72 ;
     private static final int    PREVIEW_PANEL_HEIGHT = 300 ;
     private static final int    ROW_HEIGHT           = 20 ;
+
+    /** Seconds an unattended run waits between batches, to be stopped. */
+    private static final int UNATTENDED_PAUSE_SECONDS = 5 ;
+
+    private static final String RUN_UNATTENDED  = "Run unattended" ;
+    private static final String STOP_UNATTENDED = "Stop unattended processing" ;
 
     /** In {@link #COLUMN_WIDTHS}: as wide as a row is high, not resizable. */
     private static final int SQUARE = 0 ;
@@ -205,6 +230,12 @@ public class TopicReviewFrame extends JFrame
                     Map.entry( ReviewStatus.STILL_FLAGGED, new Color( 0xFCEFC5 ) ),
                     Map.entry( ReviewStatus.ERROR,         new Color( 0xF4D2D2 ) ) ) ) ;
 
+    // The queue section's background: idle, requests in flight, and
+    // questions waiting with none in flight (e.g. held by a rate limit).
+    private static final Color QUEUE_IDLE    = new Color( 0xC8E6C9 ) ;
+    private static final Color QUEUE_ACTIVE  = new Color( 0xFFCC80 ) ;
+    private static final Color QUEUE_WAITING = new Color( 0xF8BBD0 ) ;
+
     /** Which rows the table shows. */
     private enum Show {
 
@@ -238,31 +269,74 @@ public class TopicReviewFrame extends JFrame
     private final ReviewTableModel    model ;
     private final JTable              table ;
     private final TableRowSorter<ReviewTableModel> sorter ;
+    private final HeaderFilterController headerFilters ;
     private final TranscriptPanel     transcriptPanel ;
     private final ReviewDecisionPanel decisionPanel ;
     private final ImagePreview        preview =
             new ImagePreview( PREVIEW_PANEL_HEIGHT ) ;
     private final RateLimitStrip      rateLimitStrip ;
+    private final TopicCompareStrip   compareStrip ;
     private final JLabel              statusBar = new JLabel( " " ) ;
+    private final JLabel              queueBar  = new JLabel( " " ) ;
 
-    private final JButton   searchButton = new JButton( "Criteria…" ) ;
-    private final JButton   loadButton   = new JButton( "Load" ) ;
-    private final JButton   startButton  = new JButton( "Start" ) ;
-    private final JButton   stopButton   = new JButton( "Stop" ) ;
-    private final JButton   saveButton   = new JButton( "Save decisions" ) ;
-    private final JButton   clearButton  = new JButton( "Clear decisions" ) ;
-    private final JButton   useAllButton =
-            new JButton( "Use AI reco for all differing" ) ;
+    // The menus and the toolbar share these actions, and so their state.
+
+    private final Action criteriaAction = action( "Criteria…",
+            ToolIcon.CRITERIA, null, "Choose the syllabuses, topics and " +
+            "batch size Load uses", this::editCriteria ) ;
+    private final Action loadAction = action( "Load", ToolIcon.LOAD,
+            shortcut( KeyEvent.VK_L ), "Fetch the first questions awaiting " +
+            "review that match the criteria (replaces the table)",
+            this::load ) ;
+    private final Action startAction = action( "Start", ToolIcon.START,
+            shortcut( KeyEvent.VK_R ), "Send the pending questions to the " +
+            "review model (right-click rows to send those)", this::start ) ;
+    private final Action stopAction = action( "Stop", ToolIcon.STOP,
+            shortcut( KeyEvent.VK_PERIOD ), "Stop sending questions to the " +
+            "model; requests under way finish", this::stop ) ;
+    private final Action sendAction = action( "Send selected to the model",
+            null, null, "Send the selected questions that are pending, " +
+            "failed or undecided to the review model", this::sendSelected ) ;
+    private final Action useAllAction = action(
+            "Use AI reco for all differing", ToolIcon.USE_AI, null,
+            "Use the model's top topic for every undecided Differs row; " +
+            "nothing is sent until Save decisions", this::useModelForDiffering ) ;
+    private final Action saveAction = action( "Save decisions",
+            ToolIcon.SAVE, shortcut( KeyEvent.VK_S ), "Send the decisions " +
+            "made to the server, accepting every question the model agreed " +
+            "with (red while any wait)", this::saveAll ) ;
+    private final Action clearAction = action( "Clear decisions…",
+            ToolIcon.CLEAR, null, "Forget the unsaved decisions; the " +
+            "model's verdicts stay", this::clearAll ) ;
+    private final Action selectAllAction = action( "Select all shown rows",
+            null, shortcut( KeyEvent.VK_A ), null, this::selectAllRows ) ;
+
+    /** Named "Stop unattended processing" while the loop runs. */
+    private final Action unattendedAction = action( RUN_UNATTENDED, null,
+            shortcut( KeyEvent.VK_U ), "Load, judge, use the model's topic " +
+            "where it differs, save, and repeat until stopped",
+            this::toggleUnattended ) ;
+
+    /** The decision keys 1-4 as menu items; the keys are the table's. */
+    private final Action[] decideActions = {
+            action( "1  Use model's topic", null, null, null,
+                    () -> pressKey( 1 ) ),
+            action( "2  Keep server's topic", null, null, null,
+                    () -> pressKey( 2 ) ),
+            action( "3  Choose topic…", null, null, null,
+                    () -> pressKey( 3 ) ),
+            action( "4  Skip to the next differing", null, null, null,
+                    () -> pressKey( 4 ) ) } ;
+
+    /** The toolbar's Load and Save buttons spin while their call runs. */
+    private final JButton loadButton = toolButton( loadAction ) ;
+    private final JButton saveButton = toolButton( saveAction ) ;
+
     private final JCheckBox loadAfterSaveBox =
             new JCheckBox( "then load again", true ) ;
-    private final JCheckBox rateLimitBox =
-            new JCheckBox( "Show rate limit bar", true ) ;
+    private final JCheckBoxMenuItem rateLimitItem =
+            new JCheckBoxMenuItem( "Show rate limit bar", true ) ;
     private final JComboBox<Show> showBox = new JComboBox<>( Show.values() ) ;
-
-    /** Save button text colour while decisions are unsaved, and otherwise. */
-    private static final Color UNSAVED_FG = new Color( 0xC62828 ) ;
-    private final Color        savedFg    =
-            UIManager.getColor( "Button.foreground" ) ;
 
     private ProcessingState procState = ProcessingState.STOPPED ;
     private boolean         loading ;
@@ -276,6 +350,24 @@ public class TopicReviewFrame extends JFrame
     /** True once the user was told the review model isn't a strong one. */
     private boolean weakModelWarned ;
 
+    /** True while Run unattended loops: load, judge, decide, save. */
+    private boolean unattended ;
+
+    /** The unattended run's batch under way, from 1. */
+    private int batch ;
+
+    /**
+     * What the unattended run is doing, or why it ended, for the status
+     * bar; null before the first.
+     */
+    private String unattendedStep ;
+
+    /** Counts down the pause before the next unattended batch. */
+    private Timer pauseTimer ;
+
+    /** The rate limits the unattended run has logged, so each logs once. */
+    private final Set<String> loggedLimits = new HashSet<>() ;
+
     /**
      * @param transcripts source of the transcripts shown on the right
      * @param names       the names models are shown by
@@ -287,68 +379,53 @@ public class TopicReviewFrame extends JFrame
         this.model           = new ReviewTableModel( names ) ;
         this.table           = new JTable( model ) ;
         this.sorter          = new TableRowSorter<>( model ) ;
+        this.headerFilters   = new HeaderFilterController( table, model,
+                                                           this::applyFilter ) ;
         this.transcriptPanel = new TranscriptPanel( transcripts, names ) ;
         this.decisionPanel   = new ReviewDecisionPanel( this, names ) ;
         this.rateLimitStrip  = new RateLimitStrip( names ) ;
+        this.compareStrip    = new TopicCompareStrip( names ) ;
 
         buildTable() ;
 
-        JToolBar toolbar = new JToolBar() ;
-        toolbar.setFloatable( false ) ;
-        searchButton.setToolTipText( "Choose the syllabuses, topics and " +
-                                     "batch size Load uses" ) ;
-        loadButton.setToolTipText( "Fetch the first questions awaiting " +
-                                   "review that match the criteria " +
-                                   "(replaces the table)" ) ;
-        startButton.setToolTipText( "Send the pending questions to the " +
-                                    "review model (right-click rows to " +
-                                    "send those)" ) ;
-        saveButton.setToolTipText( "Send the decisions made to the server, " +
-                                   "accepting every question the model " +
-                                   "agreed with (red while any wait)" ) ;
-        useAllButton.setToolTipText( "Use the model's top topic for every " +
-                                     "undecided Differs row; nothing is " +
-                                     "sent until Save decisions" ) ;
-        clearButton.setToolTipText( "Forget the unsaved decisions; the " +
-                                    "model's verdicts stay" ) ;
         loadAfterSaveBox.setToolTipText( "After Save decisions, load the " +
                                          "first questions awaiting review " +
                                          "again" ) ;
-        searchButton.addActionListener( e -> editCriteria() ) ;
-        loadButton.addActionListener( e -> load() ) ;
-        startButton.addActionListener( e -> start() ) ;
-        stopButton.addActionListener( e -> {
-            if( controller != null ) controller.stop() ;
-        } ) ;
-        saveButton.addActionListener( e -> saveAll() ) ;
-        clearButton.addActionListener( e -> clearAll() ) ;
-        useAllButton.addActionListener( e -> useModelForDiffering() ) ;
+        loadAfterSaveBox.setFocusable( false ) ;
         showBox.addActionListener( e -> {
             applyFilter() ;
             table.requestFocusInWindow() ;
         } ) ;
-        rateLimitBox.addActionListener( e -> refreshRateLimitStrip() ) ;
+        setJMenuBar( buildMenuBar() ) ;
 
-        toolbar.add( searchButton ) ;
+        JToolBar toolbar = new JToolBar() ;
+        toolbar.setFloatable( false ) ;
+        toolbar.add( toolButton( criteriaAction ) ) ;
         toolbar.add( loadButton ) ;
-        toolbar.add( startButton ) ;
-        toolbar.add( stopButton ) ;
         toolbar.addSeparator() ;
-        toolbar.add( useAllButton ) ;
+        toolbar.add( toolButton( startAction ) ) ;
+        toolbar.add( toolButton( stopAction ) ) ;
+        toolbar.addSeparator() ;
+        toolbar.add( toolButton( useAllAction ) ) ;
         toolbar.add( saveButton ) ;
         toolbar.add( loadAfterSaveBox ) ;
-        toolbar.add( clearButton ) ;
+        toolbar.add( toolButton( clearAction ) ) ;
         toolbar.addSeparator() ;
         toolbar.add( new JLabel( "Show: " ) ) ;
+        // As wide as its longest label; the toolbar would stretch it.
+        showBox.setMaximumSize( showBox.getPreferredSize() ) ;
         toolbar.add( showBox ) ;
-        toolbar.addSeparator() ;
-        toolbar.add( rateLimitBox ) ;
 
         // Table and preview on the left; decision, transcripts and the rate
         // limit strip on the right.
         JPanel left = new JPanel( new BorderLayout() ) ;
         left.add( new JScrollPane( table ), BorderLayout.CENTER ) ;
-        left.add( preview, BorderLayout.SOUTH ) ;
+
+        // The preview with the two topics to compare under it.
+        JPanel below = new JPanel( new BorderLayout() ) ;
+        below.add( preview, BorderLayout.CENTER ) ;
+        below.add( compareStrip, BorderLayout.SOUTH ) ;
+        left.add( below, BorderLayout.SOUTH ) ;
 
         JPanel right = new JPanel( new BorderLayout() ) ;
         right.add( decisionPanel, BorderLayout.NORTH ) ;
@@ -361,10 +438,19 @@ public class TopicReviewFrame extends JFrame
         split.setContinuousLayout( true ) ;
 
         statusBar.setBorder( BorderFactory.createEmptyBorder( 4, 8, 4, 8 ) ) ;
+        queueBar.setBorder( BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder( 0, 1, 0, 0, Color.GRAY ),
+                BorderFactory.createEmptyBorder( 4, 12, 4, 12 ) ) ) ;
+        queueBar.setOpaque( true ) ;
+
+        JPanel footer = new JPanel( new BorderLayout() ) ;
+        footer.add( statusBar, BorderLayout.CENTER ) ;
+        footer.add( queueBar, BorderLayout.EAST ) ;
+
         setLayout( new BorderLayout() ) ;
         add( toolbar, BorderLayout.NORTH ) ;
         add( split, BorderLayout.CENTER ) ;
-        add( statusBar, BorderLayout.SOUTH ) ;
+        add( footer, BorderLayout.SOUTH ) ;
 
         Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment()
                                               .getMaximumWindowBounds() ;
@@ -384,13 +470,173 @@ public class TopicReviewFrame extends JFrame
             }
         } ) ;
 
-        new Timer( 1000, e -> refreshRateLimitStrip() ).start() ;
+        new Timer( 1000, e -> {
+            refreshRateLimitStrip() ;
+            refreshQueueBar() ;
+        } ).start() ;
         updateControls() ;
     }
 
     /** Show what is reviewed in the title. Call once the controller is set. */
     public void showScope() {
         setTitle( "QTopicReviewer - " + controller.scope() ) ;
+    }
+
+    /** An action named {@code name} that runs {@code run}. */
+    private static Action action( String name, Icon icon, KeyStroke key,
+                                  String tip, Runnable run ) {
+
+        Action a = new AbstractAction( name, icon ) {
+            @Override public void actionPerformed( ActionEvent e ) {
+                run.run() ;
+            }
+        } ;
+        a.putValue( Action.ACCELERATOR_KEY, key ) ;
+        a.putValue( Action.SHORT_DESCRIPTION, tip ) ;
+        return a ;
+    }
+
+    /** {@code key} with the menu shortcut modifier: Cmd on the Mac. */
+    private static KeyStroke shortcut( int key ) {
+        return KeyStroke.getKeyStroke( key,
+                Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() ) ;
+    }
+
+    /**
+     * An icon-only toolbar button for {@code action}, its name in the
+     * tooltip; it never takes the focus, so the keys stay with the table.
+     */
+    private static JButton toolButton( Action action ) {
+
+        JButton b = new JButton( action ) ;
+
+        b.setHideActionText( true ) ;
+        b.setFocusable( false ) ;
+        b.setToolTipText( "<html><b>" + action.getValue( Action.NAME ) +
+                          "</b><br>" +
+                          action.getValue( Action.SHORT_DESCRIPTION ) ) ;
+        return b ;
+    }
+
+    /**
+     * File (criteria, load, exit), Review (start, stop, send), Decisions
+     * (the decision keys, staging, saving, clearing) and View (status
+     * filter, header filters, select all, rate limit bar). The toolbar
+     * shares their actions.
+     */
+    private JMenuBar buildMenuBar() {
+
+        JMenu     file = new JMenu( "File" ) ;
+        JMenuItem exit = new JMenuItem( "Exit" ) ;
+
+        exit.addActionListener( e -> dispatchEvent(
+                new WindowEvent( this, WindowEvent.WINDOW_CLOSING ) ) ) ;
+        file.add( criteriaAction ) ;
+        file.add( loadAction ) ;
+        file.add( unattendedAction ) ;
+        file.addSeparator() ;
+        file.add( exit ) ;
+
+        JMenu review = new JMenu( "Review" ) ;
+        review.add( startAction ) ;
+        review.add( stopAction ) ;
+        review.addSeparator() ;
+        review.add( sendAction ) ;
+        refreshOnOpen( review ) ;
+
+        JMenu             decisions  = new JMenu( "Decisions" ) ;
+        JCheckBoxMenuItem loadAfter  = new JCheckBoxMenuItem(
+                "Load again after saving" ) ;
+
+        // One model, so the menu item and the toolbar's box stay in step.
+        loadAfter.setModel( loadAfterSaveBox.getModel() ) ;
+        for( Action a : decideActions ) decisions.add( a ) ;
+        decisions.addSeparator() ;
+        decisions.add( useAllAction ) ;
+        decisions.addSeparator() ;
+        decisions.add( saveAction ) ;
+        decisions.add( loadAfter ) ;
+        decisions.add( clearAction ) ;
+        refreshOnOpen( decisions ) ;
+
+        JMenu     view         = new JMenu( "View" ) ;
+        JMenuItem clearFilters = new JMenuItem( "Clear all column filters" ) ;
+
+        clearFilters.addActionListener( e -> headerFilters.clearAll() ) ;
+        rateLimitItem.addActionListener( e -> refreshRateLimitStrip() ) ;
+        view.add( buildShowMenu() ) ;
+        view.add( clearFilters ) ;
+        view.addSeparator() ;
+        view.add( selectAllAction ) ;
+        view.addSeparator() ;
+        view.add( rateLimitItem ) ;
+
+        JMenuBar bar = new JMenuBar() ;
+        bar.add( file ) ;
+        bar.add( review ) ;
+        bar.add( decisions ) ;
+        bar.add( view ) ;
+        return bar ;
+    }
+
+    /** The status filter as radio items, in step with the toolbar's. */
+    private JMenu buildShowMenu() {
+
+        JMenu       menu  = new JMenu( "Show" ) ;
+        ButtonGroup group = new ButtonGroup() ;
+
+        for( Show show : Show.values() ) {
+            JRadioButtonMenuItem item = new JRadioButtonMenuItem(
+                    show.label, show == showBox.getSelectedItem() ) ;
+
+            item.addActionListener( e -> showBox.setSelectedItem( show ) ) ;
+            showBox.addItemListener( e -> {
+                if( e.getItem() == show
+                    && e.getStateChange() == ItemEvent.SELECTED ) {
+                    item.setSelected( true ) ;
+                }
+            } ) ;
+            group.add( item ) ;
+            menu.add( item ) ;
+        }
+        return menu ;
+    }
+
+    /** Bring the selection's actions up to date as {@code menu} opens. */
+    private void refreshOnOpen( JMenu menu ) {
+        menu.addMenuListener( new MenuListener() {
+            @Override public void menuSelected( MenuEvent e ) {
+                updateSelectionActions() ;
+            }
+
+            @Override public void menuDeselected( MenuEvent e ) {}
+
+            @Override public void menuCanceled( MenuEvent e ) {}
+        } ) ;
+    }
+
+    /**
+     * Enable the actions on the selected rows as the selection allows; the
+     * decisions as the decision panel's buttons are.
+     */
+    private void updateSelectionActions() {
+
+        sendAction.setEnabled( controller != null && !unattended
+                               && procState != ProcessingState.STOPPING
+                               && !sendableSelection().isEmpty() ) ;
+        for( int n = 1 ; n <= 3 ; n++ ) {
+            decideActions[n - 1].setEnabled( decisionPanel.canPress( n ) ) ;
+        }
+        decideActions[3].setEnabled( table.getRowCount() > 0 ) ;
+    }
+
+    /**
+     * Decision key {@code n}: 1-3 press the decision panel's buttons, 4
+     * skips to the next question that differs.
+     */
+    private void pressKey( int n ) {
+        if( n == 4 ) select( nextDiffering( List.of() ) ) ;
+        else decisionPanel.press( n ) ;
     }
 
     private void buildTable() {
@@ -410,7 +656,6 @@ public class TopicReviewFrame extends JFrame
             if( !e.getValueIsAdjusting() ) showSelection() ;
         } ) ;
         bindDecisionKeys() ;
-        bindSelectAll() ;
         addRowMenu() ;
     }
 
@@ -439,25 +684,17 @@ public class TopicReviewFrame extends JFrame
      */
     private void addRowMenu() {
 
-        JPopupMenu  menu   = new JPopupMenu() ;
-        JMenuItem   send   = new JMenuItem() ;
-        JMenuItem   save   = new JMenuItem() ;
-        JMenuItem   clear  = new JMenuItem() ;
-        JMenuItem[] decide = {
-                new JMenuItem( "1  Use model's topic" ),
-                new JMenuItem( "2  Keep server's topic" ),
-                new JMenuItem( "3  Choose topic…" ) } ;
+        JPopupMenu menu  = new JPopupMenu() ;
+        JMenuItem  send  = new JMenuItem() ;
+        JMenuItem  save  = new JMenuItem() ;
+        JMenuItem  clear = new JMenuItem() ;
 
-        send.addActionListener( e -> send( sendableSelection() ) ) ;
+        send.addActionListener( e -> sendSelected() ) ;
         save.addActionListener( e -> save( selectedRows(), null, () -> {} ) ) ;
         clear.addActionListener( e -> clear( selectedRows() ) ) ;
         menu.add( send ) ;
         menu.addSeparator() ;
-        for( int i = 0 ; i < decide.length ; i++ ) {
-            int n = i + 1 ;
-            decide[i].addActionListener( e -> decisionPanel.press( n ) ) ;
-            menu.add( decide[i] ) ;
-        }
+        for( int i = 0 ; i < 3 ; i++ ) menu.add( decideActions[i] ) ;
         menu.addSeparator() ;
         menu.add( save ) ;
         menu.add( clear ) ;
@@ -483,11 +720,9 @@ public class TopicReviewFrame extends JFrame
 
                 send.setText( "Send " + plural( n, "question" ) +
                               " to the model" ) ;
-                send.setEnabled( n > 0 && controller != null
+                send.setEnabled( n > 0 && controller != null && !unattended
                                  && procState != ProcessingState.STOPPING ) ;
-                for( int i = 0 ; i < decide.length ; i++ ) {
-                    decide[i].setEnabled( decisionPanel.canPress( i + 1 ) ) ;
-                }
+                updateSelectionActions() ;
                 save.setText( "Save " + plural( savable, "decision" ) ) ;
                 save.setEnabled( savable > 0 && controller != null ) ;
                 clear.setText( "Clear " + plural( unsaved, "decision" ) ) ;
@@ -526,30 +761,21 @@ public class TopicReviewFrame extends JFrame
     }
 
     /**
-     * Cmd+A (Ctrl+A off the Mac) anywhere in the window selects every row the
-     * filter shows, unless the focused component uses the key itself (a text
-     * area selects its text).
+     * Select every row the filter shows: View's Cmd+A (Ctrl+A off the Mac),
+     * unless the focused component uses the key itself (a text area selects
+     * its text).
      */
-    private void bindSelectAll() {
-
-        KeyStroke key = KeyStroke.getKeyStroke( KeyEvent.VK_A,
-                Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() ) ;
-        JComponent root = getRootPane() ;
-
-        root.getInputMap( JComponent.WHEN_IN_FOCUSED_WINDOW )
-            .put( key, "select-all-rows" ) ;
-        root.getActionMap().put( "select-all-rows", new AbstractAction() {
-            @Override public void actionPerformed( ActionEvent e ) {
-                table.selectAll() ;
-                table.requestFocusInWindow() ;
-            }
-        } ) ;
+    private void selectAllRows() {
+        table.selectAll() ;
+        table.requestFocusInWindow() ;
     }
 
     /**
      * Keys 1-4 on the table (main row or keypad), for every selected row: 1
      * use the model's topic, 2 keep the server's, 3 choose a topic; 4 skips
-     * to the next question that differs.
+     * to the next question that differs. The Decisions menu's items show
+     * them; they aren't its accelerators, which would take the digits from
+     * the whole window.
      */
     private void bindDecisionKeys() {
 
@@ -562,10 +788,11 @@ public class TopicReviewFrame extends JFrame
 
             keys.put( KeyStroke.getKeyStroke( KeyEvent.VK_0 + n, 0 ), name ) ;
             keys.put( KeyStroke.getKeyStroke( KeyEvent.VK_NUMPAD0 + n, 0 ), name ) ;
+            // Not the menu's action: its enabled state is only brought up
+            // to date as a menu opens.
             actions.put( name, new AbstractAction() {
                 @Override public void actionPerformed( ActionEvent e ) {
-                    if( key == 4 ) select( nextDiffering( List.of() ) ) ;
-                    else decisionPanel.press( key ) ;
+                    pressKey( key ) ;
                 }
             } ) ;
         }
@@ -581,6 +808,15 @@ public class TopicReviewFrame extends JFrame
 
         if( controller == null || loading ) return ;
         if( !discardUnsaved( "Load" ) ) return ;
+        fetch( () -> {} ) ;
+    }
+
+    /**
+     * Load without asking about unsaved decisions, then run
+     * {@code onLoaded} once the rows are shown; a failure is reported
+     * instead, and ends an unattended run.
+     */
+    private void fetch( Runnable onLoaded ) {
 
         loading = true ;
         statusBar.setText( "Loading the review queue…" ) ;
@@ -594,20 +830,25 @@ public class TopicReviewFrame extends JFrame
 
             @Override protected void done() {
 
+                boolean loaded = false ;
+
                 loading = false ;
                 Spinner.idle( loadButton ) ;
                 try {
                     showItems( get() ) ;
+                    loaded = true ;
                 }
                 catch( Exception e ) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e ;
                     log.error( "Could not load the review queue", cause ) ;
+                    endUnattended( "could not load the review queue" ) ;
                     JOptionPane.showMessageDialog( TopicReviewFrame.this,
                             "Could not load the review queue:\n" +
                             cause.getMessage(), "Load",
                             JOptionPane.ERROR_MESSAGE ) ;
                 }
                 updateControls() ;
+                if( loaded ) onLoaded.run() ;
             }
         }.execute() ;
     }
@@ -621,6 +862,7 @@ public class TopicReviewFrame extends JFrame
         flagged = loaded.flagged() ;
         model.setItems( loaded.items() ) ;
         decisionPanel.show( List.of() ) ;
+        compareStrip.show( null ) ;
         preview.show( null ) ;
         for( ReviewItem item : loaded.items() ) {
             Row row = model.rowOf( item ) ;
@@ -683,6 +925,20 @@ public class TopicReviewFrame extends JFrame
     }
 
     /**
+     * Wind the run down: no new requests, running ones finish. Ends an
+     * unattended run too.
+     */
+    private void stop() {
+        if( unattended ) endUnattended( "stopped by the user" ) ;
+        else if( controller != null ) controller.stop() ;
+    }
+
+    /** Send the selected rows that may be sent to the model. */
+    private void sendSelected() {
+        send( sendableSelection() ) ;
+    }
+
+    /**
      * Queue {@code rows} for the model; a verdict they have stays till then,
      * an unsaved decision is dropped.
      */
@@ -725,7 +981,8 @@ public class TopicReviewFrame extends JFrame
 
     /**
      * Send the unsaved decisions of {@code rows} to the server, then run
-     * {@code after}; {@code button}, if not null, spins meanwhile. Each
+     * {@code after} (at once if there are none); {@code button}, if not
+     * null, spins meanwhile. Each
      * Agreed row among them is first decided as accepted: its server topic,
      * the model's best, so it is sent as the model's.
      */
@@ -742,11 +999,13 @@ public class TopicReviewFrame extends JFrame
                                              .filter( Row::isUnsaved )
                                              .map( r -> r.decision )
                                              .toList() ;
-        if( decisions.isEmpty() ) return ;
+        if( decisions.isEmpty() ) {
+            after.run() ;
+            return ;
+        }
         confirm( decisions, button, after ) ;
     }
 
-    /** After confirmation, forget every unsaved decision. */
     /**
      * Give every undecided Differs row the model's best topic (staged, as
      * key 1 would).
@@ -805,6 +1064,194 @@ public class TopicReviewFrame extends JFrame
                 plural( (int) n, "decision" ) + " not saved yet will be " +
                 "lost. Continue?", title, JOptionPane.OK_CANCEL_OPTION )
                == JOptionPane.OK_OPTION ;
+    }
+
+    // ---- unattended runs -----------------------------------------------
+
+    /** File > Run unattended, or Stop unattended processing while on. */
+    private void toggleUnattended() {
+        if( unattended ) endUnattended( "stopped by the user" ) ;
+        else startUnattended() ;
+    }
+
+    /**
+     * Loop until stopped, logging each step: load a batch with the criteria
+     * in effect, send its pending questions to the model, use the model's
+     * top topic for every question that differs, save (accepting those it
+     * agrees with), and after {@link #UNATTENDED_PAUSE_SECONDS} load the
+     * next batch. The loop ends by itself when nothing awaits review, or a
+     * batch clears no question (its rows would only come back).
+     */
+    private void startUnattended() {
+
+        if( controller == null || loading
+            || procState != ProcessingState.STOPPED ) return ;
+        if( !discardUnsaved( RUN_UNATTENDED ) ) return ;
+
+        unattended = true ;
+        batch      = 0 ;
+
+        loggedLimits.clear() ;
+
+        unattendedAction.putValue( Action.NAME, STOP_UNATTENDED ) ;
+        log.info( "[unattended] Started: {}", controller.scope() ) ;
+        nextBatch() ;
+    }
+
+    /**
+     * End the unattended run, if one is going, saying {@code why}; a model
+     * run under way winds down, a save under way finishes, and the table is
+     * left as it is for the user to take over.
+     */
+    private void endUnattended( String why ) {
+
+        if( !unattended ) return ;
+        unattended     = false ;
+        unattendedStep = "ended, " + why ;
+
+        if( pauseTimer != null ) pauseTimer.stop() ;
+        pauseTimer = null ;
+        unattendedAction.putValue( Action.NAME, RUN_UNATTENDED ) ;
+        if( procState == ProcessingState.RUNNING ) controller.stop() ;
+        log.info( "[unattended] Ended in batch {}: {}", batch, why ) ;
+        updateControls() ;
+    }
+
+    private void nextBatch() {
+
+        if( !unattended ) return ;
+        refreshRateLimitStrip() ;
+        if( !unattended ) return ;      // the daily limit is reached
+
+        batch++ ;
+        log.info( "[unattended] Batch {}: loading the review queue", batch ) ;
+        unattendedStep = "loading" ;
+        fetch( this::batchLoaded ) ;
+    }
+
+    /** The batch is shown: send its pending questions to the model. */
+    private void batchLoaded() {
+
+        if( !unattended ) return ;
+        if( model.getRowCount() == 0 ) {
+            endUnattended( "no questions await review" ) ;
+            return ;
+        }
+
+        List<Row> pending = model.rows().stream()
+                                 .filter( TopicReviewFrame::isPending )
+                                 .toList() ;
+
+        log.info( "[unattended] Batch {}: {} loaded, {} to send to the " +
+                  "model, {} await review on the server", batch,
+                  model.getRowCount(), pending.size(), flagged ) ;
+        if( pending.isEmpty() ) {
+            batchJudged() ;
+            return ;
+        }
+        step( "judging " + plural( pending.size(), "question" ) ) ;
+        send( pending ) ;
+    }
+
+    /**
+     * The model is done with the batch (or none of it needed sending): use
+     * its top topic for every question that differs, and save.
+     */
+    private void batchJudged() {
+
+        if( !unattended ) return ;
+        List<Row> differing = differingUndecided() ;
+
+        for( Row row : model.rows() ) logJudgement( row ) ;
+        useModel( differing, null ) ;
+        log.info( "[unattended] Batch {}: saving ({} overridden with the " +
+                  "model's topic)", batch, differing.size() ) ;
+        step( "saving" ) ;
+        save( model.rows(), saveButton, this::batchSaved ) ;
+    }
+
+    /** Log what the model made of {@code row}, before it is decided. */
+    private void logJudgement( Row row ) {
+
+        String q      = row.questionLabel() ;
+        String server = row.question.getTopicName() ;
+
+        if( row.status == ReviewStatus.AGREED ) {
+            log.info( "[unattended]   {}: agrees - {} ({}%)", q, server,
+                      row.verdict.topConfidence() ) ;
+        }
+        else if( row.status == ReviewStatus.DIFFERS && row.canUseModel() ) {
+            log.info( "[unattended]   {}: differs - {} -> {} ({}%)", q,
+                      server, row.verdict.top().getTopicName(),
+                      row.verdict.topConfidence() ) ;
+        }
+        else {
+            log.info( "[unattended]   {}: skipped - {}{}", q,
+                      row.status.getLabel(),
+                      row.result != null ? ": " + row.result : "" ) ;
+        }
+    }
+
+    /**
+     * The batch is saved: log the outcome, and pause before the next one,
+     * unless nothing is left or the batch cleared no question.
+     */
+    private void batchSaved() {
+
+        if( !unattended ) return ;
+        long cleared = model.count( ReviewStatus.KEPT )
+                       + model.count( ReviewStatus.OVERRIDDEN ) ;
+
+        for( Row row : model.rows() ) {
+            if( row.status != ReviewStatus.ERROR ) continue ;
+            log.warn( "[unattended]   {}: not saved - {}",
+                      row.questionLabel(), row.result ) ;
+        }
+        log.info( "[unattended] Batch {} saved: {} kept, {} overridden, " +
+                  "{} still flagged, {} errors, {} failed, {} without " +
+                  "images; {} await review", batch,
+                  model.count( ReviewStatus.KEPT ),
+                  model.count( ReviewStatus.OVERRIDDEN ),
+                  model.count( ReviewStatus.STILL_FLAGGED ),
+                  model.count( ReviewStatus.ERROR ),
+                  model.count( ReviewStatus.FAILED ),
+                  model.count( ReviewStatus.NO_IMAGES ), flagged ) ;
+
+        if( flagged == 0 ) endUnattended( "no questions await review" ) ;
+        else if( cleared == 0 ) {
+            endUnattended( "the batch cleared no question, so the next " +
+                           "would bring the same ones back" ) ;
+        }
+        else pauseBeforeNextBatch() ;
+    }
+
+    /**
+     * Count down {@link #UNATTENDED_PAUSE_SECONDS} in the status bar, the
+     * user's chance to stop, then load the next batch.
+     */
+    private void pauseBeforeNextBatch() {
+
+        int[] left = { UNATTENDED_PAUSE_SECONDS } ;
+
+        log.info( "[unattended] Next batch in {} s - File > {} to take over",
+                  left[0], STOP_UNATTENDED ) ;
+        step( "next batch in " + left[0] + " s" ) ;
+        pauseTimer = new Timer( 1000, e -> {
+            if( --left[0] > 0 ) {
+                step( "next batch in " + left[0] + " s" ) ;
+                return ;
+            }
+            ( (Timer) e.getSource() ).stop() ;
+            pauseTimer = null ;
+            nextBatch() ;
+        } ) ;
+        pauseTimer.start() ;
+    }
+
+    /** Show {@code what} the unattended run is doing in the status bar. */
+    private void step( String what ) {
+        unattendedStep = what ;
+        updateControls() ;
     }
 
     // ---- decisions -----------------------------------------------------
@@ -1089,7 +1536,8 @@ public class TopicReviewFrame extends JFrame
                     showResult( row, decisions.get( i ), results.get( i ) ) ;
                     rowChanged( row ) ;
                 }
-                warnIfWeakModel( decisions, results ) ;
+                // An unattended run notes them in its batch summary.
+                if( !unattended ) warnIfWeakModel( decisions, results ) ;
                 after.run() ;
             }
         }.execute() ;
@@ -1224,6 +1672,7 @@ public class TopicReviewFrame extends JFrame
                 if( table.getSelectedRowCount() == 0 ) selectFirstDiffering() ;
             }
             updateControls() ;
+            if( state == ProcessingState.STOPPED ) batchJudged() ;
         } ) ;
     }
 
@@ -1254,6 +1703,7 @@ public class TopicReviewFrame extends JFrame
     private void rowChanged( Row row ) {
         model.changed( row ) ;
         decisionPanel.refresh( row ) ;
+        compareStrip.refresh( row ) ;
         updateControls() ;
     }
 
@@ -1261,6 +1711,7 @@ public class TopicReviewFrame extends JFrame
 
         Row row = selectedRow() ;
         decisionPanel.show( selectedRows() ) ;
+        compareStrip.show( table.getSelectedRowCount() == 1 ? row : null ) ;
         preview.show( row != null && row.item.hasImages()
                       ? row.item.task().getImgFiles() : null ) ;
         if( row != null && row.item.hasImages() ) {
@@ -1281,7 +1732,9 @@ public class TopicReviewFrame extends JFrame
             @Override
             public boolean include(
                     Entry<? extends ReviewTableModel,? extends Integer> e ) {
-                return show.test.test( model.getRow( e.getIdentifier() ).status ) ;
+                Row row = model.getRow( e.getIdentifier() ) ;
+                return show.test.test( row.status )
+                       && headerFilters.accepts( row ) ;
             }
         } ) ;
     }
@@ -1294,17 +1747,23 @@ public class TopicReviewFrame extends JFrame
         boolean savable = model.rows().stream()
                                .anyMatch( TopicReviewFrame::isSavable ) ;
 
-        loadButton.setEnabled( stopped && !loading && !saving ) ;
-        startButton.setEnabled( stopped && !loading
+        boolean idle    = stopped && !loading && !saving ;
+        boolean manual  = !unattended ;
+
+        // An unattended run does the loading, judging and saving itself.
+        criteriaAction.setEnabled( manual ) ;
+        loadAction.setEnabled( manual && idle ) ;
+        startAction.setEnabled( manual && stopped && !loading
                                 && model.rows().stream().anyMatch(
                                         TopicReviewFrame::isPending ) ) ;
-        stopButton.setEnabled( procState == ProcessingState.RUNNING ) ;
-        saveButton.setEnabled( savable && controller != null ) ;
-        saveButton.setForeground( savable ? UNSAVED_FG : savedFg ) ;
-        saveButton.setFont( saveButton.getFont().deriveFont(
-                savable ? Font.BOLD : Font.PLAIN ) ) ;
-        clearButton.setEnabled( unsaved > 0 ) ;
-        useAllButton.setEnabled( !differingUndecided().isEmpty() ) ;
+        stopAction.setEnabled( unattended
+                               || procState == ProcessingState.RUNNING ) ;
+        unattendedAction.setEnabled( unattended
+                                     || idle && controller != null ) ;
+        // Its icon is red while enabled, i.e. while decisions wait.
+        saveAction.setEnabled( manual && savable && controller != null ) ;
+        clearAction.setEnabled( manual && unsaved > 0 ) ;
+        useAllAction.setEnabled( manual && !differingUndecided().isEmpty() ) ;
         if( saving ) Spinner.spin( table ) ;
         else Spinner.halt( table ) ;
         if( !loading ) refreshStatusBar() ;
@@ -1335,13 +1794,73 @@ public class TopicReviewFrame extends JFrame
                     model.count( ReviewStatus.RUNNING ) + " running, " +
                     model.count( ReviewStatus.QUEUED ) + " queued" ;
         }
+        // Kept after the run ends, to say why it did.
+        if( unattendedStep != null ) {
+            text = "Unattended, batch " + batch + ": " + unattendedStep +
+                   "   |   " + text ;
+        }
         statusBar.setText( text ) ;
     }
 
+    /**
+     * Show the OpenRouter queue's counts: green when nothing waits or runs,
+     * orange while requests are in flight, pink when questions wait but
+     * none is in flight.
+     */
+    private void refreshQueueBar() {
+
+        if( controller == null ) return ;
+
+        TaskScheduler.Counts c = controller.queueCounts() ;
+
+        queueBar.setText( "OpenRouter:  " + c.processed() + " processed,  " +
+                          c.running() + " running,  " + c.queued() +
+                          " in queue" ) ;
+        queueBar.setBackground( c.running() > 0 ? QUEUE_ACTIVE
+                              : c.queued()  > 0 ? QUEUE_WAITING
+                              : QUEUE_IDLE ) ;
+    }
+
     private void refreshRateLimitStrip() {
-        rateLimitStrip.update( controller != null ? controller.rateLimitNotices()
-                                                  : List.of(),
-                               rateLimitBox.isSelected() ) ;
+
+        List<RateLimitNotice> notices = controller != null
+                                      ? controller.rateLimitNotices()
+                                      : List.of() ;
+
+        rateLimitStrip.update( notices, rateLimitItem.isSelected() ) ;
+        if( unattended ) watchRateLimits( notices ) ;
+    }
+
+    /**
+     * During an unattended run: end it once the daily quota is used up, as
+     * nothing more can be judged today. Any other limit (per minute, a busy
+     * model) is logged as it starts; the scheduler waits it out and goes on.
+     */
+    private void watchRateLimits( List<RateLimitNotice> notices ) {
+
+        for( RateLimitNotice n : notices ) {
+            if( n.daily() ) {
+                endUnattended( "daily request limit reached (" + n.reason() +
+                               "), it resets at " + clock( n.until() ) ) ;
+                return ;
+            }
+        }
+        for( RateLimitNotice n : notices ) {
+            String key = n.agent() + "/" + n.model() + "@" + n.until() ;
+            if( !loggedLimits.add( key ) ) continue ;
+            log.info( "[unattended] {} rate limited ({}) - waiting till {}, " +
+                      "then going on", n.model() != null
+                                       ? names.of( n.model() )
+                                       : n.agent().getDisplayName(),
+                      n.reason(), clock( n.until() ) ) ;
+        }
+    }
+
+    /** Epoch ms {@code at} as local HH:mm:ss. */
+    private static String clock( long at ) {
+        return LocalTime.ofInstant( Instant.ofEpochMilli( at ),
+                                    ZoneId.systemDefault() )
+                        .truncatedTo( ChronoUnit.SECONDS ).toString() ;
     }
 
     /**

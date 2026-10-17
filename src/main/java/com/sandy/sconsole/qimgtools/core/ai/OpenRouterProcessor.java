@@ -192,6 +192,7 @@ public class OpenRouterProcessor implements AIProcessor {
 
         if( message.contains( "per-day" ) || limitSource.contains( "per_day" ) ) {
             reason = "OpenRouter daily request limit reached" ;
+            scope  = RateLimitScope.DAY ;
         }
         else if( message.contains( "per-min" )
                  || limitSource.contains( "per_minute" ) ) {

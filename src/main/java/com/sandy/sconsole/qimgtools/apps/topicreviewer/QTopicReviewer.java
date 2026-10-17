@@ -25,7 +25,8 @@ import com.sandy.sconsole.qimgtools.apps.topicreviewer.server.SConsoleServerClie
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.TopicReviewFrame;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.util.ReviewConfig;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.workspace.ReviewCriteriaStore;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.workspace.ReviewLog;
+import com.sandy.sconsole.qimgtools.apps.topicreviewer.workspace.PendingVerdicts;
+import com.sandy.sconsole.qimgtools.apps.topicreviewer.workspace.ReviewAuditLog;
 import com.sandy.sconsole.qimgtools.core.util.ModelNames;
 import com.sandy.sconsole.qimgtools.core.workspace.TranscriptStore;
 import com.sandy.sconsole.qimgtools.core.workspace.UsageLog;
@@ -50,7 +51,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * of those shown, and each question's images are found in the local question bank. Start sends the questions
  * without a verdict to the model through the classifier's
  * {@link TaskScheduler} (retries, backup models, rate limits); each reply is
- * compared with the server's topic and stored in the {@link ReviewLog}. The
+ * compared with the server's topic and kept in {@link PendingVerdicts} until
+ * the server settles the question (and in the {@link ReviewAuditLog}). The
  * user then confirms a topic for each question, which is sent to the
  * server's review endpoint in batches with its provenance (see
  * {@link ReviewDecision#of}). Settings come from
@@ -72,7 +74,8 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
     private final ReviewConfig         config ;
     private final SConsoleServerClient server ;
     private final TopicRepo            topicRepo ;
-    private final ReviewLog            reviewLog ;
+    private final PendingVerdicts      pending ;
+    private final ReviewAuditLog       audit ;
     private final QuestionLocator      locator ;
     private final AIInvoker            aiInvoker ;
     private final ReviewOutcomes       outcomes ;
@@ -101,7 +104,8 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
         this.server    = server ;
         this.topicRepo = topicRepo ;
         this.listener  = frame ;
-        this.reviewLog = new ReviewLog( config.getReviewLogFile() ) ;
+        this.pending   = new PendingVerdicts( config.getPendingVerdictsFile() ) ;
+        this.audit     = new ReviewAuditLog( config.getReviewAuditFile() ) ;
         this.locator   = new QuestionLocator( config.getQBankDir() ) ;
         this.criteriaStore = new ReviewCriteriaStore(
                 config.getReviewCriteriaFile() ) ;
@@ -123,7 +127,8 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
                                         config.getRequestHistoryFile(),
                                         topicRepo, PROMPT_DIR ) ;
         this.outcomes  = new ReviewOutcomes(
-                frame, reviewLog, new TranscriptStore( config.getWorkspaceDir() ),
+                frame, pending, audit,
+                new TranscriptStore( config.getWorkspaceDir() ),
                 new UsageLog( config.getUsageLogFile() ), topicRepo ) ;
         this.scheduler = new TaskScheduler( aiInvoker, outcomes ) ;
 
@@ -239,7 +244,7 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
 
     @Override
     public ReviewVerdict storedVerdict( ReviewItem item ) {
-        return reviewLog.verdict( item.question() ) ;
+        return pending.verdict( item.question() ) ;
     }
 
     /**
@@ -352,6 +357,8 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
                         .toList() ;
         }
 
+        List<ServerQuestion> settled = new ArrayList<>() ;
+
         for( int i = 0 ; i < batch.size() ; i++ ) {
             ReviewDecision d    = batch.get( i ) ;
             ReviewResult   r    = results.get( i ) ;
@@ -361,18 +368,30 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
             log.info( "{}: topic {} ({} {}) - {}{}", d.item(),
                       d.topic().getId(), d.actor(),
                       d.model() != null ? d.model() : "", r.status(), note ) ;
-            if( r.accepted() ) recordDecision( d, r ) ;
+            if( !r.accepted() ) continue ;
+
+            recordDecision( d, r ) ;
+            // A question still flagged comes back in the next fetch; its
+            // verdict is kept so it isn't asked again.
+            if( !r.stillFlagged() ) settled.add( d.item().question() ) ;
+        }
+        try {
+            pending.remove( settled ) ;
+        }
+        catch( Exception e ) {
+            log.error( "Could not drop {} settled verdicts", settled.size(),
+                       e ) ;
         }
         return results ;
     }
 
-    /** Note the decision in the review log; a failure is only logged. */
+    /** Note the decision in the audit log; a failure is only logged. */
     private void recordDecision( ReviewDecision d, ReviewResult r ) {
         try {
-            reviewLog.saveDecision( d.item().question(), d, r ) ;
+            audit.decision( d.item().question(), d, r ) ;
         }
         catch( Exception e ) {
-            log.error( "{}: could not record the decision in the review log",
+            log.error( "{}: could not record the decision in the audit log",
                        d.item(), e ) ;
         }
     }
@@ -410,6 +429,11 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
     @Override
     public List<RateLimitNotice> rateLimitNotices() {
         return aiInvoker.rateLimitNotices() ;
+    }
+
+    @Override
+    public TaskScheduler.Counts queueCounts() {
+        return scheduler.counts() ;
     }
 
     @Override

@@ -88,6 +88,9 @@ public class TaskScheduler {
     /** Batch jobs queued or running; the batch is done at 0. */
     private int batchOutstanding ;
 
+    /** Jobs that have finished, stored or failed, since the start. */
+    private int processed ;
+
     /** Order of submission; jobs put at the front count down from 0. */
     private long backSeq ;
     private long frontSeq ;
@@ -228,6 +231,18 @@ public class TaskScheduler {
     public boolean hasBatchWork() {
         synchronized( lock ) {
             return batchOutstanding > 0 ;
+        }
+    }
+
+    /**
+     * How many jobs are waiting (including those between attempts), how
+     * many have a request in flight, and how many have finished.
+     */
+    public record Counts( int queued, int running, int processed ) {}
+
+    public Counts counts() {
+        synchronized( lock ) {
+            return new Counts( queue.size(), running.size(), processed ) ;
         }
     }
 
@@ -520,6 +535,7 @@ public class TaskScheduler {
         finally {
             synchronized( lock ) {
                 if( job.batch ) batchOutstanding-- ;
+                if( job.started ) processed++ ;   // not if dropped unstarted
                 lock.notifyAll() ;
             }
         }

@@ -6,8 +6,9 @@ package com.sandy.sconsole.qimgtools.core.ai;
  *
  * @param until  epoch ms from which requests may be sent again
  * @param reason readable cause, shown in the rate-limit notices
+ * @param daily  true if it lasts until the daily quota resets
  */
-record Pause( long until, String reason ) {
+record Pause( long until, String reason, boolean daily ) {
 
     /** True while the pause holds requests back. */
     boolean isActive( long now ) { return until > now ; }

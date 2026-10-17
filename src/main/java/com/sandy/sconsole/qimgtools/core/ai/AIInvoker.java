@@ -394,15 +394,17 @@ public class AIInvoker {
             AIAgent agent = processors.get( p ).getAgent() ;
             String reason = heldBackReason( p, now ) ;
             if( reason != null ) {
-                notices.add( new RateLimitNotice( agent, null, reason,
-                                                  availableAt( p, now ) ) ) ;
+                notices.add( new RateLimitNotice(
+                        agent, null, reason, availableAt( p, now ),
+                        limiters[p].isHeldForTheDay( now ) ) ) ;
                 continue ;
             }
             modelPauses.get( p ).forEach( ( model, pause ) -> {
                 if( pause.isActive( now ) ) {
                     notices.add( new RateLimitNotice( agent, model,
                                                       pause.reason(),
-                                                      pause.until() ) ) ;
+                                                      pause.until(),
+                                                      false ) ) ;
                 }
             } ) ;
         }
@@ -476,16 +478,18 @@ public class AIInvoker {
         int  p     = processors.indexOf( processor ) ;
 
         boolean wholeProcessor =
-                e.getScope() == AIProcessor.RateLimitScope.PROCESSOR ;
+                e.getScope() != AIProcessor.RateLimitScope.MODEL ;
+        boolean daily  = e.getScope() == AIProcessor.RateLimitScope.DAY ;
         String  reason = e.getExplanation() != null ? e.getExplanation()
                                                     : e.getMessage() ;
 
         synchronized( this ) {
             if( wholeProcessor ) {
-                limiters[p].suspend( until, reason ) ;
+                limiters[p].suspend( until, reason, daily ) ;
             }
             else {
-                modelPauses.get( p ).merge( model, new Pause( until, reason ),
+                modelPauses.get( p ).merge( model,
+                                            new Pause( until, reason, false ),
                                             Pause::later ) ;
             }
         }

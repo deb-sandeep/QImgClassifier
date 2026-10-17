@@ -37,8 +37,11 @@ public final class ReviewConfig {
     /** Root of the reviewer's files and per-question transcripts. */
     private final File workspaceDir ;
 
-    /** Model verdicts and review decisions, per server question id. */
-    private final File reviewLogFile ;
+    /** Model verdicts on questions not yet settled on the server. */
+    private final File pendingVerdictsFile ;
+
+    /** Every verdict and decision, appended as JSON lines. */
+    private final File reviewAuditFile ;
 
     /** The search criteria last saved in the reviewer. */
     private final File reviewCriteriaFile ;
@@ -78,12 +81,13 @@ public final class ReviewConfig {
         serverConnectTimeout = props.seconds( "server.connect.timeout.seconds" ) ;
         serverRequestTimeout = props.seconds( "server.request.timeout.seconds" ) ;
 
-        qBankDir           = props.path( "question.bank.dir" ) ;
-        workspaceDir       = props.workspaceDir( "workspace.dir" ) ;
-        reviewLogFile      = props.workspacePath( "review.log.file" ) ;
-        reviewCriteriaFile = props.workspacePath( "review.criteria.file" ) ;
-        requestHistoryFile = props.workspacePath( "request.history.file" ) ;
-        usageLogFile       = props.workspacePath( "usage.log.file" ) ;
+        qBankDir            = props.path( "question.bank.dir" ) ;
+        workspaceDir        = props.workspaceDir( "workspace.dir" ) ;
+        pendingVerdictsFile = props.workspacePath( "pending.verdicts.file" ) ;
+        reviewAuditFile     = props.workspacePath( "review.audit.file" ) ;
+        reviewCriteriaFile  = props.workspacePath( "review.criteria.file" ) ;
+        requestHistoryFile  = props.workspacePath( "request.history.file" ) ;
+        usageLogFile        = props.workspacePath( "usage.log.file" ) ;
 
         syllabusNames = props.list( "review.syllabus.names" ) ;
         topicIds      = props.intList( "review.topic.ids" ) ;

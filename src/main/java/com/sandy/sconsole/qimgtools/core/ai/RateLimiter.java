@@ -107,10 +107,25 @@ final class RateLimiter {
 
     /**
      * Send nothing before {@code until} (epoch ms), because of
-     * {@code reason}; never shortens a suspension.
+     * {@code reason}; {@code daily} if the backend's daily quota is used up.
+     * Never shortens a suspension.
      */
-    void suspend( long until, String reason ) {
-        suspension = Pause.later( suspension, new Pause( until, reason ) ) ;
+    void suspend( long until, String reason, boolean daily ) {
+        suspension = Pause.later( suspension,
+                                  new Pause( until, reason, daily ) ) ;
+    }
+
+    /**
+     * True while requests are held back for the day at {@code now}: a
+     * suspension after the backend reported its daily quota used up, or the
+     * configured daily limit reached.
+     */
+    boolean isHeldForTheDay( long now ) {
+
+        if( suspension != null && suspension.isActive( now )
+            && suspension.daily() ) return true ;
+        prune( now ) ;
+        return dailyLimitReached( now ) ;
     }
 
     /** Under a pruned window: true if today's (UTC) requests use up the rpd. */

@@ -9,6 +9,8 @@ package com.sandy.sconsole.qimgtools.core.model;
  * @param reason short readable cause, e.g. "daily limit of 1000 requests
  *               reached"
  * @param until  epoch ms from which requests may be sent again
+ * @param daily  true if the target's daily quota is used up, so it is held
+ *               back until the quota resets
  */
 public record RateLimitNotice( AIAgent agent, String model, String reason,
-                               long until ) {}
+                               long until, boolean daily ) {}

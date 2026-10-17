@@ -11,7 +11,8 @@ import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewItem;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewVerdict;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 import com.sandy.sconsole.qimgtools.core.model.TopicRepo;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.workspace.ReviewLog;
+import com.sandy.sconsole.qimgtools.apps.topicreviewer.workspace.PendingVerdicts;
+import com.sandy.sconsole.qimgtools.apps.topicreviewer.workspace.ReviewAuditLog;
 import com.sandy.sconsole.qimgtools.core.workspace.TranscriptStore;
 import com.sandy.sconsole.qimgtools.core.workspace.UsageLog;
 
@@ -25,8 +26,9 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * What happens to a question of the topic review around its AI attempts:
  * transcripts and token counts are saved as the classifier saves them, and
- * the model's reply becomes a {@link ReviewVerdict}, stored in the
- * {@link ReviewLog} and reported to the listener. Nothing is written to the
+ * the model's reply becomes a {@link ReviewVerdict}, stored in
+ * {@link PendingVerdicts}, recorded in the {@link ReviewAuditLog} and
+ * reported to the listener. Nothing is written to the
  * question bank or the server here; that waits for the user's decision.
  * Thread-safe.
  */
@@ -34,7 +36,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ReviewOutcomes implements TaskOutcomes {
 
     private final ReviewListener  listener ;
-    private final ReviewLog       reviewLog ;
+    private final PendingVerdicts pending ;
+    private final ReviewAuditLog  audit ;
     private final TranscriptStore transcripts ;
     private final UsageLog        usageLog ;
     private final TopicRepo       topicRepo ;
@@ -42,12 +45,13 @@ public class ReviewOutcomes implements TaskOutcomes {
     /** The item each submitted task belongs to. */
     private final Map<QTask,ReviewItem> items = new ConcurrentHashMap<>() ;
 
-    public ReviewOutcomes( ReviewListener listener, ReviewLog reviewLog,
-                           TranscriptStore transcripts, UsageLog usageLog,
-                           TopicRepo topicRepo ) {
+    public ReviewOutcomes( ReviewListener listener, PendingVerdicts pending,
+                           ReviewAuditLog audit, TranscriptStore transcripts,
+                           UsageLog usageLog, TopicRepo topicRepo ) {
 
         this.listener    = listener ;
-        this.reviewLog   = reviewLog ;
+        this.pending     = pending ;
+        this.audit       = audit ;
         this.transcripts = transcripts ;
         this.usageLog    = usageLog ;
         this.topicRepo   = topicRepo ;
@@ -95,10 +99,17 @@ public class ReviewOutcomes implements TaskOutcomes {
 
         ReviewVerdict verdict = new ReviewVerdict( model, known ) ;
         try {
-            reviewLog.saveVerdict( item.question(), verdict ) ;
+            pending.save( item.question(), verdict ) ;
         }
         catch( Exception e ) {
             log.error( "[{}] Could not store the verdict", task, e ) ;
+        }
+        try {
+            audit.verdict( item.question(), verdict ) ;
+        }
+        catch( Exception e ) {
+            log.error( "[{}] Could not record the verdict in the audit log",
+                       task, e ) ;
         }
         listener.verdictReached( item, verdict ) ;
         return true ;
