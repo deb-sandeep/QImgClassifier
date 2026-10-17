@@ -437,6 +437,11 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
     }
 
     @Override
+    public long nextRequestAt() {
+        return aiInvoker.availableAt( aiInvoker.getProcessors().get( 0 ) ) ;
+    }
+
+    @Override
     public String scope() {
 
         return criteria.describe() + " (" + criteria.limit() + " per fetch) - " +

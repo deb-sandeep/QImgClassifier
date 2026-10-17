@@ -26,8 +26,13 @@ final class TopicCompareStrip extends JPanel {
 
     private static final Color SERVER_BG = new Color( 0xDCE8F5 ) ;
     private static final Color AI_BG     = new Color( 0xFFF1D6 ) ;
-    private static final int   HEIGHT    = 120 ;
+    private static final int   HEIGHT    = 72 ;
     private static final float TOPIC_PT  = 22f ;
+
+    // Topic colours: the model agrees with the server, or differs. Dark
+    // enough to read on both backgrounds.
+    private static final Color AGREES_FG  = new Color( 0x2E7D32 ) ;
+    private static final Color DIFFERS_FG = new Color( 0xD81B60 ) ;
 
     private final ModelNames names ;
     private final Side       server = new Side( SERVER_BG ) ;
@@ -51,27 +56,28 @@ final class TopicCompareStrip extends JPanel {
 
         this.row = row ;
         if( row == null ) {
-            server.set( "Server", " " ) ;
-            ai.set( "AI", " " ) ;
+            server.set( "Server", " ", null ) ;
+            ai.set( "AI", " ", null ) ;
             return ;
         }
 
-        ServerQuestion q  = row.question ;
-        String         by = q.provenance( names ) ;
+        ServerQuestion q      = row.question ;
+        String         by     = q.provenance( names ) ;
+        ReviewVerdict  v      = row.verdict ;
+        boolean        agrees = v != null && v.agreesWith( q.getTopicId() ) ;
+        Color          fg     = v == null ? null
+                              : agrees    ? AGREES_FG : DIFFERS_FG ;
 
         server.set( "Server" + ( by.isEmpty() ? "" : "   [" + by + "]" ),
-                    q.getTopicName() ) ;
-
-        ReviewVerdict v = row.verdict ;
+                    q.getTopicName(), fg ) ;
         if( v == null ) {
-            ai.set( "AI", "no verdict yet" ) ;
+            ai.set( "AI", null, null ) ;
         }
         else {
             ai.set( "AI   [" + names.of( v.model() ) + ", " +
                     v.topConfidence() + "%]" +
-                    ( v.agreesWith( q.getTopicId() ) ? "   agrees"
-                                                     : "   differs" ),
-                    v.top().getTopicName() ) ;
+                    ( agrees ? "   agrees" : "   differs" ),
+                    v.top().getTopicName(), fg ) ;
         }
     }
 
@@ -86,6 +92,7 @@ final class TopicCompareStrip extends JPanel {
         private final JLabel caption = new JLabel( " " ) ;
         private final JLabel topic   =
                 new JLabel( " ", SwingConstants.CENTER ) ;
+        private final Color  plainFg = topic.getForeground() ;
 
         Side( Color bg ) {
 
@@ -93,16 +100,18 @@ final class TopicCompareStrip extends JPanel {
             setBackground( bg ) ;
             setBorder( BorderFactory.createCompoundBorder(
                     BorderFactory.createLineBorder( bg.darker() ),
-                    BorderFactory.createEmptyBorder( 4, 10, 6, 10 ) ) ) ;
+                    BorderFactory.createEmptyBorder( 2, 10, 4, 10 ) ) ) ;
             topic.setFont( topic.getFont().deriveFont( Font.BOLD,
                                                        TOPIC_PT ) ) ;
             add( caption, BorderLayout.NORTH ) ;
             add( topic, BorderLayout.CENTER ) ;
         }
 
-        void set( String captionText, String topicText ) {
+        /** {@code fg} colours the topic; null for the usual colour. */
+        void set( String captionText, String topicText, Color fg ) {
 
             caption.setText( captionText ) ;
+            topic.setForeground( fg != null ? fg : plainFg ) ;
             // HTML so a long topic name wraps instead of being cut.
             topic.setText( topicText == null || topicText.isBlank() ? " "
                            : "<html><div style='text-align:center'>" +

@@ -41,7 +41,11 @@ import java.util.function.BooleanSupplier;
  * it (the next attempt goes to the processor's next model), or the whole
  * processor when the limit covers all its models. A backend that cannot be
  * reached is paused as a whole the same way, so a host that is down does
- * not fail every queued question in turn.
+ * not fail every queued question in turn. Until it answers again it gets
+ * one request at a time, to find out when it is back, and is left out of
+ * routing: with Gemma down, OpenRouter takes every question in submission
+ * order, as if there were no Gemma; with OpenRouter down, Gemma takes
+ * Chemistry.
  * <p>
  * A second opinion waits for OpenRouter however long it is held back (until
  * the next 00:00 UTC after the daily limit); stopping the batch stores
@@ -71,6 +75,13 @@ public class TaskScheduler {
      * {@link #running}; guarded by lock.
      */
     private final int[] busy ;
+
+    /**
+     * Per processor: its last attempt could not reach the backend, and none
+     * has got through since. Such a processor sends one request at a time
+     * and counts as held back for routing; guarded by lock.
+     */
+    private final boolean[] unreachable ;
 
     /** Guards {@link #queue}, {@link #running}, {@link #held} and counters. */
     private final Object lock = new Object() ;
@@ -154,12 +165,13 @@ public class TaskScheduler {
 
     public TaskScheduler( AIInvoker aiInvoker, TaskOutcomes classifier ) {
 
-        this.aiInvoker  = aiInvoker ;
-        this.classifier = classifier ;
-        this.processors = aiInvoker.getProcessors() ;
-        this.openRouter = indexOf( AIAgent.OPENROUTER ) ;
-        this.gemma      = indexOf( AIAgent.GEMMA ) ;
-        this.busy       = new int[ processors.size() ] ;
+        this.aiInvoker   = aiInvoker ;
+        this.classifier  = classifier ;
+        this.processors  = aiInvoker.getProcessors() ;
+        this.openRouter  = indexOf( AIAgent.OPENROUTER ) ;
+        this.gemma       = indexOf( AIAgent.GEMMA ) ;
+        this.busy        = new int[ processors.size() ] ;
+        this.unreachable = new boolean[ processors.size() ] ;
     }
 
     /** Start one worker thread per processor slot. Call once. */
@@ -361,7 +373,10 @@ public class TaskScheduler {
             long now         = System.currentTimeMillis() ;
             long availableAt = aiInvoker.availableAt( processor ) ;
 
-            if( availableAt <= now ) {
+            // An unreachable backend gets one request at a time, a probe.
+            boolean probing = unreachable[p] && busy[p] > 0 ;
+
+            if( availableAt <= now && !probing ) {
                 Job best = best( p ) ;
                 if( best != null ) {
                     queue.remove( best ) ;
@@ -440,6 +455,7 @@ public class TaskScheduler {
             // another model while this one is paused, or waits if the limit
             // covers the whole processor.
             aiInvoker.suspend( processor, model, e ) ;
+            setUnreachable( p, e instanceof AIProcessor.UnreachableException ) ;
             job.used[p]-- ;
             job.attempts-- ;
             job.lastFailure = e.getMessage() ;
@@ -447,12 +463,35 @@ public class TaskScheduler {
             return ;
         }
 
+        setUnreachable( p, false ) ;
         if( result.isSuccess() ) {
             succeeded( job, p, result.getTopics(), model ) ;
             return ;
         }
         job.lastFailure = result.getFailureReason() ;
         failed( job ) ;
+    }
+
+    /**
+     * Note whether processor {@code p}'s backend could be reached by the
+     * attempt just made.
+     */
+    private void setUnreachable( int p, boolean down ) {
+
+        synchronized( lock ) {
+            if( unreachable[p] == down ) return ;
+
+            unreachable[p] = down ;
+            lock.notifyAll() ;
+        }
+        String name = processors.get( p ).getName() ;
+        if( down ) {
+            log.warn( "{} cannot be reached - sending it one request at a " +
+                      "time until it answers", name ) ;
+        }
+        else {
+            log.info( "{} can be reached again", name ) ;
+        }
     }
 
     private void succeeded( Job job, int p, List<Topic> topics, String model ) {
@@ -479,8 +518,12 @@ public class TaskScheduler {
 
     private void failed( Job job ) {
 
-        refreshOpenRouterHeldBack() ;
-        if( mayContinue( job ) && canRunAnywhere( job ) ) {
+        boolean retry ;
+        synchronized( lock ) {
+            refreshOpenRouterHeldBack() ;
+            retry = mayContinue( job ) && canRunAnywhere( job ) ;
+        }
+        if( retry ) {
             log.warn( "Retrying {} (attempt {})", job.task, job.attempts + 1 ) ;
             requeue( job ) ;
             return ;
@@ -586,11 +629,14 @@ public class TaskScheduler {
      * not run there. OpenRouter: Chemistry retries, new Chemistry, second
      * opinions, then other retries and new Physics / Maths, but those only
      * while no Gemma slot is free to take them. Gemma: retries, then new
-     * questions.
+     * questions. Without Gemma, or while it cannot be reached, the subjects
+     * need no sharing out, so every job ranks the same and the queue is
+     * taken in order of submission (a retry keeps its place).
      */
     private int rank( Job job, int p ) {
 
         if( !canRun( job, p ) ) return -1 ;
+        if( gemma < 0 || unreachable[gemma] ) return 0 ;
 
         boolean chemistry = job.task.getSubject() == Subject.CHEMISTRY ;
         if( p != openRouter || chemistry ) return job.started ? 0 : 1 ;
@@ -602,6 +648,7 @@ public class TaskScheduler {
     /** True if Gemma has a free slot and may run {@code job} right now. */
     private boolean gemmaCanTake( Job job ) {
         return gemma >= 0
+               && !unreachable[gemma]
                && busy[gemma] < processors.get( gemma ).getMaxParallel()
                && canRun( job, gemma )
                && aiInvoker.availableAt( processors.get( gemma ) )
@@ -611,7 +658,8 @@ public class TaskScheduler {
     /**
      * True if the routing rules let {@code job} run on processor {@code p} and
      * it has attempts left there. Chemistry runs on OpenRouter, or anywhere
-     * while OpenRouter is missing or held back by a rate limit.
+     * while OpenRouter is missing, held back by a rate limit or unreachable.
+     * Under lock.
      */
     private boolean canRun( Job job, int p ) {
 
@@ -623,9 +671,11 @@ public class TaskScheduler {
                || openRouterHeldBack ;
     }
 
+    /** Under lock. */
     private void refreshOpenRouterHeldBack() {
         openRouterHeldBack = openRouter >= 0
-                && aiInvoker.isHeldBack( processors.get( openRouter ) ) ;
+                && ( unreachable[openRouter]
+                     || aiInvoker.isHeldBack( processors.get( openRouter ) ) ) ;
     }
 
     private boolean canRunAnywhere( Job job ) {

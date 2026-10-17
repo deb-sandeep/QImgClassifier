@@ -175,6 +175,10 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     private final JMenuItem stopItem  = new JMenuItem( "Stop processing" ) ;
     private final JMenuItem repairItem = new JMenuItem( "Repair processed list" ) ;
 
+    /** File item: re-queue every FAILED question; enabled while any is. */
+    private final JMenuItem requeueFailedItem =
+            new JMenuItem( "Re-queue failed questions" ) ;
+
     /** View option: show the rate-limit strip under the transcripts. */
     private final JCheckBoxMenuItem rateLimitItem =
             new JCheckBoxMenuItem( "Show rate limit bar", true ) ;
@@ -388,6 +392,10 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
         file.add( startItem ) ;
         file.add( stopItem ) ;
         file.addSeparator() ;
+        requeueFailedItem.setEnabled( false ) ;
+        requeueFailedItem.addActionListener( a -> requeueFailed() ) ;
+        file.add( requeueFailedItem ) ;
+        file.addSeparator() ;
 
         JMenuItem exit = new JMenuItem( "Exit" ) ;
         exit.addActionListener( a -> dispatchEvent(
@@ -419,6 +427,28 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
         bar.add( view ) ;
         bar.add( maintenance ) ;
         return bar ;
+    }
+
+    /**
+     * Re-queue every FAILED question, like the row menu's Re-queue. Each goes
+     * to the front of the queue, so they are submitted last first and run in
+     * discovery order.
+     */
+    private void requeueFailed() {
+
+        if( controller == null ) return ;
+        List<QuestionNode> failed = model.questionsInDiscoveryOrder()
+                .stream()
+                .filter( q -> q.status == TaskStatus.FAILED )
+                .toList() ;
+
+        for( int i = failed.size() - 1 ; i >= 0 ; i-- ) {
+            QTask task = failed.get( i ).task ;
+            model.requeued( task ) ;
+            controller.reprocess( task ) ;
+        }
+        log.info( "Re-queued {} failed questions", failed.size() ) ;
+        afterStatusChange() ;
     }
 
     /**
@@ -1020,6 +1050,9 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     private void refreshStatusBar() {
 
         Map<TaskStatus,Integer> c = model.statusCounts() ;
+        requeueFailedItem.setEnabled( controller != null
+                                      && c.get( TaskStatus.FAILED ) > 0 ) ;
+
         long runMs   = processingStartedMs > 0
                      ? System.currentTimeMillis() - processingStartedMs : 0 ;
         long elapsed = ( processingAccumMs + runMs ) / 1000 ;

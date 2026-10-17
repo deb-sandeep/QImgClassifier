@@ -62,9 +62,11 @@ import javax.swing.table.TableRowSorter;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
+import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
@@ -80,6 +82,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -173,6 +176,12 @@ public class TopicReviewFrame extends JFrame
         /** The OpenRouter queue: questions waiting, running and done. */
         TaskScheduler.Counts queueCounts() ;
 
+        /**
+         * Epoch ms from which OpenRouter may take its next request; now or
+         * earlier if it may now.
+         */
+        long nextRequestAt() ;
+
         /** What is reviewed, for the title, e.g. "Physics, Maths". */
         String scope() ;
 
@@ -230,11 +239,23 @@ public class TopicReviewFrame extends JFrame
                     Map.entry( ReviewStatus.STILL_FLAGGED, new Color( 0xFCEFC5 ) ),
                     Map.entry( ReviewStatus.ERROR,         new Color( 0xF4D2D2 ) ) ) ) ;
 
+    /**
+     * A Decided row keeping the server's topic against the model: a darker
+     * shade of Agreed, as the server's topic stands.
+     */
+    private static final Color KEPT_AGAINST_MODEL_BG = new Color( 0xC8E4CA ) ;
+
     // The queue section's background: idle, requests in flight, and
     // questions waiting with none in flight (e.g. held by a rate limit).
     private static final Color QUEUE_IDLE    = new Color( 0xC8E6C9 ) ;
     private static final Color QUEUE_ACTIVE  = new Color( 0xFFCC80 ) ;
     private static final Color QUEUE_WAITING = new Color( 0xF8BBD0 ) ;
+
+    // The queue section's labels are as wide as these, so changing numbers
+    // don't shift the status bar.
+    private static final String WIDEST_COUNTS =
+            "OpenRouter:  99999 processed,  99 running,  9999 in queue" ;
+    private static final String WIDEST_PACE = "next request in 59 min 59 s" ;
 
     /** Which rows the table shows. */
     private enum Show {
@@ -277,7 +298,10 @@ public class TopicReviewFrame extends JFrame
     private final RateLimitStrip      rateLimitStrip ;
     private final TopicCompareStrip   compareStrip ;
     private final JLabel              statusBar = new JLabel( " " ) ;
-    private final JLabel              queueBar  = new JLabel( " " ) ;
+    private final JPanel              queueBar  =
+            new JPanel( new BorderLayout() ) ;
+    private final JLabel              queueText = new JLabel( " " ) ;
+    private final JLabel              paceText  = new JLabel( " " ) ;
 
     // The menus and the toolbar share these actions, and so their state.
 
@@ -438,10 +462,16 @@ public class TopicReviewFrame extends JFrame
         split.setContinuousLayout( true ) ;
 
         statusBar.setBorder( BorderFactory.createEmptyBorder( 4, 8, 4, 8 ) ) ;
-        queueBar.setBorder( BorderFactory.createCompoundBorder(
+        queueText.setBorder( BorderFactory.createEmptyBorder( 4, 12, 4, 12 ) ) ;
+        paceText.setBorder( BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder( 0, 1, 0, 0, Color.GRAY ),
                 BorderFactory.createEmptyBorder( 4, 12, 4, 12 ) ) ) ;
-        queueBar.setOpaque( true ) ;
+        fixWidth( queueText, WIDEST_COUNTS ) ;
+        fixWidth( paceText, WIDEST_PACE ) ;
+        queueBar.setBorder(
+                BorderFactory.createMatteBorder( 0, 1, 0, 0, Color.GRAY ) ) ;
+        queueBar.add( queueText, BorderLayout.CENTER ) ;
+        queueBar.add( paceText, BorderLayout.EAST ) ;
 
         JPanel footer = new JPanel( new BorderLayout() ) ;
         footer.add( statusBar, BorderLayout.CENTER ) ;
@@ -643,6 +673,14 @@ public class TopicReviewFrame extends JFrame
 
         // Re-filter as statuses change, so a decided row leaves "Differs".
         sorter.setSortsOnUpdates( true ) ;
+        // When an update drops or moves rows, JTable repaints only the
+        // updated row's old strip, leaving the rows below it stale (one
+        // shows twice); repaint the lot. Both calls are deferred, so they
+        // run once the table has taken the new view in.
+        sorter.addRowSorterListener( e -> {
+            table.revalidate() ;
+            table.repaint() ;
+        } ) ;
         table.setRowSorter( sorter ) ;
         table.setSelectionMode(
                 ListSelectionModel.MULTIPLE_INTERVAL_SELECTION ) ;
@@ -746,6 +784,18 @@ public class TopicReviewFrame extends JFrame
         List<Row> rows = new ArrayList<>() ;
         for( int view : table.getSelectedRows() ) rows.add( rowAt( view ) ) ;
         return rows ;
+    }
+
+    /**
+     * Where {@code row} is in the table: its view index, else (filtered out)
+     * after every shown row, in load order.
+     */
+    private int viewOrder( Row row ) {
+
+        int index = model.indexOf( row ) ;
+        int view  = table.convertRowIndexToView( index ) ;
+
+        return view >= 0 ? view : table.getRowCount() + index ;
     }
 
     private Row rowAt( int view ) {
@@ -939,12 +989,15 @@ public class TopicReviewFrame extends JFrame
     }
 
     /**
-     * Queue {@code rows} for the model; a verdict they have stays till then,
-     * an unsaved decision is dropped.
+     * Queue {@code rows} for the model in the order the table shows them
+     * (rows filtered out last, in load order), so they are taken top down;
+     * a verdict they have stays till then, an unsaved decision is dropped.
      */
     private void send( List<Row> rows ) {
 
         if( controller == null || rows.isEmpty() ) return ;
+        rows = rows.stream().sorted( Comparator.comparingInt( this::viewOrder ) )
+                   .toList() ;
         for( Row row : rows ) {
             row.status   = ReviewStatus.QUEUED ;
             row.result   = null ;
@@ -1788,12 +1841,8 @@ public class TopicReviewFrame extends JFrame
         if( flagged >= 0 ) {
             text += " · " + flagged + " awaiting review on the server" ;
         }
-        if( procState != ProcessingState.STOPPED ) {
-            text += "   |   " + ( procState == ProcessingState.RUNNING
-                                  ? "running" : "stopping" ) + ": " +
-                    model.count( ReviewStatus.RUNNING ) + " running, " +
-                    model.count( ReviewStatus.QUEUED ) + " queued" ;
-        }
+        // Running and queued counts are in the queue section on the right.
+        if( procState == ProcessingState.STOPPING ) text += "   |   stopping" ;
         // Kept after the run ends, to say why it did.
         if( unattendedStep != null ) {
             text = "Unattended, batch " + batch + ": " + unattendedStep +
@@ -1805,20 +1854,50 @@ public class TopicReviewFrame extends JFrame
     /**
      * Show the OpenRouter queue's counts: green when nothing waits or runs,
      * orange while requests are in flight, pink when questions wait but
-     * none is in flight.
+     * none is in flight. Beside them, a countdown to the next request, in
+     * red, while questions wait for the rate limits (pacing, or a hold the
+     * rate limit strip explains).
      */
     private void refreshQueueBar() {
 
         if( controller == null ) return ;
 
-        TaskScheduler.Counts c = controller.queueCounts() ;
+        TaskScheduler.Counts c    = controller.queueCounts() ;
+        long                 wait = controller.nextRequestAt()
+                                    - System.currentTimeMillis() ;
 
-        queueBar.setText( "OpenRouter:  " + c.processed() + " processed,  " +
-                          c.running() + " running,  " + c.queued() +
-                          " in queue" ) ;
+        boolean              held = c.queued() > 0 && wait >= 1000 ;
+
+        queueText.setText( "OpenRouter:  " + c.processed() + " processed,  " +
+                           c.running() + " running,  " + c.queued() +
+                           " in queue" ) ;
+        paceText.setText( held ? "next request in " + countdown( wait )
+                               : "next request: now" ) ;
+        paceText.setForeground( held ? Color.RED.darker()
+                                     : queueText.getForeground() ) ;
         queueBar.setBackground( c.running() > 0 ? QUEUE_ACTIVE
                               : c.queued()  > 0 ? QUEUE_WAITING
                               : QUEUE_IDLE ) ;
+    }
+
+    /** Keep {@code label} as wide as {@code widest} in its font. */
+    private static void fixWidth( JLabel label, String widest ) {
+
+        Insets    in = label.getInsets() ;
+        int       w  = label.getFontMetrics( label.getFont() )
+                            .stringWidth( widest ) + in.left + in.right ;
+        Dimension d  = new Dimension( w, label.getPreferredSize().height ) ;
+
+        label.setPreferredSize( d ) ;
+        label.setMinimumSize( d ) ;
+    }
+
+    /** {@code ms} as "42 s", or "3 min 05 s" from a minute up. */
+    private static String countdown( long ms ) {
+
+        long s = ( ms + 999 ) / 1000 ;
+        return s < 60 ? s + " s"
+                      : String.format( "%d min %02d s", s / 60, s % 60 ) ;
     }
 
     private void refreshRateLimitStrip() {
@@ -1890,9 +1969,20 @@ public class TopicReviewFrame extends JFrame
                 setIcon( spin ? Spinner.ICON : null ) ;
             }
             if( selected ) return c ;
-            c.setBackground( STATUS_BG.getOrDefault( row.status,
-                                                     t.getBackground() ) ) ;
+            c.setBackground( keepsAgainstModel( row )
+                             ? KEPT_AGAINST_MODEL_BG
+                             : STATUS_BG.getOrDefault( row.status,
+                                                       t.getBackground() ) ) ;
             return c ;
+        }
+
+        /**
+         * True if the row's unsaved decision keeps the server's topic over
+         * the model's.
+         */
+        private static boolean keepsAgainstModel( Row row ) {
+            return row.status == ReviewStatus.DECIDED
+                   && row.decision.keepsTopic() && !row.decision.isAI() ;
         }
     }
 

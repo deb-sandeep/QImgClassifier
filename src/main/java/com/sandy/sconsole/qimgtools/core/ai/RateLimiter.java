@@ -11,7 +11,8 @@ import java.util.List;
 
 /**
  * Request-rate bookkeeping for one AI processor: limits of requests per
- * minute (sliding window) and per UTC calendar day (reset at 00:00 UTC, as
+ * minute (sliding window, with requests spread evenly across it) and per
+ * UTC calendar day (reset at 00:00 UTC, as
  * OpenRouter's daily free-model quota is), plus a suspension set when the
  * backend itself reports a rate limit covering every model, or cannot be
  * reached.
@@ -25,11 +26,21 @@ final class RateLimiter {
     private static final long MINUTE_MS = Duration.ofMinutes( 1 ).toMillis() ;
     private static final long DAY_MS    = Duration.ofDays( 1 ).toMillis() ;
 
+    /**
+     * Requests are spaced this much wider than {@code 60 s / rpm}, so the
+     * rate stays just under the limit and the backend's own count of the
+     * minute, which may not line up with ours, isn't exceeded.
+     */
+    private static final double PACING_MARGIN = 1.05 ;
+
     /** Requests allowed per minute; 0 for no limit. */
     private final int rpm ;
 
     /** Requests allowed per UTC day; 0 for no limit. */
     private final int rpd ;
+
+    /** Least time between request starts, in ms; 0 without an rpm. */
+    private final long spacing ;
 
     /**
      * Start times of requests in the current UTC day and the last minute (or
@@ -41,8 +52,10 @@ final class RateLimiter {
     private Pause suspension ;
 
     RateLimiter( int rpm, int rpd ) {
-        this.rpm = rpm ;
-        this.rpd = rpd ;
+        this.rpm     = rpm ;
+        this.rpd     = rpd ;
+        this.spacing = rpm > 0 ? Math.round( MINUTE_MS * PACING_MARGIN / rpm )
+                               : 0 ;
     }
 
     /**
@@ -56,6 +69,11 @@ final class RateLimiter {
                                      : now ;
         if( rpm > 0 && countSince( now - MINUTE_MS ) >= rpm ) {
             at = Math.max( at, nthNewest( rpm ) + MINUTE_MS ) ;
+        }
+        // Evenly, rather than the whole minute's worth at once and then
+        // nothing until the window moves on.
+        if( spacing > 0 && !starts.isEmpty() ) {
+            at = Math.max( at, starts.peekLast() + spacing ) ;
         }
         if( dailyLimitReached( now ) ) {
             at = Math.max( at, utcDayStart( now ) + DAY_MS ) ;   // next 00:00 UTC

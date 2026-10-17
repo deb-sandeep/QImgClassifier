@@ -39,7 +39,7 @@ import java.util.function.Function;
 final class ReviewCriteriaDialog extends JPanel {
 
     /** Most questions the server returns per fetch. */
-    private static final int MAX_LIMIT = 100 ;
+    private static final int MAX_LIMIT = 500 ;
 
     private final Map<String,JCheckBox>        syllabuses = new LinkedHashMap<>() ;
     private final Function<String,List<Topic>> topicsOf ;
