@@ -52,7 +52,7 @@ Notes:
 - `topicMappings` is unchanged: confidence-descending, `confidenceLevel` 0–100, and `humanIntervention: true` on hand-picked entries as before.
 - A `User` entry still has `humanIntervention: true` on its single mapping, so `classifiedBy.actor == "User"` and `humanIntervention` agree.
 - **Entries written before this change have no `classifiedBy`.** Treat a missing `classifiedBy` as "source unknown". Never treat it as an error.
-- QImgClassifier may ask a second model for a question. That happens when a Gemma reply would not pass the auto-association quality gate and the question is re-asked on OpenRouter. In that case the file holds only the reply that was finally stored, and `classifiedBy` names that reply's model.
+- QImgClassifier may ask a second model for a question. That happens when a Gemma reply is not confident enough (see *Second-opinion threshold* below) and the question is re-asked on OpenRouter. In that case the file holds only the reply that was finally stored, and `classifiedBy` names that reply's model.
 
 ## 2. `.workspace/question-info.json`
 
@@ -91,9 +91,9 @@ QImgExtractor owns this file. QImgClassifier writes into it only to associate a 
 
 | Field | Type | Meaning |
 |---|---|---|
-| `topicAssociator.actor` | `"AI"` \| `"User"` | `AI`: auto-associated because the AI's top recommendation passed the quality gate. `User`: chosen by a person. |
+| `topicAssociator.actor` | `"AI"` \| `"User"` | `AI`: auto-associated from the AI's top recommendation, whatever its confidence. `User`: chosen by a person. |
 | `topicAssociator.model` | string \| `null` | For `AI`, the model that made the recommendation, copied from `ai-topic-map.json` → `classifiedBy.model`. It can be `null` for an `AI` association if that entry predates `classifiedBy`. Always `null` for `User`. |
-| `topicAssociator.confidence` | integer 0–100 | For `AI`, the top recommendation's `confidenceLevel`. For `User`, always `100`. |
+| `topicAssociator.confidence` | integer 0–100 | For `AI`, the chosen recommendation's `confidenceLevel` (the top one whose topic is in the topic master). For `User`, always `100`. |
 
 Notes:
 
@@ -102,9 +102,11 @@ Notes:
 - **Topics assigned before this change, or by the current QImgExtractor, have no `topicAssociator`.** Treat that as "source unknown".
 - `"topic" : null` (no topic) is unchanged and has no associator.
 
-### Quality gate (for reference)
+### Auto association and the second-opinion threshold (for reference)
 
-QImgClassifier auto-associates using the same gate as QImgExtractor's `AutoTopicAssociator`. Recommendations are confidence-descending; the second one's confidence counts as 0 when there is only one.
+QImgClassifier auto-associates like QImgExtractor's `AutoTopicAssociator`: the top recommendation whose topic is in the topic master is assigned, whatever its confidence. There is no quality gate; the topic reviewer re-checks these associations with a stronger model.
+
+The thresholds that used to gate association now only decide whether a Gemma reply gets a second opinion from OpenRouter. Recommendations are confidence-descending; the second one's confidence counts as 0 when there is only one. Gemma's reply is kept when:
 
 - **Any subject:** top ≥ 90 and it leads the second by ≥ 10.
 - **Physics / Maths:** otherwise, top ≥ 95.
@@ -163,6 +165,6 @@ These would be useful but are not required:
 These don't change QImgExtractor's files but explain the values above:
 
 - **Routing:** Chemistry questions go to OpenRouter, and Physics / Maths to the local Gemma. OpenRouter helps with Physics / Maths only when no Chemistry is waiting and Gemma has no free slot. So most Physics / Maths entries show `agent: "gemma"` and Chemistry entries `agent: "openrouter"`.
-- **Second opinion:** a Gemma reply that fails the quality gate is re-asked on OpenRouter, and OpenRouter's reply is stored. If OpenRouter fails, Gemma's reply is kept and `classifiedBy` names Gemma's model.
+- **Second opinion:** a Gemma reply that misses the second-opinion threshold is re-asked on OpenRouter, and OpenRouter's reply is stored. If OpenRouter fails, Gemma's reply is kept and `classifiedBy` names Gemma's model.
 - **Transcripts:** every AI request and reply is saved as text files under QImgClassifier's own `workspace.dir`, not in the source's `.workspace` folder. QImgExtractor does not need them.
 - **Concurrent edits:** QImgClassifier writes `question-info.json` by read-modify-rename. If QImgExtractor has the source open while it is being classified, QImgExtractor's next save overwrites those writes, as before. Reopen the source in QImgExtractor after classification.
