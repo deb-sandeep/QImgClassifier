@@ -66,7 +66,9 @@ class TopicListener implements JobListener<Question,List<Answer>> {
   better:
 
   ```json
-  "fallback" : { "badReply" : [ "anthropic/claude-haiku-5.5" ] }
+  "fallback" : {
+    "badReply" : [ "anthropic/claude-haiku-5.5" ]
+  }
   ```
 
 - **Keep the reason short and readable.** It becomes

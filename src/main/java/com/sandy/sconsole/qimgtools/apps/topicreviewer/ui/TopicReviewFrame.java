@@ -1,5 +1,7 @@
 package com.sandy.sconsole.qimgtools.apps.topicreviewer.ui;
 
+import com.sandy.sconsole.qimgtools.core.sequence.TopicSequenceGenerator;
+import com.sandy.sconsole.qimgtools.core.ui.TopicSequenceDialog;
 import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
 import com.sandy.sconsole.qimgtools.core.model.ProcessingState;
 import com.sandy.sconsole.qimgtools.core.model.RateLimitNotice;
@@ -185,6 +187,12 @@ public class TopicReviewFrame extends JFrame
         /** What is reviewed, for the title, e.g. "Physics, Maths". */
         String scope() ;
 
+        /**
+         * Regenerate the topic sequence from the SConsole server. Blocking;
+         * called off the EDT.
+         */
+        TopicSequenceGenerator.Summary generateTopicSequence() throws Exception ;
+
         void shutdown() ;
     }
 
@@ -308,6 +316,9 @@ public class TopicReviewFrame extends JFrame
     private final Action criteriaAction = action( "Criteria…",
             ToolIcon.CRITERIA, null, "Choose the syllabuses, topics and " +
             "batch size Load uses", this::editCriteria ) ;
+    private final Action sequenceAction = action( TopicSequenceDialog.TITLE +
+            "…", null, null, "Regenerate ~/.sconsole/topic-sequence.json " +
+            "from the server's track plan", this::generateTopicSequence ) ;
     private final Action loadAction = action( "Load", ToolIcon.LOAD,
             shortcut( KeyEvent.VK_L ), "Fetch the first questions awaiting " +
             "review that match the criteria (replaces the table)",
@@ -322,8 +333,9 @@ public class TopicReviewFrame extends JFrame
             null, null, "Send the selected questions that are pending, " +
             "failed or undecided to the review model", this::sendSelected ) ;
     private final Action requeueFailedAction = action(
-            "Re-queue failed questions", null, null, "Send every failed " +
-            "question to the review model again", this::requeueFailed ) ;
+            "Re-queue failed questions", ToolIcon.REQUEUE, null,
+            "Send every failed question to the review model again",
+            this::requeueFailed ) ;
     private final Action useAllAction = action(
             "Use AI reco for all differing", ToolIcon.USE_AI, null,
             "Use the model's top topic for every undecided Differs row; " +
@@ -432,6 +444,7 @@ public class TopicReviewFrame extends JFrame
         toolbar.addSeparator() ;
         toolbar.add( toolButton( startAction ) ) ;
         toolbar.add( toolButton( stopAction ) ) ;
+        toolbar.add( toolButton( requeueFailedAction ) ) ;
         toolbar.addSeparator() ;
         toolbar.add( toolButton( useAllAction ) ) ;
         toolbar.add( saveButton ) ;
@@ -515,6 +528,13 @@ public class TopicReviewFrame extends JFrame
         setTitle( "QTopicReviewer - " + controller.scope() ) ;
     }
 
+    /** Regenerate the topic sequence, reporting the outcome in a dialog. */
+    private void generateTopicSequence() {
+        if( controller == null ) return ;
+        TopicSequenceDialog.run( this, controller::generateTopicSequence,
+                                 sequenceAction::setEnabled ) ;
+    }
+
     /** An action named {@code name} that runs {@code run}. */
     private static Action action( String name, Icon icon, KeyStroke key,
                                   String tip, Runnable run ) {
@@ -552,7 +572,7 @@ public class TopicReviewFrame extends JFrame
     }
 
     /**
-     * File (criteria, load, exit), Review (start, stop, send), Decisions
+     * File (criteria, load, topic sequence, exit), Review (start, stop, send), Decisions
      * (the decision keys, staging, saving, clearing) and View (status
      * filter, header filters, select all, rate limit bar). The toolbar
      * shares their actions.
@@ -567,6 +587,8 @@ public class TopicReviewFrame extends JFrame
         file.add( criteriaAction ) ;
         file.add( loadAction ) ;
         file.add( unattendedAction ) ;
+        file.addSeparator() ;
+        file.add( sequenceAction ) ;
         file.addSeparator() ;
         file.add( exit ) ;
 

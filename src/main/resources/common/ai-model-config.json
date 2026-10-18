@@ -35,7 +35,10 @@
       "apiKeyFile"            : "~/projects/workspace/qimgclassifier/open-router.api.key",
       "connectTimeoutSeconds" : 10,
       "cooldownSeconds"       : 300,
-      "rateLimit"             : { "rpm" : 20, "rpd" : 1000 }
+      "rateLimit"             : {
+        "rpm" : 20,
+        "rpd" : 1000
+      }
     },
     "ollama-home" : {
       "enabled"               : true,
@@ -44,34 +47,44 @@
       "connectTimeoutSeconds" : 10,
       "cooldownSeconds"       : 60,
       "maxParallel"           : 5,
-      "rateLimit"             : { "rpm" : 0, "rpd" : 0 }
+      "rateLimit"             : {
+        "rpm" : 0,
+        "rpd" : 0
+      }
     }
   },
 
   "models" : {
     "nvidia/nemotron-3.5-super-vl:free" : {
-      "enabled" : true, "gateway" : "openrouter",
+      "enabled" : true,
+      "gateway" : "openrouter",
       "displayName" : "Nemotron 3.5 Super"
     },
     "nvidia/nemotron-3.5-super-vl" : {
-      "enabled" : true, "gateway" : "openrouter",
+      "enabled" : true,
+      "gateway" : "openrouter",
       "displayName" : "Nemotron 3.5 Super (paid)"
     },
     "google/gemma-4-31b-it:free" : {
-      "enabled" : true, "gateway" : "openrouter",
+      "enabled" : true,
+      "gateway" : "openrouter",
       "displayName" : "Gemma 4 31B"
     },
     "google/gemma-4-26b-a4b-it:free" : {
-      "enabled" : true, "gateway" : "openrouter",
+      "enabled" : true,
+      "gateway" : "openrouter",
       "displayName" : "Gemma 4 26B A4B"
     },
     "anthropic/claude-haiku-5.5" : {
-      "enabled" : true, "gateway" : "openrouter",
+      "enabled" : true,
+      "gateway" : "openrouter",
       "displayName" : "Claude Haiku"
     },
     "gemma4:latest" : {
-      "enabled" : true, "gateway" : "ollama-home",
-      "displayName" : "Gemma 4", "contextTokens" : 12288
+      "enabled" : true,
+      "gateway" : "ollama-home",
+      "displayName" : "Gemma 4",
+      "contextTokens" : 12288
     }
   }
 }

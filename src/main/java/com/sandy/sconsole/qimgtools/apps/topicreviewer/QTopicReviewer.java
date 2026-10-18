@@ -22,7 +22,9 @@ import com.sandy.sconsole.qimgtools.apps.topicreviewer.review.ReviewListener;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.review.ReviewOutcomes;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.server.PendingResult;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.server.SConsoleServerClient;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.server.SConsoleServerClient.ServerException;
+import com.sandy.sconsole.qimgtools.core.sequence.TopicSequenceGenerator;
+import com.sandy.sconsole.qimgtools.core.server.SConsoleServer;
+import com.sandy.sconsole.qimgtools.core.server.SConsoleServer.ServerException;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.TopicReviewFrame;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.util.ReviewConfig;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.workspace.ReviewCriteriaStore;
@@ -154,8 +156,21 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
         }
 
         SConsoleServerClient server = new SConsoleServerClient(
-                config.getServerUrl(), config.getServerConnectTimeout(),
-                config.getServerRequestTimeout() ) ;
+                new SConsoleServer( config.getServerUrl(),
+                                    config.getServerConnectTimeout(),
+                                    config.getServerRequestTimeout() ) ) ;
+
+        // Topics can't be chosen without the topic sequence
+        try {
+            new TopicSequenceGenerator( server.server() ).generateIfMissing() ;
+        }
+        catch( Exception e ) {
+            fail( "Topic sequence", "Could not generate the missing topic " +
+                  "sequence from " + config.getServerUrl() + ":\n" +
+                  e.getMessage(), e ) ;
+            return ;
+        }
+
         TopicRepo topicRepo ;
         try {
             topicRepo = loadTopics( server ) ;
@@ -210,6 +225,12 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
     }
 
     // ---- Controller ----------------------------------------------------
+
+    @Override
+    public TopicSequenceGenerator.Summary generateTopicSequence()
+            throws Exception {
+        return new TopicSequenceGenerator( server.server() ).generate() ;
+    }
 
     /**
      * The first questions of the review queue matching the criteria in

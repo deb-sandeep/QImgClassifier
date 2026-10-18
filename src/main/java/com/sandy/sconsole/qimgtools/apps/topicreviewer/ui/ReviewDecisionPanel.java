@@ -92,6 +92,10 @@ final class ReviewDecisionPanel extends JPanel {
                 String text = String.format( "%3d%%  %s  (%s)",
                         Math.round( t.getMatchProbability() * 100 ),
                         t.getTopicName(), t.getSection() ) ;
+
+                // Mark the chosen topic when the sequence chose one the
+                // model did not score highest
+                if( index > 0 && isChosen( t ) ) text += "  - chosen" ;
                 return super.getListCellRendererComponent(
                         list, text, index, selected, focus ) ;
             }
@@ -137,6 +141,12 @@ final class ReviewDecisionPanel extends JPanel {
         show( List.of() ) ;
     }
 
+    /** True if {@code t} is the chosen topic of the one row shown. */
+    private boolean isChosen( Topic t ) {
+        return rows.size() == 1 && rows.get( 0 ).verdict != null
+               && rows.get( 0 ).verdict.chosen().getId() == t.getId() ;
+    }
+
     /** Show {@code rows} (empty clears the panel). */
     void show( List<Row> rows ) {
 
@@ -170,7 +180,7 @@ final class ReviewDecisionPanel extends JPanel {
                              ( row.verdict.agreesWith( q.getTopicId() )
                                ? " - agrees" : " - differs" ) ) ;
             row.verdict.topics().forEach( aiTopics::addElement ) ;
-            aiList.setSelectedIndex( 0 ) ;
+            aiList.setSelectedValue( row.verdict.chosen(), true ) ;
         }
         status.setText( row.status.getLabel() +
                         ( row.result != null ? ": " + row.result : "" ) ) ;

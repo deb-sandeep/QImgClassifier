@@ -20,8 +20,11 @@
       "retries"               : 1,
       "reasoning"             : false,
       "promptCaching"         : true,
-      "rateLimit"             : { "rpm" : 0, "rpd" : 1000 },
-      "fallback" : {
+      "rateLimit"             : {
+        "rpm" : 0,
+        "rpd" : 1000
+      },
+      "fallback"              : {
         "rateLimited" : [ "nvidia/nemotron-3.5-super-vl" ],
         "unreachable" : [ "nvidia/nemotron-3.5-super-vl" ]
       }

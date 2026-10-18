@@ -231,7 +231,8 @@ public class QuestionClassifier implements TaskOutcomes {
     }
 
     /**
-     * Result-column text for a fresh classification: the top topic's summary,
+     * Result-column text for a fresh classification: the summary of the topic
+     * chosen as stored (see {@link WorkspaceTopicMap#associatedSummary}),
      * plus {@link QuestionTopicAssociator#MATCHES_AI_MARK} if auto association
      * wrote it into question-info.json. An association failure is logged but
      * does not fail the task - the classification itself is already stored.
@@ -239,10 +240,8 @@ public class QuestionClassifier implements TaskOutcomes {
     private static String summarise( QTask task, List<Topic> topics ) {
 
         if( topics.isEmpty() ) return "" ;
-        Topic top = topics.get( 0 ) ;
-        int    confidence = Math.round( top.getMatchProbability() * 100 ) ;
-        String summary    = WorkspaceTopicMap.summary( top.getTopicName(),
-                                                       confidence, false ) ;
+        String summary = WorkspaceTopicMap.associatedSummary(
+                task.getSrcDir(), task.getQuestionId() ) ;
 
         try {
             QuestionTopicAssociator.Outcome outcome = QuestionTopicAssociator

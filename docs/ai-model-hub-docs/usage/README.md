@@ -43,7 +43,8 @@ and
 |---|---|
 | **Gateway** | An endpoint that hosts models, of a type (`openrouter`, `ollama`), with its own switch, credentials, rate limits and an optional cap on requests in flight. Defined in the *global* file. |
 | **Model** | A model id on a gateway, with its own switch, display name and provider limits (global file), and the app's policy for it: slots, timeout, retries, reasoning, prompt caching, app limits, fallbacks (app file). |
-| **Usable** | A model that is switched on in the app and globally, whose gateway is on and has its credentials. Only usable models get requests. |
+| **Usable** | A model that is switched on in the app and globally, whose gateway is on and has its credentials, and which the app's roots reach (see below). Only usable models get requests. |
+| **Reachable** | A model a job can get to: one in a root, or in a fallback list of a usable model a job can get to. An app can invoke only these; any other model in its `models` gets no slots. |
 | **Root** | A named pool of entry models in the app file. A job names the roots it may start on. |
 | **Slot** | One of a model's `maxParallel` worker threads. A free slot whose model may send asks the routing policy for a job. |
 | **Job** | One unit of work ([`AIJob`](../javadocs/com/sandy/sconsole/ai/AIJob.html)): your payload, its roots, a request factory, a stop check and a listener. |

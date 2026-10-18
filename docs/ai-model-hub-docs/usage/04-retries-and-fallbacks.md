@@ -63,9 +63,13 @@ during an outage of the models ahead of it.
 
 ```json
 "nvidia/nemotron-3.5-super-vl:free" : {
-  "enabled" : true, "maxParallel" : 3, "requestTimeoutSeconds" : 180,
-  "retries" : 1, "reasoning" : false, "promptCaching" : true,
-  "fallback" : {
+  "enabled"               : true,
+  "maxParallel"           : 3,
+  "requestTimeoutSeconds" : 180,
+  "retries"               : 1,
+  "reasoning"             : false,
+  "promptCaching"         : true,
+  "fallback"              : {
     "rateLimited" : [ "nvidia/nemotron-3.5-super-vl" ],
     "unreachable" : [ "nvidia/nemotron-3.5-super-vl" ]
   }
@@ -79,8 +83,10 @@ fail. The paid model is never used for them.
 
 ```json
 "fallback" : {
-  "rateLimited" : [ "google/gemma-4-31b-it:free",
-                    "google/gemma-4-26b-a4b-it:free" ],
+  "rateLimited" : [
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free"
+  ],
   "badReply"    : [ "anthropic/claude-haiku-5.5" ],
   "default"     : [ "google/gemma-4-31b-it:free" ]
 }
@@ -97,9 +103,21 @@ Once a job has moved to a fallback model, **that model's** `retries` and
 `fallback` apply to its next failure, not the rest of the earlier list:
 
 ```json
-"model-a" : { …, "fallback" : { "default" : [ "model-b" ] } },
-"model-b" : { …, "fallback" : { "default" : [ "model-c" ] } },
-"model-c" : { … }
+"model-a" : {
+  …
+  "fallback" : {
+    "default" : [ "model-b" ]
+  }
+},
+"model-b" : {
+  …
+  "fallback" : {
+    "default" : [ "model-c" ]
+  }
+},
+"model-c" : {
+  …
+}
 ```
 
 a → b → c. A model the job has already used up is skipped.
@@ -108,10 +126,15 @@ a → b → c. A model the job has already used up is skipped.
 
 ```json
 "gemma4:latest" : {
-  "enabled" : true, "maxParallel" : 5, "requestTimeoutSeconds" : 300,
-  "retries" : 1, "reasoning" : false,
-  "fallback" : { "unreachable" : [ "nvidia/nemotron-3.5-super-vl:free" ],
-                 "default"     : [ "nvidia/nemotron-3.5-super-vl:free" ] }
+  "enabled"               : true,
+  "maxParallel"           : 5,
+  "requestTimeoutSeconds" : 300,
+  "retries"               : 1,
+  "reasoning"             : false,
+  "fallback"              : {
+    "unreachable" : [ "nvidia/nemotron-3.5-super-vl:free" ],
+    "default"     : [ "nvidia/nemotron-3.5-super-vl:free" ]
+  }
 }
 ```
 

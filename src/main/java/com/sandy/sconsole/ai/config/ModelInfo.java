@@ -23,6 +23,9 @@ import java.time.Duration;
  * @param promptCaching     mark the prompt cacheable where the model
  *                          supports it
  * @param fallback          where a job goes after it fails the job for good
+ * @param reachable         a job can get to it: it is in one of the app's
+ *                          roots, or in the fallback of a usable model the
+ *                          job can get to
  */
 public record ModelInfo( String id, GatewayInfo gateway, String displayName,
                          boolean enabledGlobally, boolean enabledInApp,
@@ -30,13 +33,23 @@ public record ModelInfo( String id, GatewayInfo gateway, String displayName,
                          RateLimit appRateLimit, int maxParallel,
                          Duration requestTimeout, int retries,
                          boolean reasoning, boolean promptCaching,
-                         FallbackInfo fallback ) {
+                         FallbackInfo fallback, boolean reachable ) {
 
     /**
      * True if the model can be sent requests: it is switched on in the app
-     * and globally, its gateway is on, and the gateway has its credentials.
+     * and globally, its gateway is on and has its credentials, and a job can
+     * get to it from the app's roots.
      */
     public boolean usable() { return whyUnusable() == null ; }
+
+    /** This model, marked as one no job can get to. */
+    public ModelInfo unreachable() {
+        return new ModelInfo( id, gateway, displayName, enabledGlobally,
+                              enabledInApp, contextTokens, providerRateLimit,
+                              appRateLimit, maxParallel, requestTimeout,
+                              retries, reasoning, promptCaching, fallback,
+                              false ) ;
+    }
 
     /** Why the model is not {@link #usable()}; null if it is. */
     public String whyUnusable() {
@@ -49,6 +62,9 @@ public record ModelInfo( String id, GatewayInfo gateway, String displayName,
         if( !gateway.hasCredentials() ) {
             return "its gateway '" + gateway.name() + "' has no API key (" +
                    gateway.apiKeyFile() + ")" ;
+        }
+        if( !reachable ) {
+            return "no root of the app reaches it, directly or by fallback" ;
         }
         return null ;
     }

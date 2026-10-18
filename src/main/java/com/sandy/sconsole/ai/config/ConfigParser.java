@@ -15,7 +15,9 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Duration;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.EnumMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -47,6 +49,11 @@ import java.util.Set;
  * {@code models}. A root model the app enables must be usable
  * ({@link ModelInfo#whyUnusable}); any other model the app enables that is
  * not usable is only warned about, and is skipped at run time.
+ * <p>
+ * An app can invoke only the models its roots reach: the root models, and
+ * the models in the fallback lists of a usable model it can invoke. Any
+ * other model of the app's {@code models} is unusable (no slots, never
+ * offered a job), and is warned about if the app enables it.
  */
 final class ConfigParser {
 
@@ -100,6 +107,8 @@ final class ConfigParser {
         file = app.location() ;
         Map<String,ModelInfo>    models = appModels( appRoot, defined ) ;
         Map<String,List<String>> roots  = roots( appRoot, models ) ;
+
+        models = markReachable( models, roots ) ;
 
         AIConfig config = new AIConfig( app.location(), parent.location(),
                                         gateways, models, roots ) ;
@@ -223,9 +232,39 @@ final class ConfigParser {
                     seconds( m, path, "requestTimeoutSeconds" ),
                     integer( m, path, "retries", 0 ),
                     bool( m, path, "reasoning" ), caching,
-                    fallback( m, path, all ) ) ) ;
+                    fallback( m, path, all ), true ) ) ;
         }
         return models ;
+    }
+
+    /**
+     * {@code models} with those no job can get to marked
+     * {@link ModelInfo#unreachable()}: a job starts on a root model, and
+     * moves on only from a model it can run on (a usable one) to the models
+     * of that model's fallback lists, and so on. So an app can invoke only
+     * the models its roots reach.
+     */
+    private static Map<String,ModelInfo> markReachable(
+            Map<String,ModelInfo> models, Map<String,List<String>> roots ) {
+
+        Set<String>   reached = new LinkedHashSet<>() ;
+        Deque<String> todo    = new ArrayDeque<>() ;
+
+        roots.values().forEach( todo::addAll ) ;
+        while( !todo.isEmpty() ) {
+            String id = todo.poll() ;
+            if( !reached.add( id ) ) continue ;
+
+            ModelInfo m = models.get( id ) ;
+            if( !m.usable() ) continue ;
+            todo.addAll( m.fallback().defaults() ) ;
+            m.fallback().guards().values().forEach( todo::addAll ) ;
+        }
+
+        Map<String,ModelInfo> marked = new LinkedHashMap<>() ;
+        models.forEach( ( id, m ) -> marked.put(
+                id, reached.contains( id ) ? m : m.unreachable() ) ) ;
+        return marked ;
     }
 
     private FallbackInfo fallback( JsonNode model, String modelPath,
@@ -311,9 +350,10 @@ final class ConfigParser {
     }
 
     /**
-     * A root model the app enables must be usable; a fallback that names a
-     * model that can't be used (for any reason, the app's own switch
-     * included) is warned about, once per model and fallback list.
+     * A root model the app enables must be usable. Warned about: a model the
+     * app enables that no root reaches, and a fallback of a usable model
+     * that names a model that can't be used (for any reason, the app's own
+     * switch included).
      */
     private void checkUsable( AIConfig config ) {
 
@@ -328,8 +368,17 @@ final class ConfigParser {
                 }
             }
         } ) ;
+        config.models().forEach( ( id, m ) -> {
+            if( m.enabledInApp() && !m.reachable() ) {
+                log.warn( "{}: models.{} is never used and gets no slots: " +
+                          "{}", config.appLocation(), quote( id ),
+                          m.whyUnusable() ) ;
+            }
+        } ) ;
         config.models().values().forEach( m -> {
-            FallbackInfo fb = m.fallback() ;
+            if( !m.usable() ) return ;
+
+            FallbackInfo fb    = m.fallback() ;
             Set<String>  named = new LinkedHashSet<>( fb.defaults() ) ;
 
             fb.guards().values().forEach( named::addAll ) ;

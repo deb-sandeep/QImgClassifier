@@ -26,6 +26,7 @@ enum ToolIcon implements Icon {
     LOAD    ( new Color( 0x1565C0 ) ),
     START   ( new Color( 0x2E7D32 ) ),
     STOP    ( new Color( 0xC62828 ) ),
+    REQUEUE ( new Color( 0xEF6C00 ) ),
     USE_AI  ( new Color( 0x6A1B9A ) ),
 
     /** Red: it is enabled only while decisions wait to be saved. */
@@ -67,6 +68,7 @@ enum ToolIcon implements Icon {
                 case START    -> g2.fill( polygon( 4, 2.5, 13.5, 8, 4, 13.5 ) ) ;
                 case STOP     -> g2.fill( new RoundRectangle2D.Double(
                                                   3, 3, 10, 10, 3, 3 ) ) ;
+                case REQUEUE  -> paintRetry( g2 ) ;
                 case USE_AI   -> paintSparkle( g2 ) ;
                 case SAVE     -> paintDisk( g2 ) ;
                 case CLEAR    -> paintUndo( g2 ) ;
@@ -95,6 +97,13 @@ enum ToolIcon implements Icon {
         tray.lineTo( 14, 14 ) ;
         tray.lineTo( 14, 10.5 ) ;
         g2.draw( tray ) ;
+    }
+
+    /** A circling arrow - sending the failed questions again. */
+    private static void paintRetry( Graphics2D g2 ) {
+        g2.draw( new Arc2D.Double( 2.5, 2.5, 11, 11, 90, -270,
+                                   Arc2D.OPEN ) ) ;
+        g2.fill( polygon( 0, 9, 5, 9, 2.5, 5 ) ) ;
     }
 
     /** A four-pointed star - the model's recommendation. */

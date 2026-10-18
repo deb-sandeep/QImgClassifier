@@ -1,5 +1,7 @@
 package com.sandy.sconsole.qimgtools.apps.classifier.ui;
 
+import com.sandy.sconsole.qimgtools.core.sequence.TopicSequenceGenerator;
+import com.sandy.sconsole.qimgtools.core.ui.TopicSequenceDialog;
 import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.ClassificationListener;
 import com.sandy.sconsole.qimgtools.core.model.AIAgent;
 import com.sandy.sconsole.qimgtools.core.model.ProcessingState;
@@ -124,6 +126,12 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
                 ProcessedListRepair.ProgressListener progress ) ;
 
         /**
+         * Regenerate the topic sequence from the SConsole server. Blocking;
+         * call off the EDT.
+         */
+        TopicSequenceGenerator.Summary generateTopicSequence() throws Exception ;
+
+        /**
          * The AI targets and models held back by a rate limit right now; empty
          * when none is.
          */
@@ -174,6 +182,8 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     private final JMenuItem startItem = new JMenuItem( "Start processing" ) ;
     private final JMenuItem stopItem  = new JMenuItem( "Stop processing" ) ;
     private final JMenuItem repairItem = new JMenuItem( "Repair processed list" ) ;
+    private final JMenuItem sequenceItem =
+            new JMenuItem( TopicSequenceDialog.TITLE ) ;
 
     /** File item: re-queue every FAILED question; enabled while any is. */
     private final JMenuItem requeueFailedItem =
@@ -372,7 +382,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
 
     /**
      * File (start / stop / exit), View (expand / collapse / clear filters) and
-     * Maintenance (repair) menus.
+     * Maintenance (repair, topic sequence) menus.
      */
     private JMenuBar buildMenuBar() {
 
@@ -421,6 +431,12 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
         JMenu maintenance = new JMenu( "Maintenance" ) ;
         repairItem.addActionListener( a -> repairProcessedList() ) ;
         maintenance.add( repairItem ) ;
+        sequenceItem.addActionListener( a -> {
+            if( controller == null ) return ;
+            TopicSequenceDialog.run( this, controller::generateTopicSequence,
+                                     sequenceItem::setEnabled ) ;
+        } ) ;
+        maintenance.add( sequenceItem ) ;
 
         JMenuBar bar = new JMenuBar() ;
         bar.add( file ) ;

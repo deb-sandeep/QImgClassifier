@@ -12,7 +12,9 @@ global file (another environment, or a newer version) just by changing
 `parent`.
 
 Both files are JSON with `//` and `/* */` comments allowed. Keys are strict:
-an unknown key is an error, which catches typos.
+an unknown key is an error, which catches typos. By convention every
+attribute goes on its own line, nested objects (such as `rateLimit`)
+included, with the colons of an object aligned.
 
 ## The global file
 
@@ -27,7 +29,10 @@ an unknown key is an error, which catches typos.
       "apiKeyFile"            : "~/secrets/open-router.api.key",
       "connectTimeoutSeconds" : 10,
       "cooldownSeconds"       : 300,
-      "rateLimit"             : { "rpm" : 20, "rpd" : 1000 }
+      "rateLimit"             : {
+        "rpm" : 20,
+        "rpd" : 1000
+      }
     },
     "ollama-home" : {
       "enabled"               : true,
@@ -36,21 +41,28 @@ an unknown key is an error, which catches typos.
       "connectTimeoutSeconds" : 10,
       "cooldownSeconds"       : 60,
       "maxParallel"           : 5,
-      "rateLimit"             : { "rpm" : 0, "rpd" : 0 }
+      "rateLimit"             : {
+        "rpm" : 0,
+        "rpd" : 0
+      }
     }
   },
   "models" : {
     "nvidia/nemotron-3.5-super-vl:free" : {
-      "enabled" : true, "gateway" : "openrouter",
+      "enabled"     : true,
+      "gateway"     : "openrouter",
       "displayName" : "Nemotron 3.5 Super"
     },
     "anthropic/claude-haiku-5.5" : {
-      "enabled" : true, "gateway" : "openrouter",
+      "enabled"     : true,
+      "gateway"     : "openrouter",
       "displayName" : "Claude Haiku"
     },
     "gemma4:latest" : {
-      "enabled" : true, "gateway" : "ollama-home",
-      "displayName" : "Gemma 4", "contextTokens" : 12288
+      "enabled"       : true,
+      "gateway"       : "ollama-home",
+      "displayName"   : "Gemma 4",
+      "contextTokens" : 12288
     }
   }
 }
@@ -101,8 +113,11 @@ appears in logs, history and status.
       "retries"               : 1,
       "reasoning"             : false,
       "promptCaching"         : true,
-      "rateLimit"             : { "rpm" : 0, "rpd" : 500 },
-      "fallback" : {
+      "rateLimit"             : {
+        "rpm" : 0,
+        "rpd" : 500
+      },
+      "fallback"              : {
         "rateLimited" : [ "anthropic/claude-haiku-5.5" ],
         "unreachable" : [ "anthropic/claude-haiku-5.5" ]
       }
@@ -124,6 +139,27 @@ appears in logs, history and status.
 | `parent` | The global file. Either `classpath:/…` or a file path. `~/` is expanded, and a relative path is relative to the app file's folder. |
 | `roots` | Named pools of entry models, each a non-empty list of model ids. A job names the roots it may start on. How jobs are shared between roots is up to your [routing policy](05-routing-policies.md), not the config. |
 | `models` | The app's policy for **every** model it names anywhere (roots or fallbacks). |
+
+### Which models an app can invoke
+
+Only the models its **roots reach**. Jobs name roots, never models, so a job
+starts on a root model and moves on only through fallback lists:
+
+- every model of every root is reachable;
+- so is every model in a fallback list (any guard) of a reachable model that
+  is usable, and so on down the chain.
+
+Any other model in the app's `models` is **unreachable**. It gets no slots,
+is never offered a job, shows as unusable in the status snapshot ("no root of
+the app reaches it, directly or by fallback"), and is logged as a WARN at
+load if the app enables it. Keeping a model configured but switched off
+(`"enabled" : false`), ready to put in a root later, gives no warning.
+
+A model reached only through an unusable model is unreachable too: a job
+can't run on the unusable model, so it never follows that model's
+fallbacks.
+
+Models that are only in the global file are invisible to the app.
 
 ### Model keys (app)
 
@@ -186,8 +222,11 @@ when:
   'openrouter' is disabled (classpath:/common/ai-model-config.json)`.
 
 A model the app switches off itself (`"enabled" : false`) is allowed in a
-root; that root is just off. A fallback to a model that can't be used is
-only a **WARN**, and that model is skipped at run time.
+root; that root is just off. These are only a **WARN**:
+
+- a usable model's fallback names a model that can't be used (that model
+  is skipped at run time);
+- the app enables a model that no root reaches (it gets no slots).
 
 On success, a summary of both files is logged at INFO on the `ai.config`
 logger: gateways, every model with its limits, slots, retries and guards, and

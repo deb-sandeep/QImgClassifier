@@ -2,6 +2,7 @@ package com.sandy.sconsole.qimgtools.apps.classifier.workspace;
 
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 import com.sandy.sconsole.qimgtools.core.model.TopicRepo;
+import com.sandy.sconsole.qimgtools.core.sequence.TopicChooser;
 import com.sandy.sconsole.qimgtools.apps.classifier.workspace.WorkspaceTopicMap.StoredMapping;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -21,11 +22,11 @@ import com.sandy.sconsole.qimgtools.core.workspace.JsonFiles;
  * Writes topics into a source's {@code .workspace/question-info.json} (the
  * file QImgExtractor owns), so QImgExtractor shows the questions as mapped.
  * <p>
- * Auto association follows QImgExtractor's {@code AutoTopicAssociator}: it
- * assigns the top stored AI recommendation whatever its confidence, as the
- * associations are reviewed later by a stronger model. Recommendations are
- * taken confidence-descending, and the first whose topic is in the topic
- * master is chosen.
+ * Auto association chooses among the stored AI recommendations whose topics
+ * are in the topic master as QImgExtractor's {@code AutoTopicAssociator} does,
+ * with {@code TopicResolver} (via {@link TopicChooser}): the later studied of
+ * the top two, whatever the confidence, as the associations are reviewed
+ * later by a stronger model.
  * Auto association never changes a question that already has a topic;
  * {@link #associateManual} always overwrites. Each written topic records who
  * chose it:
@@ -72,19 +73,22 @@ public final class QuestionTopicAssociator {
         /** question-info.json has no entry for the question. */
         NOT_IN_QUESTION_INFO,
 
-        /** question-info.json could not be read or written (logged). */
+        /**
+         * question-info.json could not be read or written, or the topic
+         * sequence could not be read (logged).
+         */
         ERROR
     }
 
     /**
      * Result-column suffix: the question's topic in question-info.json matches
-     * the AI's top topic.
+     * the AI's chosen topic.
      */
     public static final String MATCHES_AI_MARK = " ✓" ;
 
     /**
      * Result-column suffix: the question's topic in question-info.json differs
-     * from the AI's top topic.
+     * from the AI's chosen topic.
      */
     public static final String DIFFERS_FROM_AI_MARK = " ≠" ;
 
@@ -118,14 +122,14 @@ public final class QuestionTopicAssociator {
     }
 
     /**
-     * Result-column suffix comparing the assigned topic with the AI's top
+     * Result-column suffix comparing the assigned topic with the AI's chosen
      * topic: {@link #MATCHES_AI_MARK}, {@link #DIFFERS_FROM_AI_MARK}, or ""
      * when no topic is assigned.
      */
-    public static String indicator( Integer assignedTopicId, Integer aiTopTopicId ) {
+    public static String indicator( Integer assignedTopicId, Integer aiTopicId ) {
         if( assignedTopicId == null ) return "" ;
-        return assignedTopicId.equals( aiTopTopicId ) ? MATCHES_AI_MARK
-                                                      : DIFFERS_FROM_AI_MARK ;
+        return assignedTopicId.equals( aiTopicId ) ? MATCHES_AI_MARK
+                                                   : DIFFERS_FROM_AI_MARK ;
     }
 
     /**
@@ -135,10 +139,10 @@ public final class QuestionTopicAssociator {
     private record Associator( String actor, String model, int confidence ) {}
 
     /**
-     * Associate the question's top stored AI topic, whatever its confidence,
-     * if the question has no topic yet. The associator recorded is the model
-     * named in the map's {@code classifiedBy}, with the chosen topic's
-     * confidence.
+     * Associate the topic chosen from the question's stored AI topics,
+     * whatever its confidence, if the question has no topic yet. The
+     * associator recorded is the model named in the map's
+     * {@code classifiedBy}, with the chosen topic's own confidence.
      */
     public static Outcome associate( File srcDir, String questionId ) {
 
@@ -152,16 +156,32 @@ public final class QuestionTopicAssociator {
             return logged( questionId, Outcome.NO_RECOMMENDATION ) ;
         }
 
-        for( StoredMapping m : mappings ) {
-            Topic topic = TopicRepo.instance().getTopicById( m.topicId() ) ;
-            if( topic == null ) continue ;
+        TopicRepo           repo  = TopicRepo.instance() ;
+        List<StoredMapping> known = mappings.stream()
+                .filter( m -> repo.getTopicById( m.topicId() ) != null )
+                .toList() ;
 
-            Associator by = new Associator(
-                    "AI", WorkspaceTopicMap.classifierModel( srcDir, questionId ),
-                    m.confidenceLevel() ) ;
-            return writeTopic( srcDir, questionId, topic, by, false ) ;
+        if( known.isEmpty() ) {
+            return logged( questionId, Outcome.UNRESOLVED_TOPIC ) ;
         }
-        return logged( questionId, Outcome.UNRESOLVED_TOPIC ) ;
+
+        StoredMapping chosen ;
+        try {
+            chosen = TopicChooser.choose( questionId, known,
+                                          StoredMapping::topicId,
+                                          StoredMapping::confidenceLevel ) ;
+        }
+        catch( IOException e ) {
+            log.error( "[{}] Could not choose the topic: {}", questionId,
+                       e.getMessage() ) ;
+            return Outcome.ERROR ;
+        }
+
+        Associator by = new Associator(
+                "AI", WorkspaceTopicMap.classifierModel( srcDir, questionId ),
+                chosen.confidenceLevel() ) ;
+        return writeTopic( srcDir, questionId,
+                           repo.getTopicById( chosen.topicId() ), by, false ) ;
     }
 
     /**

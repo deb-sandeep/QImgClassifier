@@ -7,6 +7,8 @@ import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.ClassifierRouting;
 import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.QSourceClassifier;
 import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.QuestionClassifier;
 import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
+import com.sandy.sconsole.qimgtools.core.sequence.TopicSequenceGenerator;
+import com.sandy.sconsole.qimgtools.core.server.SConsoleServer;
 import com.sandy.sconsole.qimgtools.core.model.ProcessingState;
 import com.sandy.sconsole.qimgtools.core.model.QTask;
 import com.sandy.sconsole.qimgtools.core.model.RateLimitNotice;
@@ -71,6 +73,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     private final QuestionClassifier classifier ;
     private final TaskScheduler      scheduler ;
     private final ClassificationListener listener ;
+    private final TopicSequenceGenerator sequenceGenerator ;
 
     /** True while a batch thread is alive. */
     private final AtomicBoolean processing = new AtomicBoolean( false ) ;
@@ -115,6 +118,15 @@ public class QImgClassifier implements QClassifierFrame.Controller {
         this.scheduler = new TaskScheduler(
                 hub, new TopicPrompter( TopicRepo.instance(), PROMPT_DIR ),
                 classifier ) ;
+        this.sequenceGenerator = sequenceGenerator( config ) ;
+    }
+
+    private static TopicSequenceGenerator sequenceGenerator(
+            QClassifierConfig config ) {
+
+        return new TopicSequenceGenerator( new SConsoleServer(
+                config.getServerUrl(), config.getServerConnectTimeout(),
+                config.getServerRequestTimeout() ) ) ;
     }
 
     /**
@@ -134,6 +146,22 @@ public class QImgClassifier implements QClassifierFrame.Controller {
             if( !headless ) {
                 JOptionPane.showMessageDialog( null, e.getMessage(),
                         "Invalid configuration", JOptionPane.ERROR_MESSAGE ) ;
+            }
+            System.exit( 1 ) ;
+            return ;
+        }
+
+        // Topics can't be associated without the topic sequence
+        try {
+            sequenceGenerator( config ).generateIfMissing() ;
+        }
+        catch( Exception e ) {
+            String msg = "Could not generate the missing topic sequence from " +
+                         config.getServerUrl() + ":\n" + e.getMessage() ;
+            log.error( msg, e ) ;
+            if( !headless ) {
+                JOptionPane.showMessageDialog( null, msg, "Topic sequence",
+                                               JOptionPane.ERROR_MESSAGE ) ;
             }
             System.exit( 1 ) ;
             return ;
@@ -295,6 +323,12 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     }
 
     // ---- UI actions ----------------------------------------------------
+
+    @Override
+    public TopicSequenceGenerator.Summary generateTopicSequence()
+            throws Exception {
+        return sequenceGenerator.generate() ;
+    }
 
     /**
      * {@inheritDoc}

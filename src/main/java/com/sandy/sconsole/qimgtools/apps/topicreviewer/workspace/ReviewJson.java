@@ -9,6 +9,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import lombok.extern.slf4j.Slf4j;
+
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -16,6 +19,7 @@ import java.util.List;
  * The JSON form of a question's server association and of a verdict, shared
  * by {@link ReviewAuditLog} and {@link PendingVerdicts}.
  */
+@Slf4j
 final class ReviewJson {
 
     private ReviewJson() {}
@@ -30,11 +34,15 @@ final class ReviewJson {
                 .put( "confidence", q.getTopicAssocConfidence() ) ;
     }
 
-    /** {@code v} as model, time and topics (id, topicName, confidence). */
+    /**
+     * {@code v} as model, topics (id, topicName, confidence) and the id of
+     * the topic chosen from them.
+     */
     static ObjectNode verdict( ReviewVerdict v ) {
 
         ObjectNode node = JsonFiles.MAPPER.createObjectNode() ;
         node.put( "model", v.model() ) ;
+        node.put( "chosenTopicId", v.chosen().getId() ) ;
 
         ArrayNode list = node.putArray( "topics" ) ;
         for( Topic t : v.topics() ) {
@@ -47,7 +55,11 @@ final class ReviewJson {
         return node ;
     }
 
-    /** The verdict written by {@link #verdict}; null if it has no topics. */
+    /**
+     * The verdict written by {@link #verdict}, its topic chosen afresh with
+     * the topic sequence as it is now; null if it has no topics or the
+     * sequence can't be read (logged).
+     */
     static ReviewVerdict readVerdict( JsonNode node ) {
 
         List<Topic> topics = new ArrayList<>() ;
@@ -58,9 +70,14 @@ final class ReviewJson {
             topic.setMatchProbability( t.path( "confidence" ).asInt() / 100f ) ;
             topics.add( topic ) ;
         }
-        return topics.isEmpty()
-               ? null
-               : new ReviewVerdict( node.path( "model" ).asText( null ),
-                                    topics ) ;
+        if( topics.isEmpty() ) return null ;
+        try {
+            return ReviewVerdict.of( node.path( "model" ).asText( null ),
+                                     topics ) ;
+        }
+        catch( IOException e ) {
+            log.error( "Not reusing a stored verdict: {}", e.getMessage() ) ;
+            return null ;
+        }
     }
 }

@@ -3,6 +3,7 @@ package com.sandy.sconsole.qimgtools.apps.classifier.workspace;
 import com.sandy.sconsole.qimgtools.core.model.AIAgent;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 import com.sandy.sconsole.qimgtools.core.model.TopicRepo;
+import com.sandy.sconsole.qimgtools.core.sequence.TopicChooser;
 import com.sandy.sconsole.qimgtools.core.workspace.JsonFiles;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -66,32 +67,44 @@ public final class WorkspaceTopicMap {
     }
 
     /**
-     * Question id -> {@link #summary} of its stored top topic, for every
-     * question in the source's map file. A question stored with no topics maps
-     * to "".
+     * Question id -> {@link #summary} of its stored chosen topic (see
+     * {@link #chosenMapping}), for every question in the source's map file. A
+     * question stored with no topics maps to "".
      */
     public static Map<String,String> associatedSummaries( File srcDir ) {
 
         Map<String,String> summaries = new HashMap<>() ;
-        readOrEmpty( srcDir ).fields().forEachRemaining( e -> {
-            JsonNode top = topMapping( e.getValue() ) ;
-            summaries.put( e.getKey(), top.isMissingNode() ? "" :
-                    summary( top.path( "topicName" ).asText(),
-                             top.path( "confidenceLevel" ).asInt(),
-                             top.path( HUMAN_INTERVENTION ).asBoolean() ) ) ;
-        } ) ;
+        readOrEmpty( srcDir ).fields().forEachRemaining( e ->
+                summaries.put( e.getKey(), summary( e.getKey(), e.getValue() ) ) ) ;
         return summaries ;
     }
 
     /**
-     * Question id -> topic id of its stored top topic, for every question
-     * stored with topics.
+     * {@link #summary} of one question's stored chosen topic; "" if it has no
+     * entry or was stored with no topics.
      */
-    public static Map<String,Integer> topTopicIds( File srcDir ) {
+    public static String associatedSummary( File srcDir, String questionId ) {
+        return summary( questionId, readOrEmpty( srcDir ).path( questionId ) ) ;
+    }
+
+    private static String summary( String questionId, JsonNode questionEntry ) {
+
+        JsonNode top = chosenMapping( questionId, questionEntry ) ;
+        if( top.isMissingNode() ) return "" ;
+        return summary( top.path( "topicName" ).asText(),
+                        top.path( "confidenceLevel" ).asInt(),
+                        top.path( HUMAN_INTERVENTION ).asBoolean() ) ;
+    }
+
+    /**
+     * Question id -> topic id of its stored chosen topic (see
+     * {@link #chosenMapping}), for every question stored with topics.
+     */
+    public static Map<String,Integer> chosenTopicIds( File srcDir ) {
 
         Map<String,Integer> ids = new HashMap<>() ;
         readOrEmpty( srcDir ).fields().forEachRemaining( e -> {
-            JsonNode top = topMapping( e.getValue() ) ;
+            JsonNode top = chosenMapping( e.getKey(), e.getValue() ) ;
             if( !top.isMissingNode() ) {
                 ids.put( e.getKey(), top.path( "topicId" ).asInt() ) ;
             }
@@ -201,8 +214,30 @@ public final class WorkspaceTopicMap {
      * First (top) entry of a question's stored mappings; a missing node if
      * there is none.
      */
-    private static JsonNode topMapping( JsonNode questionEntry ) {
-        return questionEntry.path( "topicMappings" ).path( 0 ) ;
+    /**
+     * The stored mapping {@code TopicResolver} files the question under, as
+     * auto association does; a missing node if there is none. For display
+     * only: if the topic sequence can't be read, the top mapping (logged).
+     */
+    private static JsonNode chosenMapping( String questionId,
+                                           JsonNode questionEntry ) {
+
+        JsonNode       stored   = questionEntry.path( "topicMappings" ) ;
+        List<JsonNode> mappings = new ArrayList<>() ;
+
+        stored.forEach( mappings::add ) ;
+        try {
+            JsonNode chosen = TopicChooser.choose(
+                    questionId, mappings,
+                    m -> m.path( "topicId" ).asInt(),
+                    m -> m.path( "confidenceLevel" ).asInt() ) ;
+            return chosen != null ? chosen : stored.path( 0 ) ;
+        }
+        catch( IOException e ) {
+            log.warn( "[{}] Showing the top topic: {}", questionId,
+                      e.getMessage() ) ;
+            return stored.path( 0 ) ;
+        }
     }
 
     /** Read-modify-write of one question's entry. */

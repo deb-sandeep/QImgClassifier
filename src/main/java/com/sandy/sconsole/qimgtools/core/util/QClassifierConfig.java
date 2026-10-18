@@ -5,6 +5,7 @@ import com.sandy.sconsole.ai.config.AIConfig;
 import lombok.Getter;
 
 import java.io.File;
+import java.time.Duration;
 
 /**
  * Application settings, read from the
@@ -68,6 +69,11 @@ public final class QClassifierConfig {
     /** Base URL of QImgExtractor's remote command API. */
     private final String qImgExtractorApiUrl ;
 
+    /** Base URL of the SConsole server, for the topic sequence. */
+    private final String   serverUrl ;
+    private final Duration serverConnectTimeout ;
+    private final Duration serverRequestTimeout ;
+
     private QClassifierConfig( ConfigProperties props ) {
 
         qBankDir           = props.path( "question.bank.dir" ) ;
@@ -76,6 +82,10 @@ public final class QClassifierConfig {
         processedListFile  = props.workspacePath( "processed.list.file" ) ;
         requestHistoryFile = props.workspacePath( "request.history.file" ) ;
         usageLogFile       = props.workspacePath( "usage.log.file" ) ;
+
+        serverUrl            = props.str( "server.url" ) ;
+        serverConnectTimeout = props.seconds( "server.connect.timeout.seconds" ) ;
+        serverRequestTimeout = props.seconds( "server.request.timeout.seconds" ) ;
 
         ai                  = AIConfigs.load( AI_CONFIG ) ;
         qImgExtractorApiUrl = props.str( "qimgextractor.api.url" ) ;

@@ -46,8 +46,8 @@ public class QSourceClassifier {
 
         Map<String,String>  stored      =
                 WorkspaceTopicMap.associatedSummaries( srcDir ) ;
-        Map<String,Integer> aiTopIds    =
-                WorkspaceTopicMap.topTopicIds( srcDir ) ;
+        Map<String,Integer> aiTopicIds  =
+                WorkspaceTopicMap.chosenTopicIds( srcDir ) ;
         Map<String,Integer> assignedIds =
                 QuestionTopicAssociator.assignedTopicIds( srcDir ) ;
         ClassificationListener listener = classifier.getListener() ;
@@ -60,7 +60,7 @@ public class QSourceClassifier {
 
             if( storedResult != null ) {
                 storedResult += QuestionTopicAssociator.indicator(
-                        assignedIds.get( qId ), aiTopIds.get( qId ) ) ;
+                        assignedIds.get( qId ), aiTopicIds.get( qId ) ) ;
             }
             listener.taskDiscovered( task, storedResult ) ;
             if( storedResult == null ) pending.add( task ) ;

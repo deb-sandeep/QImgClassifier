@@ -21,9 +21,9 @@ public record ReviewDecision( ReviewItem item, Topic topic, String actor,
     /**
      * The decision giving {@code item} the topic {@code topic}. It is the
      * model's (AI, with the model's confidence) when {@code topic} is the
-     * model's best topic, and the user's (User, 100) otherwise: keeping the
-     * server's topic against the model, picking a lower-ranked model topic,
-     * or choosing another.
+     * model's chosen topic ({@link ReviewVerdict#top}), and the user's (User,
+     * 100) otherwise: keeping the server's topic against the model, picking
+     * another of the model's topics, or choosing another.
      *
      * @param verdict the model's verdict on the question; null if none
      */

@@ -17,6 +17,7 @@ import com.sandy.sconsole.qimgtools.core.workspace.UsageLog;
 
 import lombok.extern.slf4j.Slf4j;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -76,8 +77,9 @@ public class ReviewOutcomes implements TaskOutcomes {
 
     /**
      * Keep the topics the server knows for the question's syllabus (with the
-     * server's names), store the verdict and report it; a reply naming no
-     * such topic fails the question.
+     * server's names), choose the one the question is filed under, store the
+     * verdict and report it; a reply naming no such topic fails the question,
+     * as does a topic sequence that can't be read.
      */
     @Override
     public boolean succeeded( QTask task, List<Topic> topics, AIAgent agent,
@@ -104,7 +106,17 @@ public class ReviewOutcomes implements TaskOutcomes {
             return false ;
         }
 
-        ReviewVerdict verdict = new ReviewVerdict( model, known ) ;
+        ReviewVerdict verdict ;
+        try {
+            verdict = ReviewVerdict.of( model, known ) ;
+        }
+        catch( IOException e ) {
+            log.error( "[{}] Could not choose the topic: {}", task,
+                       e.getMessage() ) ;
+            listener.itemFailed( item, attempts,
+                                 "the topic sequence could not be read" ) ;
+            return false ;
+        }
         try {
             pending.save( item.question(), verdict ) ;
         }

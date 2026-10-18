@@ -43,7 +43,7 @@
       "requestTimeoutSeconds" : 300,
       "retries"               : 1,
       "reasoning"             : false,
-      "fallback" : {
+      "fallback"              : {
         "default" : [ "nvidia/nemotron-3.5-super-vl:free" ]
       }
     },
@@ -54,9 +54,11 @@
       "retries"               : 1,
       "reasoning"             : false,
       "promptCaching"         : true,
-      "fallback" : {
-        "rateLimited" : [ "google/gemma-4-31b-it:free",
-                          "google/gemma-4-26b-a4b-it:free" ],
+      "fallback"              : {
+        "rateLimited" : [
+          "google/gemma-4-31b-it:free",
+          "google/gemma-4-26b-a4b-it:free"
+        ],
         "default"     : [ "google/gemma-4-31b-it:free" ]
       }
     },
@@ -67,7 +69,7 @@
       "retries"               : 0,
       "reasoning"             : false,
       "promptCaching"         : true,
-      "fallback" : {
+      "fallback"              : {
         "rateLimited" : [ "google/gemma-4-26b-a4b-it:free" ]
       }
     },

@@ -3,26 +3,15 @@ package com.sandy.sconsole.qimgtools.apps.topicreviewer.server;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewDecision;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewResult;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
+import com.sandy.sconsole.qimgtools.core.server.SConsoleServer;
+import com.sandy.sconsole.qimgtools.core.server.SConsoleServer.ServerException;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 
-import java.io.IOException;
-import java.net.ConnectException;
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpConnectTimeoutException;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.net.http.HttpTimeoutException;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -31,10 +20,8 @@ import java.util.stream.Collectors;
  * (see {@code docs/required-server-apis.md} and the server's
  * {@code doc/feature-enhancements/2026-10-16/question-topic-review/}
  * {@code api-changes.md}): the topic list, the topic review queue, and
- * confirming reviews. Every response comes
- * in the server's envelope ({@code data} + {@code executionResult}); a
- * response that is not HTTP 2xx with status {@code OK} is a
- * {@link ServerException} carrying the server's message. Thread-safe.
+ * confirming reviews. Calls go through {@link SConsoleServer}, which
+ * turns a failed one into a {@link ServerException}. Thread-safe.
  */
 @Slf4j
 public class SConsoleServerClient {
@@ -45,37 +32,24 @@ public class SConsoleServerClient {
     /** Most decisions one {@link #review} call may carry. */
     public static final int MAX_REVIEWS = 100 ;
 
-    /** A request the server refused, or could not be asked. */
-    public static class ServerException extends Exception {
-        public ServerException( String message ) { super( message ) ; }
+    private final SConsoleServer server ;
+
+    public SConsoleServerClient( SConsoleServer server ) {
+        this.server = server ;
     }
 
-    /** Server field names are camelCase; fields not modelled are ignored. */
-    private final ObjectMapper mapper = new ObjectMapper()
-            .configure( DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false ) ;
-
-    /** e.g. {@code http://localhost:8080}, without a trailing slash. */
-    private final String     baseUrl ;
-    private final Duration   requestTimeout ;
-    private final HttpClient httpClient ;
-
-    public SConsoleServerClient( String baseUrl, Duration connectTimeout,
-                                 Duration requestTimeout ) {
-
-        this.baseUrl        = baseUrl.replaceAll( "/+$", "" ) ;
-        this.requestTimeout = requestTimeout ;
-        this.httpClient     = HttpClient.newBuilder()
-                                        .connectTimeout( connectTimeout )
-                                        .build() ;
+    /** The server this client talks to. */
+    public SConsoleServer server() {
+        return server ;
     }
 
     /** The topics of syllabus {@code syllabusName}, e.g. "IIT Physics". */
     public List<Topic> topics( String syllabusName ) throws ServerException {
 
-        HttpRequest request = get( "/Master/Topic/All?syllabusName="
-                                   + encode( syllabusName ) ) ;
-        List<ServerTopic> topics = call( request,
-                                         new TypeReference<List<ServerTopic>>() {} ) ;
+        List<ServerTopic> topics = server.get(
+                "/Master/Topic/All?syllabusName=" +
+                SConsoleServer.encode( syllabusName ),
+                new TypeReference<List<ServerTopic>>() {} ) ;
         return topics.stream().map( ServerTopic::toTopic ).toList() ;
     }
 
@@ -94,7 +68,8 @@ public class SConsoleServerClient {
                 "/Master/Question/TopicReview/Pending?limit=" + limit ) ;
         if( !syllabusNames.isEmpty() ) {
             path.append( "&syllabusNames=" )
-                .append( encode( String.join( ",", syllabusNames ) ) ) ;
+                .append( SConsoleServer.encode(
+                        String.join( ",", syllabusNames ) ) ) ;
         }
         if( !topicIds.isEmpty() ) {
             path.append( "&topicIds=" )
@@ -102,8 +77,8 @@ public class SConsoleServerClient {
                                  .map( String::valueOf )
                                  .collect( Collectors.joining( "," ) ) ) ;
         }
-        return call( get( path.toString() ),
-                     new TypeReference<PendingResult>() {} ) ;
+        return server.get( path.toString(),
+                           new TypeReference<PendingResult>() {} ) ;
     }
 
     /**
@@ -116,7 +91,7 @@ public class SConsoleServerClient {
     public List<ReviewResult> review( List<ReviewDecision> decisions )
             throws ServerException {
 
-        ObjectNode body    = mapper.createObjectNode() ;
+        ObjectNode body    = server.mapper().createObjectNode() ;
         ArrayNode  reviews = body.putArray( "reviews" ) ;
 
         for( ReviewDecision d : decisions ) {
@@ -128,9 +103,9 @@ public class SConsoleServerClient {
             r.put( "topicAssocConfidence", d.confidence() ) ;
         }
 
-        JsonNode data = call( post( "/Master/Question/TopicReview", body ),
-                              new TypeReference<JsonNode>() {} ) ;
-        List<ReviewResult> results = mapper.convertValue(
+        JsonNode data = server.post( "/Master/Question/TopicReview", body,
+                                     new TypeReference<JsonNode>() {} ) ;
+        List<ReviewResult> results = server.mapper().convertValue(
                 data.path( "results" ),
                 new TypeReference<List<ReviewResult>>() {} ) ;
 
@@ -158,104 +133,5 @@ public class SConsoleServerClient {
             }
         }
         return true ;
-    }
-
-    // ---- plumbing ------------------------------------------------------
-
-    private HttpRequest get( String path ) {
-        return HttpRequest.newBuilder( URI.create( baseUrl + path ) )
-                          .timeout( requestTimeout )
-                          .GET()
-                          .build() ;
-    }
-
-    private HttpRequest post( String path, JsonNode body ) {
-        return HttpRequest.newBuilder( URI.create( baseUrl + path ) )
-                          .timeout( requestTimeout )
-                          .header( "Content-Type", "application/json" )
-                          .POST( HttpRequest.BodyPublishers.ofString(
-                                  body.toString() ) )
-                          .build() ;
-    }
-
-    /**
-     * Send {@code request} and return the envelope's {@code data} as
-     * {@code type}.
-     *
-     * @throws ServerException if the server could not be reached, or the reply
-     *         is not a successful envelope
-     */
-    private <T> T call( HttpRequest request, TypeReference<T> type )
-            throws ServerException {
-
-        String what = request.method() + " " + request.uri().getPath() ;
-        HttpResponse<String> response ;
-
-        try {
-            response = httpClient.send( request,
-                                        HttpResponse.BodyHandlers.ofString() ) ;
-        }
-        catch( InterruptedException e ) {
-            Thread.currentThread().interrupt() ;
-            throw new ServerException( what + " was interrupted" ) ;
-        }
-        catch( IOException e ) {
-            log.warn( "{} failed", what, e ) ;
-            throw new ServerException( unreachable( e ) ) ;
-        }
-
-        JsonNode root = parse( response.body() ) ;
-        JsonNode result = root == null ? null : root.path( "executionResult" ) ;
-        boolean ok = response.statusCode() / 100 == 2
-                     && result != null
-                     && "OK".equals( result.path( "status" ).asText() ) ;
-
-        if( !ok ) {
-            String message = result != null && result.hasNonNull( "message" )
-                           ? result.get( "message" ).asText()
-                           : abbreviate( response.body() ) ;
-            log.warn( "{} - HTTP {}: {}", what, response.statusCode(), message ) ;
-            throw new ServerException( message ) ;
-        }
-        try {
-            return mapper.convertValue( root.get( "data" ), type ) ;
-        }
-        catch( IllegalArgumentException e ) {
-            log.error( "{} - unexpected reply: {}", what, response.body(), e ) ;
-            throw new ServerException( "unexpected reply from the server" ) ;
-        }
-    }
-
-    /** The body as JSON; null if it is not JSON (e.g. an HTML error page). */
-    private JsonNode parse( String body ) {
-        try {
-            return body == null || body.isBlank() ? null : mapper.readTree( body ) ;
-        }
-        catch( IOException e ) {
-            return null ;
-        }
-    }
-
-    /** A readable reason for a request that got no reply. */
-    private String unreachable( IOException e ) {
-
-        if( e instanceof HttpConnectTimeoutException
-            || e instanceof ConnectException ) {
-            return "the SConsole server is not reachable at " + baseUrl ;
-        }
-        if( e instanceof HttpTimeoutException ) {
-            return "the SConsole server took too long to reply (timed out)" ;
-        }
-        String msg = e.getMessage() ;
-        return e.getClass().getSimpleName() + ( msg != null ? ": " + msg : "" ) ;
-    }
-
-    private static String abbreviate( String body ) {
-        if( body == null || body.isBlank() ) return "(no response body)" ;
-        return body.length() <= 200 ? body : body.substring( 0, 200 ) + "..." ;
-    }
-
-    private static String encode( String s ) {
-        return URLEncoder.encode( s, StandardCharsets.UTF_8 ).replace( "+", "%20" ) ;
     }
 }
