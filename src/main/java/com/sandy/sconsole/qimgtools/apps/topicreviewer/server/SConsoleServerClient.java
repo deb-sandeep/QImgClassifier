@@ -27,7 +27,7 @@ import java.util.stream.Collectors;
 public class SConsoleServerClient {
 
     /** Most questions one {@link #pending} call may ask for. */
-    public static final int MAX_LIMIT = 100 ;
+    public static final int MAX_LIMIT = 500 ;
 
     /** Most decisions one {@link #review} call may carry. */
     public static final int MAX_REVIEWS = 100 ;

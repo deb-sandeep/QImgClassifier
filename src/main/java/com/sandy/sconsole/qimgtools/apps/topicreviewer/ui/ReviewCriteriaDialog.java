@@ -3,6 +3,8 @@ package com.sandy.sconsole.qimgtools.apps.topicreviewer.ui;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewCriteria;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 
+import static com.sandy.sconsole.qimgtools.apps.topicreviewer.server.SConsoleServerClient.MAX_LIMIT;
+
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -37,9 +39,6 @@ import java.util.function.Function;
  */
 @SuppressWarnings( "serial" )
 final class ReviewCriteriaDialog extends JPanel {
-
-    /** Most questions the server returns per fetch. */
-    private static final int MAX_LIMIT = 500 ;
 
     private final Map<String,JCheckBox>        syllabuses = new LinkedHashMap<>() ;
     private final Function<String,List<Topic>> topicsOf ;

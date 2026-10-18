@@ -10,6 +10,8 @@ import java.io.File;
 import java.time.Duration;
 import java.util.List;
 
+import static com.sandy.sconsole.qimgtools.apps.topicreviewer.server.SConsoleServerClient.MAX_LIMIT;
+
 /**
  * Settings of the topic reviewer, read from the
  * {@code /apps/topicreviewer/qtopicreview.properties} classpath resource (see
@@ -97,7 +99,7 @@ public final class ReviewConfig {
 
         syllabusNames = props.list( "review.syllabus.names" ) ;
         topicIds      = props.intList( "review.topic.ids" ) ;
-        fetchLimit    = props.wholeNumber( "review.fetch.limit", 1, 100 ) ;
+        fetchLimit    = props.wholeNumber( "review.fetch.limit", 1, MAX_LIMIT ) ;
 
         if( syllabusNames.isEmpty() && topicIds.isEmpty() ) {
             throw props.invalid( "review.syllabus.names",

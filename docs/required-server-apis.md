@@ -162,7 +162,7 @@ The topic review is now live, and it is the reviewer's way of changing a
 topic. The contract is in
 `SConsoleNxt/doc/feature-enhancements/2026-10-16/question-topic-review/api-changes.md`:
 
-- `GET /Master/Question/TopicReview/Pending?syllabusNames=…|topicIds=…&limit=1..100`
+- `GET /Master/Question/TopicReview/Pending?syllabusNames=…|topicIds=…&limit=1..500`
   returns the first flagged questions by id (`topicReviewNeeded = true`),
   with `totalResults`.
 - `POST /Master/Question/TopicReview` `{reviews: [...]}` confirms up to 100
