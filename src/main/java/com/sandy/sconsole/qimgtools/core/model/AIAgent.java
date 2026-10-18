@@ -1,5 +1,7 @@
 package com.sandy.sconsole.qimgtools.core.model;
 
+import com.sandy.sconsole.ai.config.GatewayType;
+
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
@@ -22,6 +24,14 @@ public enum AIAgent {
 
     /** Name for messages, e.g. the rate-limit strip. */
     private final String displayName ;
+
+    /** The agent of a gateway of {@code type}. */
+    public static AIAgent of( GatewayType type ) {
+        return switch( type ) {
+            case OLLAMA     -> GEMMA ;
+            case OPENROUTER -> OPENROUTER ;
+        } ;
+    }
 
     @Override
     public String toString() { return label ; }

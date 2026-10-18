@@ -1,12 +1,16 @@
 package com.sandy.sconsole.qimgtools.core.util;
 
+import com.sandy.sconsole.ai.config.AIConfig;
+import com.sandy.sconsole.ai.config.ModelInfo;
+
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * The names models are shown by: the display name configured for a model
- * ({@code <target>.display.names}), else its id. Only what is shown changes;
- * requests, transcripts, logs and the server keep the model id.
+ * The names models are shown by: the display name the AI config gives a
+ * model ({@code displayName} in the global file), else its id. Only what
+ * is shown changes; requests, transcripts, logs and the server keep the
+ * model id.
  */
 public final class ModelNames {
 
@@ -19,12 +23,12 @@ public final class ModelNames {
         this.names = Map.copyOf( names ) ;
     }
 
-    /** The display names configured for {@code targets}. */
-    public static ModelNames of( QClassifierConfig.Target... targets ) {
+    /** The display names of the models {@code config} uses. */
+    public static ModelNames of( AIConfig config ) {
 
         Map<String,String> names = new HashMap<>() ;
-        for( QClassifierConfig.Target t : targets ) {
-            if( t != null ) names.putAll( t.getDisplayNames() ) ;
+        for( ModelInfo m : config.models().values() ) {
+            if( m.displayName() != null ) names.put( m.id(), m.displayName() ) ;
         }
         return new ModelNames( names ) ;
     }

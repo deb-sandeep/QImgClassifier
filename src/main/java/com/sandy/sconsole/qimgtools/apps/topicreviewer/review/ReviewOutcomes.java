@@ -1,7 +1,6 @@
 package com.sandy.sconsole.qimgtools.apps.topicreviewer.review;
 
-import com.sandy.sconsole.qimgtools.core.ai.AIInvoker;
-import com.sandy.sconsole.qimgtools.core.ai.AIProcessor;
+import com.sandy.sconsole.qimgtools.core.scheduler.AttemptListener;
 import com.sandy.sconsole.qimgtools.core.scheduler.TaskOutcomes;
 import com.sandy.sconsole.qimgtools.core.model.AIAgent;
 import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
@@ -35,6 +34,9 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class ReviewOutcomes implements TaskOutcomes {
 
+    /** The root of the reviewer's AI config the questions go to. */
+    public static final String ROOT = "review" ;
+
     private final ReviewListener  listener ;
     private final PendingVerdicts pending ;
     private final ReviewAuditLog  audit ;
@@ -60,6 +62,11 @@ public class ReviewOutcomes implements TaskOutcomes {
     /** Remember which item {@code item.task()} belongs to; call on submit. */
     public void track( ReviewItem item ) {
         items.put( item.task(), item ) ;
+    }
+
+    @Override
+    public List<String> roots( QTask task ) {
+        return List.of( ROOT ) ;
     }
 
     @Override
@@ -122,17 +129,19 @@ public class ReviewOutcomes implements TaskOutcomes {
 
     /** There is no second opinion in a review. */
     @Override
-    public boolean needsSecondOpinion( QTask task, List<Topic> topics ) {
-        return false ;
+    public String secondOpinionRoot( QTask task, List<Topic> topics,
+                                     AIAgent agent ) {
+        return null ;
     }
 
     @Override
-    public AIInvoker.AttemptListener attemptListener( QTask task ) {
+    public AttemptListener attemptListener( QTask task ) {
 
         ReviewItem item = items.get( task ) ;
-        return new AIInvoker.AttemptListener() {
+        return new AttemptListener() {
             @Override
-            public void attemptStarted( AIProcessor p, String model, int attempt ) {
+            public void attemptStarted( AIAgent agent, String model,
+                                        int attempt ) {
                 listener.itemAttempt( item, model, attempt ) ;
             }
 

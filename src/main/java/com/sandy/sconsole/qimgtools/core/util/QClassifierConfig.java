@@ -1,25 +1,25 @@
 package com.sandy.sconsole.qimgtools.core.util;
 
+import com.sandy.sconsole.ai.config.AIConfig;
+
 import lombok.Getter;
-import lombok.Value;
 
 import java.io.File;
-import java.time.Duration;
-import java.util.List;
-import java.util.Map;
 
 /**
  * Application settings, read from the
  * {@code /apps/classifier/qimgclassifier.properties} classpath resource (see
  * that file for what each key means). A JVM system property of the same
- * name, e.g. {@code -Dopenrouter.model=...}, overrides the file (see
+ * name, e.g. {@code -Dquestion.filter=C}, overrides the file (see
  * {@link ConfigProperties}).
  * <p>
  * Every key must be present ({@code question.filter} may be blank); a missing
  * or malformed value fails {@link #load()} with an
- * {@link IllegalStateException} naming the key. Paths may start with {@code ~/}
- * for the user's home directory. The files the application keeps (processed
- * list, request history, usage log, API key) may be given relative to
+ * {@link IllegalStateException} naming the key. The AI models come from the
+ * JSON app config {@link #AI_CONFIG} and its parent (see
+ * {@code AIConfigLoader}), which fail the same way. Paths may start with
+ * {@code ~/} for the user's home directory. The files the application keeps
+ * (processed list, request history, usage log) may be given relative to
  * {@code workspace.dir}.
  */
 @Getter
@@ -28,6 +28,10 @@ public final class QClassifierConfig {
     /** Classpath location of the configuration file. */
     public static final String RESOURCE =
             "/apps/classifier/qimgclassifier.properties" ;
+
+    /** Location of the classifier's AI config (models, roots, fallbacks). */
+    public static final String AI_CONFIG =
+            "classpath:/apps/classifier/qimgclassifier.ai.json" ;
 
     /** Root folder searched (recursively) for the source folders. */
     private final File qBankDir ;
@@ -42,8 +46,8 @@ public final class QClassifierConfig {
     private final File processedListFile ;
 
     /**
-     * Start times of the last day's requests per target, so per-day rate
-     * limits survive a restart.
+     * Start times of the day's requests per gateway and model with a daily
+     * limit, so the limits survive a restart.
      */
     private final File requestHistoryFile ;
 
@@ -56,72 +60,10 @@ public final class QClassifierConfig {
     private final File workspaceDir ;
 
     /**
-     * Settings of one AI invocation target ({@code gemma.*},
-     * {@code openrouter.*}).
+     * The models, gateways and roots the classifier uses, from
+     * {@link #AI_CONFIG} or the file {@code -Dai.app.config} names.
      */
-    @Value
-    public static class Target {
-
-        boolean enabled ;
-
-        /**
-         * Primary model, used for a question's first attempt on this target.
-         */
-        String model ;
-
-        /** Models tried, in order, on retries on this target; may be empty. */
-        List<String> backupModels ;
-
-        /**
-         * Names to show models by, keyed by model id; a model without one is
-         * shown by its id.
-         */
-        Map<String,String> displayNames ;
-
-        /** Requests that may be in flight at once. */
-        int maxParallel ;
-
-        /**
-         * Retries a question may get on this target after a failed attempt on
-         * it.
-         */
-        int maxRetries ;
-
-        Duration connectTimeout ;
-
-        /** Limit on a whole request, from sending it to the full reply. */
-        Duration requestTimeout ;
-
-        /** Requests per minute; 0 for no limit. */
-        int rateLimitRpm ;
-
-        /** Requests per rolling 24 hours; 0 for no limit. */
-        int rateLimitRpd ;
-
-        /**
-         * Pause after the backend reports a rate limit without saying how long.
-         */
-        Duration rateLimitCooldown ;
-
-        /**
-         * Let the model reason before answering; when false it is asked not
-         * to, saving the reasoning tokens and time.
-         */
-        boolean reasoning ;
-    }
-
-    private final Target gemma ;
-
-    /** Full URL of Ollama's generate endpoint. */
-    private final String gemmaServerUrl ;
-
-    private final Target openRouter ;
-
-    /** Null when the key file is missing or empty. */
-    private final String openRouterApiKey ;
-
-    /** Mark the prompt cacheable on OpenRouter models that support caching. */
-    private final boolean openRouterPromptCaching ;
+    private final AIConfig ai ;
 
     /** Base URL of QImgExtractor's remote command API. */
     private final String qImgExtractorApiUrl ;
@@ -135,13 +77,7 @@ public final class QClassifierConfig {
         requestHistoryFile = props.workspacePath( "request.history.file" ) ;
         usageLogFile       = props.workspacePath( "usage.log.file" ) ;
 
-        gemma          = props.target( "gemma" ) ;
-        gemmaServerUrl = props.str( "gemma.server.url" ) ;
-
-        openRouter       = props.target( "openrouter" ) ;
-        openRouterApiKey = props.apiKey( "openrouter.api.key.file" ) ;
-        openRouterPromptCaching = props.bool( "openrouter.prompt.caching" ) ;
-
+        ai                  = AIConfigs.load( AI_CONFIG ) ;
         qImgExtractorApiUrl = props.str( "qimgextractor.api.url" ) ;
     }
 

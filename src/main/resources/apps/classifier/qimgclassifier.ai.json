@@ -1,0 +1,83 @@
+// The classifier's AI models. Override with -Dai.app.config=<file>.
+//
+// parent : the global model config (classpath:/... or a file path; a
+//          relative path is relative to this file's folder)
+// roots  : named pools of entry models. A question may start on either
+//          root; ClassifierRouting shares them out: Chemistry to "cloud",
+//          Physics / Maths to "local" (overflowing to "cloud" only when no
+//          local model can take them), and a local reply that isn't
+//          confident enough goes to "cloud" for a second opinion.
+// models : the app's policy per model it uses (each must be in the parent)
+//   enabled               the app's own switch (on top of the global ones)
+//   maxParallel           requests in flight on the model at most (its slots)
+//   requestTimeoutSeconds the longest a whole request may take
+//   retries               attempts a question gets on the model after a
+//                         failed one, before following its fallback
+//   reasoning             let the model reason first (costs output tokens)
+//   promptCaching         mark the prompt cacheable where the model supports
+//                         it (openrouter models)
+//   rateLimit             (optional) the app's own { rpm, rpd } on the model,
+//                         on top of the provider's
+//   fallback              (optional) where a question goes once the model
+//                         has failed it for good, by why it failed:
+//                         rateLimited, serverError, timeout, unreachable,
+//                         badReply, default (for the rest). Each list is in
+//                         order of preference: a later model takes the
+//                         question only while every earlier one is held back
+//                         (rate limit, daily limit, unreachable), never just
+//                         because it is busy. A rate limit uses no retry;
+//                         without a rateLimited (or default) guard the
+//                         question waits for the model.
+{
+  "parent" : "classpath:/common/ai-model-config.json",
+
+  "roots" : {
+    "local" : [ "gemma4:latest" ],
+    "cloud" : [ "nvidia/nemotron-3.5-super-vl:free" ]
+  },
+
+  "models" : {
+    "gemma4:latest" : {
+      "enabled"               : false,
+      "maxParallel"           : 5,
+      "requestTimeoutSeconds" : 300,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "fallback" : {
+        "default" : [ "nvidia/nemotron-3.5-super-vl:free" ]
+      }
+    },
+    "nvidia/nemotron-3.5-super-vl:free" : {
+      "enabled"               : true,
+      "maxParallel"           : 2,
+      "requestTimeoutSeconds" : 180,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "promptCaching"         : true,
+      "fallback" : {
+        "rateLimited" : [ "google/gemma-4-31b-it:free",
+                          "google/gemma-4-26b-a4b-it:free" ],
+        "default"     : [ "google/gemma-4-31b-it:free" ]
+      }
+    },
+    "google/gemma-4-31b-it:free" : {
+      "enabled"               : true,
+      "maxParallel"           : 2,
+      "requestTimeoutSeconds" : 180,
+      "retries"               : 0,
+      "reasoning"             : false,
+      "promptCaching"         : true,
+      "fallback" : {
+        "rateLimited" : [ "google/gemma-4-26b-a4b-it:free" ]
+      }
+    },
+    "google/gemma-4-26b-a4b-it:free" : {
+      "enabled"               : true,
+      "maxParallel"           : 2,
+      "requestTimeoutSeconds" : 180,
+      "retries"               : 0,
+      "reasoning"             : false,
+      "promptCaching"         : true
+    }
+  }
+}

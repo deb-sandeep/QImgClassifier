@@ -1,12 +1,14 @@
 package com.sandy.sconsole.qimgtools.apps.topicreviewer.util;
 
+import com.sandy.sconsole.ai.config.AIConfig;
+import com.sandy.sconsole.qimgtools.core.util.AIConfigs;
+import com.sandy.sconsole.qimgtools.core.util.ConfigProperties;
+
 import lombok.Getter;
 
 import java.io.File;
 import java.time.Duration;
 import java.util.List;
-import com.sandy.sconsole.qimgtools.core.util.ConfigProperties;
-import com.sandy.sconsole.qimgtools.core.util.QClassifierConfig;
 
 /**
  * Settings of the topic reviewer, read from the
@@ -17,7 +19,9 @@ import com.sandy.sconsole.qimgtools.core.util.QClassifierConfig;
  * Every key must be present ({@code review.topic.ids} may be blank); a
  * missing or malformed value fails {@link #load()} with an
  * {@link IllegalStateException} naming the key. The files the reviewer keeps
- * may be given relative to {@code workspace.dir}.
+ * may be given relative to {@code workspace.dir}. The AI models come from the
+ * JSON app config {@link #AI_CONFIG} and its parent (see
+ * {@code AIConfigLoader}), which fail the same way.
  */
 @Getter
 public final class ReviewConfig {
@@ -25,6 +29,10 @@ public final class ReviewConfig {
     /** Classpath location of the configuration file. */
     public static final String RESOURCE =
             "/apps/topicreviewer/qtopicreview.properties" ;
+
+    /** Location of the reviewer's AI config (models, roots, fallbacks). */
+    public static final String AI_CONFIG =
+            "classpath:/apps/topicreviewer/qtopicreview.ai.json" ;
 
     /** Base URL of the SConsole server, e.g. {@code http://localhost:8080}. */
     private final String   serverUrl ;
@@ -67,13 +75,11 @@ public final class ReviewConfig {
     /** Questions fetched per request to the review queue (1-100). */
     private final int fetchLimit ;
 
-    private final QClassifierConfig.Target openRouter ;
-
-    /** Null when the key file is missing or empty. */
-    private final String openRouterApiKey ;
-
-    /** Mark the prompt cacheable on OpenRouter models that support caching. */
-    private final boolean openRouterPromptCaching ;
+    /**
+     * The models the review asks, from {@link #AI_CONFIG} or the file
+     * {@code -Dai.app.config} names.
+     */
+    private final AIConfig ai ;
 
     private ReviewConfig( ConfigProperties props ) {
 
@@ -98,9 +104,7 @@ public final class ReviewConfig {
                                  "is blank, and so is review.topic.ids" ) ;
         }
 
-        openRouter       = props.target( "openrouter" ) ;
-        openRouterApiKey = props.apiKey( "openrouter.api.key.file" ) ;
-        openRouterPromptCaching = props.bool( "openrouter.prompt.caching" ) ;
+        ai = AIConfigs.load( AI_CONFIG ) ;
     }
 
     /**

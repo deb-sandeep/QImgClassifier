@@ -173,11 +173,11 @@ public class TopicReviewFrame extends JFrame
 
         List<RateLimitNotice> rateLimitNotices() ;
 
-        /** The OpenRouter queue: questions waiting, running and done. */
+        /** The model queue: questions waiting, running and done. */
         TaskScheduler.Counts queueCounts() ;
 
         /**
-         * Epoch ms from which OpenRouter may take its next request; now or
+         * Epoch ms from which a model may take its next request; now or
          * earlier if it may now.
          */
         long nextRequestAt() ;
@@ -254,7 +254,7 @@ public class TopicReviewFrame extends JFrame
     // The queue section's labels are as wide as these, so changing numbers
     // don't shift the status bar.
     private static final String WIDEST_COUNTS =
-            "OpenRouter:  99999 processed,  99 running,  9999 in queue" ;
+            "Models:  99999 processed,  99 running,  9999 in queue" ;
     private static final String WIDEST_PACE = "next request in 59 min 59 s" ;
 
     /** Which rows the table shows. */
@@ -321,6 +321,9 @@ public class TopicReviewFrame extends JFrame
     private final Action sendAction = action( "Send selected to the model",
             null, null, "Send the selected questions that are pending, " +
             "failed or undecided to the review model", this::sendSelected ) ;
+    private final Action requeueFailedAction = action(
+            "Re-queue failed questions", null, null, "Send every failed " +
+            "question to the review model again", this::requeueFailed ) ;
     private final Action useAllAction = action(
             "Use AI reco for all differing", ToolIcon.USE_AI, null,
             "Use the model's top topic for every undecided Differs row; " +
@@ -572,6 +575,7 @@ public class TopicReviewFrame extends JFrame
         review.add( stopAction ) ;
         review.addSeparator() ;
         review.add( sendAction ) ;
+        review.add( requeueFailedAction ) ;
         refreshOnOpen( review ) ;
 
         JMenu             decisions  = new JMenu( "Decisions" ) ;
@@ -981,6 +985,20 @@ public class TopicReviewFrame extends JFrame
     private void stop() {
         if( unattended ) endUnattended( "stopped by the user" ) ;
         else if( controller != null ) controller.stop() ;
+    }
+
+    /**
+     * Send every failed row to the model again, in the table's order; also
+     * while a run is going, which takes them in after the rows it has.
+     */
+    private void requeueFailed() {
+
+        List<Row> failed = model.rows().stream()
+                                .filter( r -> r.status == ReviewStatus.FAILED
+                                              && r.item.hasImages() )
+                                .toList() ;
+        log.info( "Re-queueing {} failed questions", failed.size() ) ;
+        send( failed ) ;
     }
 
     /** Send the selected rows that may be sent to the model. */
@@ -1817,6 +1835,9 @@ public class TopicReviewFrame extends JFrame
         saveAction.setEnabled( manual && savable && controller != null ) ;
         clearAction.setEnabled( manual && unsaved > 0 ) ;
         useAllAction.setEnabled( manual && !differingUndecided().isEmpty() ) ;
+        requeueFailedAction.setEnabled( manual && controller != null
+                && procState != ProcessingState.STOPPING
+                && model.count( ReviewStatus.FAILED ) > 0 ) ;
         if( saving ) Spinner.spin( table ) ;
         else Spinner.halt( table ) ;
         if( !loading ) refreshStatusBar() ;
@@ -1852,7 +1873,7 @@ public class TopicReviewFrame extends JFrame
     }
 
     /**
-     * Show the OpenRouter queue's counts: green when nothing waits or runs,
+     * Show the model queue's counts: green when nothing waits or runs,
      * orange while requests are in flight, pink when questions wait but
      * none is in flight. Beside them, a countdown to the next request, in
      * red, while questions wait for the rate limits (pacing, or a hold the
@@ -1868,7 +1889,7 @@ public class TopicReviewFrame extends JFrame
 
         boolean              held = c.queued() > 0 && wait >= 1000 ;
 
-        queueText.setText( "OpenRouter:  " + c.processed() + " processed,  " +
+        queueText.setText( "Models:  " + c.processed() + " processed,  " +
                            c.running() + " running,  " + c.queued() +
                            " in queue" ) ;
         paceText.setText( held ? "next request in " + countdown( wait )

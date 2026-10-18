@@ -1,7 +1,7 @@
 package com.sandy.sconsole.qimgtools.core.workspace;
 
+import com.sandy.sconsole.ai.TokenUsage;
 import com.sandy.sconsole.qimgtools.core.model.AttemptTranscript;
-import com.sandy.sconsole.qimgtools.core.model.TokenUsage;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -71,13 +71,13 @@ public final class UsageLog {
                 String.valueOf( t.getAttempt() ),
                 outcome,
                 String.valueOf( t.getElapsedMs() ),
-                u == null ? "" : String.valueOf( u.getInputTokens() ),
-                u == null ? "" : opt( u.getCachedTokens() ),
-                u == null ? "" : String.valueOf( u.getOutputTokens() ),
-                u == null ? "" : opt( u.getReasoningTokens() ),
-                u == null ? "" : String.valueOf( u.getTotalTokens() ),
-                u == null || u.getCost() == null
-                        ? "" : String.format( Locale.ROOT, "%.6f", u.getCost() ),
+                u == null ? "" : String.valueOf( u.inputTokens() ),
+                u == null ? "" : opt( u.cachedTokens() ),
+                u == null ? "" : String.valueOf( u.outputTokens() ),
+                u == null ? "" : opt( u.reasoningTokens() ),
+                u == null ? "" : String.valueOf( u.totalTokens() ),
+                u == null || u.cost() == null
+                        ? "" : String.format( Locale.ROOT, "%.6f", u.cost() ),
                 csv( images( t ) ),
                 csv( t.getFailure() ) ) ;
     }

@@ -1,7 +1,5 @@
 package com.sandy.sconsole.qimgtools.apps.classifier.pipeline;
 
-import com.sandy.sconsole.qimgtools.core.ai.AIInvoker;
-import com.sandy.sconsole.qimgtools.core.ai.AIProcessor;
 import com.sandy.sconsole.qimgtools.core.model.AIAgent;
 import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
 import com.sandy.sconsole.qimgtools.core.model.AttemptTranscript;
@@ -26,7 +24,9 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import com.sandy.sconsole.qimgtools.core.scheduler.AttemptListener;
 import com.sandy.sconsole.qimgtools.core.scheduler.TaskOutcomes;
+import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
 
 /**
  * What happens to a single question around its AI attempts: lifecycle events,
@@ -80,6 +80,12 @@ public class QuestionClassifier implements TaskOutcomes {
         return FileHelper.getQuestionImgGroups( srcDir, questionFilter ) ;
     }
 
+    /** A question may start on either root; see {@link ClassifierRouting}. */
+    @Override
+    public List<String> roots( QTask task ) {
+        return ClassifierRouting.roots( task ) ;
+    }
+
     @Override
     public void started( QTask task ) {
         listener.taskStarted( task ) ;
@@ -121,6 +127,17 @@ public class QuestionClassifier implements TaskOutcomes {
     }
 
     /**
+     * The cloud root for a local model's {@code topics} that are not
+     * confident enough (see {@link #needsSecondOpinion}); null otherwise.
+     */
+    @Override
+    public String secondOpinionRoot( QTask task, List<Topic> topics,
+                                     AIAgent agent ) {
+        return agent == AIAgent.GEMMA && needsSecondOpinion( task, topics )
+               ? ClassifierRouting.CLOUD : null ;
+    }
+
+    /**
      * True if Gemma's {@code topics} are not confident enough to keep, so the
      * question is asked again on OpenRouter. Topics unknown to the master are
      * ignored, as when they are stored. Confidences are taken highest first;
@@ -135,7 +152,6 @@ public class QuestionClassifier implements TaskOutcomes {
      * These are the quality gate QImgExtractor once applied to auto
      * association; association itself no longer filters.
      */
-    @Override
     public boolean needsSecondOpinion( QTask task, List<Topic> topics ) {
 
         List<Integer> confidences = new ArrayList<>() ;
@@ -170,12 +186,13 @@ public class QuestionClassifier implements TaskOutcomes {
      * each attempt's transcript and token counts.
      */
     @Override
-    public AIInvoker.AttemptListener attemptListener( QTask task ) {
+    public AttemptListener attemptListener( QTask task ) {
 
-        return new AIInvoker.AttemptListener() {
+        return new AttemptListener() {
             @Override
-            public void attemptStarted( AIProcessor p, String model, int attempt ) {
-                listener.taskAttempt( task, p.getAgent(), model, attempt ) ;
+            public void attemptStarted( AIAgent agent, String model,
+                                        int attempt ) {
+                listener.taskAttempt( task, agent, model, attempt ) ;
             }
 
             @Override

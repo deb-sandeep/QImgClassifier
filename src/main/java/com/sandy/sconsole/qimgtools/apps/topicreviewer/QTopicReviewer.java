@@ -1,8 +1,9 @@
 package com.sandy.sconsole.qimgtools.apps.topicreviewer;
 
-import com.sandy.sconsole.qimgtools.core.ai.AIInvoker;
-import com.sandy.sconsole.qimgtools.core.ai.AIProcessor;
-import com.sandy.sconsole.qimgtools.core.ai.OpenRouterProcessor;
+import com.sandy.sconsole.ai.AIHub;
+import com.sandy.sconsole.ai.RoutingPolicy;
+import com.sandy.sconsole.ai.config.AIConfig;
+import com.sandy.sconsole.qimgtools.core.ai.TopicPrompter;
 import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
 import com.sandy.sconsole.qimgtools.core.model.ProcessingState;
 import com.sandy.sconsole.qimgtools.core.model.QTask;
@@ -43,14 +44,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Entry point and controller of the topic reviewer: re-checks the topic
- * associations awaiting review on the SConsole server with a stronger
- * OpenRouter model, and records the user's decisions back on the server.
+ * associations awaiting review on the SConsole server with a stronger model
+ * (see qtopicreview.ai.json), and records the user's decisions back on the
+ * server.
  * <p>
  * Load fetches the first questions of the review queue
  * ({@code review.syllabus.names} or {@code review.topic.ids}) in place
- * of those shown, and each question's images are found in the local question bank. Start sends the questions
- * without a verdict to the model through the classifier's
- * {@link TaskScheduler} (retries, backup models, rate limits); each reply is
+ * of those shown, and each question's images are found in the local question
+ * bank. Start sends the questions without a verdict, in order, to the models
+ * of the {@code review} root of the reviewer's AI config through the
+ * {@link TaskScheduler} (retries, guarded fallbacks, rate limits); each reply is
  * compared with the server's topic and kept in {@link PendingVerdicts} until
  * the server settles the question (and in the {@link ReviewAuditLog}). The
  * user then confirms a topic for each question, which is sent to the
@@ -77,7 +80,6 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
     private final PendingVerdicts      pending ;
     private final ReviewAuditLog       audit ;
     private final QuestionLocator      locator ;
-    private final AIInvoker            aiInvoker ;
     private final ReviewOutcomes       outcomes ;
     private final TaskScheduler        scheduler ;
     private final ReviewListener       listener ;
@@ -97,8 +99,7 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
     private final ReviewCriteriaStore criteriaStore ;
 
     public QTopicReviewer( ReviewConfig config, SConsoleServerClient server,
-                           TopicRepo topicRepo, String apiKey,
-                           TopicReviewFrame frame ) {
+                           TopicRepo topicRepo, TopicReviewFrame frame ) {
 
         this.config    = config ;
         this.server    = server ;
@@ -118,21 +119,16 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
                                             config.getTopicIds(),
                                             config.getFetchLimit() ) ;
 
-        AIProcessor openRouter = new OpenRouterProcessor(
-                apiKey, config.getOpenRouter(),
-                config.isOpenRouterPromptCaching() ) ;
-        log.info( "AI processor: openrouter - {}", config.getOpenRouter() ) ;
+        AIHub hub = AIHub.create( config.getAi(), new AIHub.Options(
+                config.getRequestHistoryFile(), RoutingPolicy.inOrder(),
+                "qtopicreview" ) ) ;
 
-        this.aiInvoker = new AIInvoker( List.of( openRouter ),
-                                        config.getRequestHistoryFile(),
-                                        topicRepo, PROMPT_DIR ) ;
         this.outcomes  = new ReviewOutcomes(
                 frame, pending, audit,
                 new TranscriptStore( config.getWorkspaceDir() ),
                 new UsageLog( config.getUsageLogFile() ), topicRepo ) ;
-        this.scheduler = new TaskScheduler( aiInvoker, outcomes ) ;
-
-        scheduler.start() ;
+        this.scheduler = new TaskScheduler(
+                hub, new TopicPrompter( topicRepo, PROMPT_DIR ), outcomes ) ;
     }
 
     public static void main( String[] args ) {
@@ -140,13 +136,11 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
         ReviewConfig config ;
         try {
             config = ReviewConfig.load() ;
-            if( !config.getOpenRouter().isEnabled() ) {
-                throw new IllegalStateException( ReviewConfig.RESOURCE +
-                        ": openrouter.enabled must be true" ) ;
-            }
-            if( config.getOpenRouterApiKey() == null ) {
-                throw new IllegalStateException( "No OpenRouter API key " +
-                        "found (openrouter.api.key.file)" ) ;
+            AIConfig ai = config.getAi() ;
+            if( !ai.isRootUsable( ReviewOutcomes.ROOT ) ) {
+                throw new IllegalStateException( ai.appLocation() + ": root '" +
+                        ReviewOutcomes.ROOT + "' is missing or has no model " +
+                        "enabled" ) ;
             }
         }
         catch( IllegalStateException e ) {
@@ -176,10 +170,9 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
             SwingUtilities.invokeAndWait( () -> {
                 TopicReviewFrame frame = new TopicReviewFrame(
                         new TranscriptStore( config.getWorkspaceDir() ),
-                        ModelNames.of( config.getOpenRouter() ) ) ;
+                        ModelNames.of( config.getAi() ) ) ;
                 QTopicReviewer app = new QTopicReviewer(
-                        config, server, topicRepo,
-                        config.getOpenRouterApiKey(), frame ) ;
+                        config, server, topicRepo, frame ) ;
 
                 frame.setController( app ) ;
                 frame.showScope() ;
@@ -428,7 +421,7 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
 
     @Override
     public List<RateLimitNotice> rateLimitNotices() {
-        return aiInvoker.rateLimitNotices() ;
+        return scheduler.rateLimitNotices() ;
     }
 
     @Override
@@ -438,19 +431,28 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
 
     @Override
     public long nextRequestAt() {
-        return aiInvoker.availableAt( aiInvoker.getProcessors().get( 0 ) ) ;
+        return scheduler.nextRequestAt() ;
     }
 
     @Override
     public String scope() {
 
         return criteria.describe() + " (" + criteria.limit() + " per fetch) - " +
-               config.getOpenRouter().getModel() + " @ " + config.getServerUrl() ;
+               firstModel() + " @ " + config.getServerUrl() ;
+    }
+
+    /** The first model the review root may use. */
+    private String firstModel() {
+
+        return config.getAi().root( ReviewOutcomes.ROOT ).stream()
+                     .filter( m -> m.usable() )
+                     .map( m -> m.id() )
+                     .findFirst().orElse( "no model" ) ;
     }
 
     @Override
     public void shutdown() {
-        log.debug( "Shutting down the task scheduler" ) ;
+        log.debug( "Shutting down the AI hub" ) ;
         stopRequested = true ;
         scheduler.shutdown() ;
     }

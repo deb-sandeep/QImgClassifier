@@ -1,5 +1,7 @@
 package com.sandy.sconsole.qimgtools.core.model;
 
+import com.sandy.sconsole.ai.TokenUsage;
+
 import lombok.Value;
 
 /**

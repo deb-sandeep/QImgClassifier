@@ -1,0 +1,1 @@
+packageSearchIndex = [{"l":"All Packages","u":"allpackages-index.html"},{"l":"com.sandy.sconsole.ai"},{"l":"com.sandy.sconsole.ai.config"}];updateSearchResults();

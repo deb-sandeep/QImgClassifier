@@ -1,7 +1,9 @@
 package com.sandy.sconsole.qimgtools.apps.classifier;
 
-import com.sandy.sconsole.qimgtools.core.ai.AIInvoker;
+import com.sandy.sconsole.ai.AIHub;
+import com.sandy.sconsole.qimgtools.core.ai.TopicPrompter;
 import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.ClassificationListener;
+import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.ClassifierRouting;
 import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.QSourceClassifier;
 import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.QuestionClassifier;
 import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
@@ -9,6 +11,7 @@ import com.sandy.sconsole.qimgtools.core.model.ProcessingState;
 import com.sandy.sconsole.qimgtools.core.model.QTask;
 import com.sandy.sconsole.qimgtools.core.model.RateLimitNotice;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
+import com.sandy.sconsole.qimgtools.core.model.TopicRepo;
 import com.sandy.sconsole.qimgtools.apps.classifier.ui.QClassifierFrame;
 import com.sandy.sconsole.qimgtools.core.util.FileHelper;
 import com.sandy.sconsole.qimgtools.core.util.ModelNames;
@@ -42,8 +45,9 @@ import java.util.stream.Collectors;
  * Discovery walks the sources named in {@code qclassifier.sources.txt} (minus
  * those already in the processed list) and builds a plan of pending tasks per
  * source. Start queues every pending question of the plan with the
- * {@link TaskScheduler}, which routes them across sources by subject (see
- * there), and waits on a batch thread until they are done. Stop is
+ * {@link TaskScheduler}, whose AI hub shares them out across the models of
+ * the app's AI config by subject ({@link ClassifierRouting}), and waits on a
+ * batch thread until they are done. Stop is
  * cooperative: running tasks finish, no new ones start.
  * <p>
  * Runs with the {@link QClassifierFrame} UI, or with {@code --headless} to
@@ -63,7 +67,6 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     private static final String PROMPT_DIR = "/apps/classifier/" ;
 
     private final QClassifierConfig  config ;
-    private final AIInvoker          aiInvoker ;
     private final ProcessedList      processedList ;
     private final QuestionClassifier classifier ;
     private final TaskScheduler      scheduler ;
@@ -97,7 +100,6 @@ public class QImgClassifier implements QClassifierFrame.Controller {
             log.error( "Could not create the workspace folder {}", workspaceDir ) ;
         }
         this.config        = config ;
-        this.aiInvoker     = AIInvoker.fromConfig( config, PROMPT_DIR ) ;
         this.listener      = listener != null ? listener
                                               : ClassificationListener.NOOP ;
         this.processedList = new ProcessedList( config.getProcessedListFile() ) ;
@@ -106,9 +108,13 @@ public class QImgClassifier implements QClassifierFrame.Controller {
                 new TranscriptStore( config.getWorkspaceDir() ),
                 new UsageLog( config.getUsageLogFile() ),
                 config.getQuestionFilter() ) ;
-        this.scheduler     = new TaskScheduler( aiInvoker, classifier ) ;
 
-        scheduler.start() ;
+        AIHub hub = AIHub.create( config.getAi(), new AIHub.Options(
+                config.getRequestHistoryFile(), new ClassifierRouting(),
+                "qclassifier" ) ) ;
+        this.scheduler = new TaskScheduler(
+                hub, new TopicPrompter( TopicRepo.instance(), PROMPT_DIR ),
+                classifier ) ;
     }
 
     /**
@@ -149,8 +155,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
                         new QImgExtractorClient( config.getQImgExtractorApiUrl() ) ;
                 TranscriptStore transcripts =
                         new TranscriptStore( config.getWorkspaceDir() ) ;
-                ModelNames names = ModelNames.of( config.getGemma(),
-                                                  config.getOpenRouter() ) ;
+                ModelNames names = ModelNames.of( config.getAi() ) ;
                 QClassifierFrame frame =
                         new QClassifierFrame( extractor, transcripts, names ) ;
                 QImgClassifier   app   = new QImgClassifier( frame, config ) ;
@@ -326,7 +331,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
 
     @Override
     public List<RateLimitNotice> rateLimitNotices() {
-        return aiInvoker.rateLimitNotices() ;
+        return scheduler.rateLimitNotices() ;
     }
 
     @Override
@@ -365,7 +370,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     @Override
     public void shutdown() {
 
-        log.debug( "Shutting down the task scheduler" ) ;
+        log.debug( "Shutting down the AI hub" ) ;
         stopRequested = true ;
         scheduler.shutdown() ;
     }

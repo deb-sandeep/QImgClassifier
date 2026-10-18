@@ -1,30 +1,24 @@
 package com.sandy.sconsole.qimgtools.core.util;
 
-import lombok.extern.slf4j.Slf4j;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 
 /**
  * Typed reads from a classpath properties file, shared by the applications'
- * configurations ({@link QClassifierConfig}, {@link ReviewConfig}). A JVM
+ * configurations ({@link QClassifierConfig}, {@code ReviewConfig}). A JVM
  * system property of the same name overrides the file. There are no
  * defaults: a missing or malformed value throws an
  * {@link IllegalStateException} naming the file and the key. Paths may start
  * with {@code ~/} for the user's home directory.
  */
-@Slf4j
 public final class ConfigProperties {
 
     /** Classpath location of the file, used in error messages. */
@@ -61,27 +55,6 @@ public final class ConfigProperties {
             throw new IllegalStateException( "Could not read " + resource, e ) ;
         }
         return new ConfigProperties( resource, props ) ;
-    }
-
-    /**
-     * The common settings of the AI target whose keys start with
-     * {@code prefix.}.
-     */
-    public QClassifierConfig.Target target( String prefix ) {
-
-        return new QClassifierConfig.Target(
-                bool( prefix + ".enabled" ),
-                str( prefix + ".model" ),
-                list( prefix + ".backup.models" ),
-                map( prefix + ".display.names" ),
-                positiveInt( prefix + ".max.parallel" ),
-                wholeNumber( prefix + ".max.retries", 0 ),
-                seconds( prefix + ".connect.timeout.seconds" ),
-                seconds( prefix + ".request.timeout.seconds" ),
-                wholeNumber( prefix + ".rate.limit.rpm", 0 ),
-                wholeNumber( prefix + ".rate.limit.rpd", 0 ),
-                seconds( prefix + ".rate.limit.cooldown.seconds" ),
-                bool( prefix + ".reasoning" ) ) ;
     }
 
     /**
@@ -148,27 +121,6 @@ public final class ConfigProperties {
                      .toList() ;
     }
 
-    /**
-     * Comma-separated {@code key = value} pairs, trimmed, in order; may be
-     * empty. The pair's key ends at its first {@code =}.
-     */
-    public Map<String,String> map( String key ) {
-
-        Map<String,String> map = new LinkedHashMap<>() ;
-        for( String pair : list( key ) ) {
-            int    eq = pair.indexOf( '=' ) ;
-            String k  = eq < 0 ? "" : pair.substring( 0, eq ).trim() ;
-            String v  = eq < 0 ? "" : pair.substring( eq + 1 ).trim() ;
-
-            if( k.isEmpty() || v.isEmpty() ) {
-                throw invalid( key, "must be comma-separated 'name = value' " +
-                                    "pairs, not '" + pair + "'" ) ;
-            }
-            map.put( k, v ) ;
-        }
-        return map ;
-    }
-
     /** Comma-separated whole numbers; may be empty. */
     public List<Integer> intList( String key ) {
 
@@ -217,25 +169,5 @@ public final class ConfigProperties {
     /** An error about {@code key}: "{@code <resource>: <key> <problem>}". */
     public IllegalStateException invalid( String key, String problem ) {
         return new IllegalStateException( resource + ": " + key + " " + problem ) ;
-    }
-
-    /**
-     * The trimmed contents of the key file named by {@code key} (see
-     * {@link #workspacePath}), or null if it is missing, empty or unreadable
-     * (logged).
-     */
-    public String apiKey( String key ) {
-
-        File keyFile = workspacePath( key ) ;
-        if( !keyFile.isFile() ) return null ;
-        try {
-            String apiKey = Files.readString( keyFile.toPath(),
-                                              StandardCharsets.UTF_8 ).trim() ;
-            return apiKey.isEmpty() ? null : apiKey ;
-        }
-        catch( IOException e ) {
-            log.error( "Error reading the API key from {}", keyFile, e ) ;
-            return null ;
-        }
     }
 }

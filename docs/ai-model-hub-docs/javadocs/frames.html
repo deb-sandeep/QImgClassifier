@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>AI Model Hub API</title>
+<style>
+  html, body { height: 100% ; margin: 0 ; }
+  body  { display: flex ; }
+  #left { display: flex ; flex-direction: column ; width: 22% ;
+          min-width: 180px ; resize: horizontal ; overflow: hidden ;
+          border-right: 1px solid #ccc ; }
+  #packages { height: 28% ; border-bottom: 1px solid #ccc ; }
+  #types    { flex: 1 ; }
+  iframe { border: 0 ; width: 100% ; display: block ; }
+  #main  { flex: 1 ; height: 100% ; }
+</style>
+</head><body>
+<div id="left">
+  <iframe id="packages" name="packages" src="frame-packages.html"></iframe>
+  <iframe id="types" name="types" src="frame-types-all.html"></iframe>
+</div>
+<iframe id="main" name="main" src="index.html"></iframe>
+</body></html>
