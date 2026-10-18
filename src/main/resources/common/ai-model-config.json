@@ -2,6 +2,11 @@
 // providers enforce. App configs name this file as their "parent" and pick
 // the models they use from it (see each app's *.ai.json).
 //
+// usageLedger : (optional) the file the limits below are counted in across
+//               every app that uses this file, so they hold however many
+//               apps run at once; ~/ is the home folder. Without it, each
+//               app counts only its own requests against them.
+//
 // gateways : by name
 //   enabled               false switches the gateway off with all its models
 //   type                  openrouter | ollama
@@ -27,6 +32,8 @@
 //   contextTokens         (optional) context window to ask for (Ollama's
 //                         num_ctx; its default of 4096 would cut our prompts)
 {
+  "usageLedger" : "~/.sconsole/ai-usage.json",
+
   "gateways" : {
     "openrouter" : {
       "enabled"               : true,
@@ -36,8 +43,8 @@
       "connectTimeoutSeconds" : 10,
       "cooldownSeconds"       : 300,
       "rateLimit"             : {
-        "rpm" : 20,
-        "rpd" : 1000
+        "rpm" : 0,
+        "rpd" : 0
       }
     },
     "ollama-home" : {
@@ -56,34 +63,36 @@
 
   "models" : {
     "nvidia/nemotron-3.5-super-vl:free" : {
-      "enabled" : true,
-      "gateway" : "openrouter",
-      "displayName" : "Nemotron 3.5 Super"
+      "enabled"     : true,
+      "gateway"     : "openrouter",
+      "displayName" : "Nemotron 3.5S",
+      "rateLimit"   : {
+        "rpm" : 20,
+        "rpd" : 1000
+      }
     },
     "nvidia/nemotron-3.5-super-vl" : {
-      "enabled" : true,
-      "gateway" : "openrouter",
-      "displayName" : "Nemotron 3.5 Super (paid)"
-    },
-    "google/gemma-4-31b-it:free" : {
-      "enabled" : true,
-      "gateway" : "openrouter",
-      "displayName" : "Gemma 4 31B"
-    },
-    "google/gemma-4-26b-a4b-it:free" : {
-      "enabled" : true,
-      "gateway" : "openrouter",
-      "displayName" : "Gemma 4 26B A4B"
+      "enabled"     : true,
+      "gateway"     : "openrouter",
+      "displayName" : "Nemotron 3.5S*",
+      "rateLimit"   : {
+        "rpm" : 0,
+        "rpd" : 5000
+      }
     },
     "anthropic/claude-haiku-5.5" : {
-      "enabled" : true,
-      "gateway" : "openrouter",
-      "displayName" : "Claude Haiku"
+      "enabled"     : true,
+      "gateway"     : "openrouter",
+      "displayName" : "Haiku",
+      "rateLimit"   : {
+        "rpm" : 0,
+        "rpd" : 5000
+      }
     },
     "gemma4:latest" : {
-      "enabled" : true,
-      "gateway" : "ollama-home",
-      "displayName" : "Gemma 4",
+      "enabled"       : true,
+      "gateway"       : "ollama-home",
+      "displayName"   : "Gemma 4",
       "contextTokens" : 12288
     }
   }

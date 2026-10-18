@@ -104,6 +104,10 @@ public class TaskScheduler {
             this.batch     = batch ;
             this.attempts  = outcomes.attemptListener( task ) ;
         }
+
+        /** How the hub's status shows the job: the question's id. */
+        @Override
+        public String toString() { return task.getQuestionId() ; }
     }
 
     public TaskScheduler( AIHub hub, TopicPrompter prompter,
@@ -171,6 +175,19 @@ public class TaskScheduler {
     public Counts counts() {
         HubStatus.Jobs j = hub.status().jobs() ;
         return new Counts( j.waiting(), j.running(), j.done() ) ;
+    }
+
+    /** The AI hub's state now: models, requests in flight, waiting jobs. */
+    public HubStatus hubStatus() {
+        return hub.status() ;
+    }
+
+    /**
+     * Set a model to pass its questions through to its {@code passthrough}
+     * fallback, or to take them again (see {@code AIHub.setPassthrough}).
+     */
+    public void setPassthrough( String modelId, boolean on ) {
+        hub.setPassthrough( modelId, on ) ;
     }
 
     /**

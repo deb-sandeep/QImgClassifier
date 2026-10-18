@@ -1,5 +1,7 @@
 package com.sandy.sconsole.qimgtools.apps.topicreviewer.ui;
 
+import com.sandy.sconsole.ai.HubStatus;
+import com.sandy.sconsole.qimgtools.core.ui.ModelsPanel;
 import com.sandy.sconsole.qimgtools.core.sequence.TopicSequenceGenerator;
 import com.sandy.sconsole.qimgtools.core.ui.TopicSequenceDialog;
 import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
@@ -47,6 +49,7 @@ import javax.swing.JRadioButtonMenuItem;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.InputMap;
+import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JToolBar;
 import javax.swing.KeyStroke;
@@ -175,6 +178,12 @@ public class TopicReviewFrame extends JFrame
 
         List<RateLimitNotice> rateLimitNotices() ;
 
+        /** The AI hub's state now, for the Models tab. */
+        HubStatus hubStatus() ;
+
+        /** Set a model to pass its questions through, from the Models tab. */
+        void setPassthrough( String modelId, boolean on ) ;
+
         /** The model queue: questions waiting, running and done. */
         TaskScheduler.Counts queueCounts() ;
 
@@ -224,10 +233,10 @@ public class TopicReviewFrame extends JFrame
             140,    // Source
              80,    // Question
             200,    // Server topic
-            100,    // Associated by
+            150,    // Associated by
             200,    // Model's topic
              60,    // Status
-            350,    // Result
+            300,    // Result
             SQUARE  // saved dot (untitled)
     } ;
 
@@ -300,6 +309,8 @@ public class TopicReviewFrame extends JFrame
     private final TableRowSorter<ReviewTableModel> sorter ;
     private final HeaderFilterController headerFilters ;
     private final TranscriptPanel     transcriptPanel ;
+    private final ModelsPanel         modelsPanel = new ModelsPanel(
+            ( id, on ) -> setPassthrough( id, on ) ) ;
     private final ReviewDecisionPanel decisionPanel ;
     private final ImagePreview        preview =
             new ImagePreview( PREVIEW_PANEL_HEIGHT ) ;
@@ -423,7 +434,8 @@ public class TopicReviewFrame extends JFrame
         this.transcriptPanel = new TranscriptPanel( transcripts, names ) ;
         this.decisionPanel   = new ReviewDecisionPanel( this, names ) ;
         this.rateLimitStrip  = new RateLimitStrip( names ) ;
-        this.compareStrip    = new TopicCompareStrip( names ) ;
+        this.compareStrip    = new TopicCompareStrip( names,
+                                                      this::decideByClick ) ;
 
         buildTable() ;
 
@@ -456,8 +468,8 @@ public class TopicReviewFrame extends JFrame
         showBox.setMaximumSize( showBox.getPreferredSize() ) ;
         toolbar.add( showBox ) ;
 
-        // Table and preview on the left; decision, transcripts and the rate
-        // limit strip on the right.
+        // Table and preview on the left; decision, transcripts and models
+        // (tabs) and the rate limit strip on the right.
         JPanel left = new JPanel( new BorderLayout() ) ;
         left.add( new JScrollPane( table ), BorderLayout.CENTER ) ;
 
@@ -469,7 +481,7 @@ public class TopicReviewFrame extends JFrame
 
         JPanel right = new JPanel( new BorderLayout() ) ;
         right.add( decisionPanel, BorderLayout.NORTH ) ;
-        right.add( transcriptPanel, BorderLayout.CENTER ) ;
+        right.add( tabs(), BorderLayout.CENTER ) ;
         right.add( rateLimitStrip, BorderLayout.SOUTH ) ;
 
         JSplitPane split = new JSplitPane( JSplitPane.HORIZONTAL_SPLIT,
@@ -519,6 +531,7 @@ public class TopicReviewFrame extends JFrame
         new Timer( 1000, e -> {
             refreshRateLimitStrip() ;
             refreshQueueBar() ;
+            refreshModels() ;
         } ).start() ;
         updateControls() ;
     }
@@ -690,6 +703,15 @@ public class TopicReviewFrame extends JFrame
      * Decision key {@code n}: 1-3 press the decision panel's buttons, 4
      * skips to the next question that differs.
      */
+    /**
+     * A click on the topic strip: decide as key {@code n} does, then give
+     * the table the focus back so the keys go on working.
+     */
+    private void decideByClick( int n ) {
+        pressKey( n ) ;
+        table.requestFocusInWindow() ;
+    }
+
     private void pressKey( int n ) {
         if( n == 4 ) select( nextDiffering( List.of() ) ) ;
         else decisionPanel.press( n ) ;
@@ -1941,6 +1963,30 @@ public class TopicReviewFrame extends JFrame
         long s = ( ms + 999 ) / 1000 ;
         return s < 60 ? s + " s"
                       : String.format( "%d min %02d s", s / 60, s % 60 ) ;
+    }
+
+    /** The transcripts and the Models tab. */
+    private JTabbedPane tabs() {
+
+        JTabbedPane tabs = new JTabbedPane() ;
+        tabs.addTab( "Transcripts", transcriptPanel ) ;
+        tabs.addTab( "Models", modelsPanel ) ;
+        tabs.setSelectedComponent( modelsPanel ) ;
+        tabs.addChangeListener( e -> refreshModels() ) ;
+        return tabs ;
+    }
+
+    /** Show the hub's state in the Models tab, if it is showing. */
+    private void refreshModels() {
+        if( controller == null || !modelsPanel.isShowing() ) return ;
+        modelsPanel.update( controller.hubStatus() ) ;
+    }
+
+    /** From the Models tab: a model is to pass its questions through or not. */
+    private void setPassthrough( String modelId, boolean on ) {
+        if( controller == null ) return ;
+        controller.setPassthrough( modelId, on ) ;
+        refreshModels() ;
     }
 
     private void refreshRateLimitStrip() {

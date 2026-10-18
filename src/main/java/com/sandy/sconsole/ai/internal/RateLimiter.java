@@ -19,7 +19,9 @@ import java.util.List;
  * <p>
  * Not thread-safe; the {@link Engine} calls it only while holding its lock.
  * Counts live in memory; the {@link Engine} saves them to a
- * {@link RequestHistory} file and restores them at startup.
+ * {@link RequestHistory} file and restores them at startup, or, for a
+ * provider's limits counted across apps, takes them from the
+ * {@link UsageLedger} ({@link #sync}).
  */
 final class RateLimiter {
 
@@ -48,12 +50,25 @@ final class RateLimiter {
      */
     private final Deque<Long> starts = new ArrayDeque<>() ;
 
+    /** Its counts are of every app's requests, not just this one's. */
+    private final boolean shared ;
+
     /** The latest suspension; null if there has been none. */
     private Pause suspension ;
 
     RateLimiter( int rpm, int rpd ) {
+        this( rpm, rpd, false ) ;
+    }
+
+    /**
+     * @param shared true if it counts the requests of every app (from the
+     *        {@link UsageLedger}), which its reasons then say
+     */
+    RateLimiter( int rpm, int rpd, boolean shared ) {
+
         this.rpm     = rpm ;
         this.rpd     = rpd ;
+        this.shared  = shared ;
         this.spacing = rpm > 0 ? Math.round( MINUTE_MS * PACING_MARGIN / rpm )
                                : 0 ;
     }
@@ -94,7 +109,8 @@ final class RateLimiter {
         }
         prune( now ) ;
         return dailyLimitReached( now )
-               ? "daily limit of " + rpd + " requests reached"
+               ? "daily limit of " + rpd + " requests reached" +
+                 ( shared ? " (all apps)" : "" )
                : null ;
     }
 
@@ -114,6 +130,18 @@ final class RateLimiter {
      */
     void restore( List<Long> times, long now ) {
         if( rpm == 0 && rpd == 0 ) return ;
+        starts.addAll( times ) ;
+        prune( now ) ;
+    }
+
+    /**
+     * Replace the counted starts with {@code times} (epoch ms, oldest
+     * first), e.g. every app's from the {@link UsageLedger}.
+     */
+    void sync( List<Long> times, long now ) {
+
+        if( rpm == 0 && rpd == 0 ) return ;
+        starts.clear() ;
         starts.addAll( times ) ;
         prune( now ) ;
     }
@@ -144,6 +172,18 @@ final class RateLimiter {
             && suspension.daily() ) return true ;
         prune( now ) ;
         return dailyLimitReached( now ) ;
+    }
+
+    /** Its requests-per-minute limit; 0 for none. */
+    int rpm() { return rpm ; }
+
+    /** Its requests-per-day limit; 0 for none. */
+    int rpd() { return rpd ; }
+
+    /** Requests started in the last 60 s before {@code now}. */
+    int countLastMinute( long now ) {
+        prune( now ) ;
+        return countSince( now - MINUTE_MS ) ;
     }
 
     /** Requests counted today (UTC); only kept with an rpd. */

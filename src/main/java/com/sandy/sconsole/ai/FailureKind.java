@@ -1,14 +1,25 @@
 package com.sandy.sconsole.ai;
 
 /**
- * Why an attempt failed, as far as fallback is concerned. Each kind (but
- * {@link #OTHER}) is a guard name an app config's {@code fallback} may list
- * models under; a kind without its own guard uses the {@code default} one.
+ * Why an attempt failed, or why a model is held back, as far as fallback is
+ * concerned. Each kind (but {@link #OTHER}) is a guard name an app config's
+ * {@code fallback} may list models under; a kind without its own guard uses
+ * the {@code default} one.
  */
 public enum FailureKind {
 
-    /** The gateway or the model reported a rate limit (HTTP 429). */
-    RATE_LIMITED( "rateLimited" ),
+    /**
+     * A rate limit short of a daily one: an HTTP 429 for the requests per
+     * minute or from the model's busy provider, or the model (or its
+     * gateway) held back after one.
+     */
+    RATE_LIMITED_RPM( "rateLimitedRPM" ),
+
+    /**
+     * A daily limit: an HTTP 429 for the requests per day, or the model's or
+     * its gateway's own {@code rpd} used up for the (UTC) day.
+     */
+    RATE_LIMITED_RPD( "rateLimitedRPD" ),
 
     /** The gateway or the model's provider failed (5xx, upstream error). */
     SERVER_ERROR( "serverError" ),
@@ -24,6 +35,13 @@ public enum FailureKind {
      * rejected by the app's {@link ReplyCheck}.
      */
     BAD_REPLY( "badReply" ),
+
+    /**
+     * Never an attempt's failure: the app has set the model to pass its
+     * jobs through ({@code AIHub.setPassthrough}). It takes no jobs, and
+     * those that would go to it go by this guard instead.
+     */
+    PASSTHROUGH( "passthrough" ),
 
     /** Anything else, e.g. a request the gateway refused. */
     OTHER( null ) ;
@@ -42,7 +60,8 @@ public enum FailureKind {
      * back without using a retry.
      */
     public boolean isHandedBack() {
-        return this == RATE_LIMITED || this == UNREACHABLE ;
+        return this == RATE_LIMITED_RPM || this == RATE_LIMITED_RPD
+               || this == UNREACHABLE ;
     }
 
     /** The kind whose guard name is {@code guard}; null if there is none. */

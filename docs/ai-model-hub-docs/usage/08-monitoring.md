@@ -24,10 +24,27 @@ new javax.swing.Timer( 1000, e -> {
 | Part | Holds |
 |---|---|
 | `gateways()` | [`GatewayStatus`](../javadocs/com/sandy/sconsole/ai/HubStatus.GatewayStatus.html): enabled, reachable, held until / why, held for the day, requests today, in flight vs cap |
-| `models()` | [`ModelStatus`](../javadocs/com/sandy/sconsole/ai/HubStatus.ModelStatus.html): usable, available, held until / why, in flight vs slots, jobs waiting for it, average latency, attempts succeeded and failed |
+| `models()` | [`ModelStatus`](../javadocs/com/sandy/sconsole/ai/HubStatus.ModelStatus.html): usable, available, held until / why, in flight vs slots, jobs waiting for it, average latency, attempts succeeded and failed, its rpm / rpd with the requests of the last minute and of today, its switches in the global and app configs |
 | `jobs()` | [`Jobs`](../javadocs/com/sandy/sconsole/ai/HubStatus.Jobs.html): waiting, held, running, done |
 | `nextSendAt()` | when some model with waiting work may next send (`Long.MAX_VALUE` if no work waits) |
 | `notices()` | what is held back right now, and why |
+| `requests()` | [`Request`](../javadocs/com/sandy/sconsole/ai/HubStatus.Request.html): each request in flight (oldest first): job id and payload text, model, gateway, attempt number, start time |
+| `queue()` | [`WaitingJob`](../javadocs/com/sandy/sconsole/ai/HubStatus.WaitingJob.html): each waiting job in the order it is offered: job id and payload text, when it joined, attempts so far, last model and failure, the models that may take it now |
+
+The payload text is the payload's `toString()`, so give the payload a
+readable one (e.g. the question id).
+
+```java
+long now = s.takenAt() ;
+for( HubStatus.Request r : s.requests() ) {
+    System.out.printf( "%s on %s, attempt %d, %d s%n", r.job(), r.model(),
+                       r.attempt(), ( now - r.startedAt() ) / 1000 ) ;
+}
+for( HubStatus.WaitingJob j : s.queue() ) {
+    System.out.printf( "%s waits %d s, may run on %s%n", j.job(),
+                       ( now - j.queuedAt() ) / 1000, j.eligible() ) ;
+}
+```
 
 ## Showing rate-limit holds
 

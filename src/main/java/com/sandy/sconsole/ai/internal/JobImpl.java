@@ -1,6 +1,7 @@
 package com.sandy.sconsole.ai.internal;
 
 import com.sandy.sconsole.ai.AIJob;
+import com.sandy.sconsole.ai.Attempt;
 import com.sandy.sconsole.ai.FailureKind;
 import com.sandy.sconsole.ai.JobContext;
 import com.sandy.sconsole.ai.JobHandle;
@@ -49,6 +50,9 @@ final class JobImpl<P,R> implements JobContext<P>, JobHandle {
     /** The escalated reply, kept in case the escalation root gives none. */
     R         provisional ;
     ModelInfo provisionalModel ;
+
+    /** Its request in flight; null while it has none. Under the lock. */
+    Attempt current ;
 
     /** Models it may no longer run on (the one that gave the escalation). */
     final Set<String> excluded = new HashSet<>() ;

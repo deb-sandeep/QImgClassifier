@@ -113,8 +113,9 @@ class GatewayException extends Exception {
 
         RateLimited( String reason, Duration retryAfter, String detail,
                      Scope scope, String explanation ) {
-            this( FailureKind.RATE_LIMITED, reason, retryAfter, detail, scope,
-                  explanation ) ;
+            this( scope == Scope.DAY ? FailureKind.RATE_LIMITED_RPD
+                                     : FailureKind.RATE_LIMITED_RPM,
+                  reason, retryAfter, detail, scope, explanation ) ;
         }
 
         RateLimited( FailureKind kind, String reason, Duration retryAfter,

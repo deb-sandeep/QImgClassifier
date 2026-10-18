@@ -21,6 +21,13 @@ public record Candidate( JobContext<?> job, Via via, long waitedMs,
         /** It has not been tried yet; the model is in one of its roots. */
         ROOT,
 
+        /**
+         * It has not been tried yet, but every model of its roots is held
+         * back; the model stands in for one of them, by that model's
+         * fallback guard for why it is held.
+         */
+        STAND_IN,
+
         /** It was escalated; the model is in its escalation root. */
         ESCALATION,
 
@@ -30,10 +37,15 @@ public record Candidate( JobContext<?> job, Via via, long waitedMs,
         /** A rate limit or an unreachable gateway handed it back. */
         HANDED_BACK,
 
-        /** The previous model's fallback guard names this model. */
+        /**
+         * The previous model's fallback guard names this model: for why the
+         * job failed on it, or, while it is held back, for why it is held.
+         */
         FALLBACK
     }
 
-    /** True unless the job is new on this model's root. */
-    public boolean isContinuation() { return via != Via.ROOT ; }
+    /** True unless the job has not been tried yet (not escalated either). */
+    public boolean isContinuation() {
+        return via != Via.ROOT && via != Via.STAND_IN ;
+    }
 }

@@ -1,5 +1,6 @@
 package com.sandy.sconsole.qimgtools.apps.classifier;
 
+import com.sandy.sconsole.ai.HubStatus;
 import com.sandy.sconsole.ai.AIHub;
 import com.sandy.sconsole.qimgtools.core.ai.TopicPrompter;
 import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.ClassificationListener;
@@ -366,6 +367,16 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     @Override
     public List<RateLimitNotice> rateLimitNotices() {
         return scheduler.rateLimitNotices() ;
+    }
+
+    @Override
+    public HubStatus hubStatus() {
+        return scheduler.hubStatus() ;
+    }
+
+    @Override
+    public void setPassthrough( String modelId, boolean on ) {
+        scheduler.setPassthrough( modelId, on ) ;
     }
 
     @Override

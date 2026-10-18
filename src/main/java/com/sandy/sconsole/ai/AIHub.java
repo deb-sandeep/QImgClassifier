@@ -78,6 +78,21 @@ public final class AIHub implements AutoCloseable {
         return engine.submit( job, priority ) ;
     }
 
+    /**
+     * Set model {@code modelId} to pass its jobs through, or to take them
+     * again. While it passes them through it takes no jobs: those that
+     * would go to it (new ones, retries, handed-back ones) go to the models
+     * of its {@code passthrough} fallback guard (else its {@code default}
+     * one), and wait for it if it has neither. Its requests in flight
+     * finish. Kept in memory only, for this hub.
+     *
+     * @return true if that changed it
+     * @throws IllegalArgumentException if the app has no such model
+     */
+    public boolean setPassthrough( String modelId, boolean on ) {
+        return engine.setPassthrough( modelId, on ) ;
+    }
+
     /** A snapshot of the gateways, models and jobs. */
     public HubStatus status() { return engine.status() ; }
 

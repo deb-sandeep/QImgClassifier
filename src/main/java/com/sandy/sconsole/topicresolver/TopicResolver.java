@@ -65,7 +65,7 @@ public final class TopicResolver {
      * A second contender must score above this (0-100) to be weighed against
      * the dominant topic.
      */
-    public static final int SECOND_TOPIC_FLOOR = 30 ;
+    public static final int SECOND_TOPIC_FLOOR = 50 ;
 
     /**
      * One recommendation of the model.

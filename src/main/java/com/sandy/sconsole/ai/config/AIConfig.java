@@ -1,5 +1,6 @@
 package com.sandy.sconsole.ai.config;
 
+import java.io.File;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,13 +19,15 @@ public final class AIConfig {
     private final Map<String,GatewayInfo>  gateways ;
     private final Map<String,ModelInfo>    models ;
     private final Map<String,List<String>> roots ;
+    private final File                     usageLedger ;
 
     AIConfig( String appLocation, String parentLocation,
               Map<String,GatewayInfo> gateways, Map<String,ModelInfo> models,
-              Map<String,List<String>> roots ) {
+              Map<String,List<String>> roots, File usageLedger ) {
 
         this.appLocation    = appLocation ;
         this.parentLocation = parentLocation ;
+        this.usageLedger    = usageLedger ;
         this.gateways       = Collections.unmodifiableMap(
                                     new LinkedHashMap<>( gateways ) ) ;
         this.models         = Collections.unmodifiableMap(
@@ -49,6 +52,13 @@ public final class AIConfig {
 
     /** The roots, by name: model ids in app file order. */
     public Map<String,List<String>> roots() { return roots ; }
+
+    /**
+     * The file the providers' limits (the parent file's) are counted in
+     * across every app that uses it; null if the parent names none, and
+     * each app then counts only its own requests against them.
+     */
+    public File usageLedger() { return usageLedger ; }
 
     /**
      * The model {@code id}.

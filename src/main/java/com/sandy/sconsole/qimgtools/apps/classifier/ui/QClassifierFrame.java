@@ -1,5 +1,7 @@
 package com.sandy.sconsole.qimgtools.apps.classifier.ui;
 
+import com.sandy.sconsole.ai.HubStatus;
+import com.sandy.sconsole.qimgtools.core.ui.ModelsPanel;
 import com.sandy.sconsole.qimgtools.core.sequence.TopicSequenceGenerator;
 import com.sandy.sconsole.qimgtools.core.ui.TopicSequenceDialog;
 import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.ClassificationListener;
@@ -137,6 +139,12 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
          */
         List<RateLimitNotice> rateLimitNotices() ;
 
+        /** The AI hub's state now, for the Models tab. */
+        HubStatus hubStatus() ;
+
+        /** Set a model to pass its questions through, from the Models tab. */
+        void setPassthrough( String modelId, boolean on ) ;
+
         /** Stop the worker pool; called when the window closes. */
         void shutdown() ;
     }
@@ -173,6 +181,8 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     private final QImgExtractorClient extractorClient ;
     private final ModelNames          names ;
     private final TranscriptPanel     transcriptPanel ;
+    private final ModelsPanel         modelsPanel = new ModelsPanel(
+            ( id, on ) -> setPassthrough( id, on ) ) ;
     private final JTable              table ;
     private final JLabel              statusBar = new JLabel( " " ) ;
     private final RateLimitStrip      rateLimitStrip ;
@@ -282,8 +292,8 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
 
         setJMenuBar( buildMenuBar() ) ;
 
-        // Table and preview on the left, transcripts on the right, status
-        // bar across the bottom.
+        // Table and preview on the left, transcripts and the models (tabs)
+        // on the right, status bar across the bottom.
         // A strip under the transcripts shows while a rate limit holds
         // requests back, one line per limit.
         JPanel left = new JPanel( new BorderLayout() ) ;
@@ -291,7 +301,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
         left.add( preview, BorderLayout.SOUTH ) ;
 
         JPanel right = new JPanel( new BorderLayout() ) ;
-        right.add( transcriptPanel, BorderLayout.CENTER ) ;
+        right.add( tabs(), BorderLayout.CENTER ) ;
         right.add( rateLimitStrip, BorderLayout.SOUTH ) ;
 
         JSplitPane split = new JSplitPane( JSplitPane.HORIZONTAL_SPLIT,
@@ -326,6 +336,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
             model.tickRunningRows() ;
             refreshStatusBar() ;
             refreshRateLimitStrip() ;
+            refreshModels() ;
         } ).start() ;
         refreshStatusBar() ;
     }
@@ -1098,6 +1109,30 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
      * held back by a rate limit, one line each with why and when it lifts;
      * hide it otherwise, or when View > Show rate limit bar is off.
      */
+    /** The transcripts and the Models tab. */
+    private JTabbedPane tabs() {
+
+        JTabbedPane tabs = new JTabbedPane() ;
+        tabs.addTab( "Transcripts", transcriptPanel ) ;
+        tabs.addTab( "Models", modelsPanel ) ;
+        tabs.setSelectedComponent( modelsPanel ) ;
+        tabs.addChangeListener( e -> refreshModels() ) ;
+        return tabs ;
+    }
+
+    /** Show the hub's state in the Models tab, if it is showing. */
+    private void refreshModels() {
+        if( controller == null || !modelsPanel.isShowing() ) return ;
+        modelsPanel.update( controller.hubStatus() ) ;
+    }
+
+    /** From the Models tab: a model is to pass its questions through or not. */
+    private void setPassthrough( String modelId, boolean on ) {
+        if( controller == null ) return ;
+        controller.setPassthrough( modelId, on ) ;
+        refreshModels() ;
+    }
+
     private void refreshRateLimitStrip() {
         rateLimitStrip.update( controller != null ? controller.rateLimitNotices()
                                                   : List.of(),

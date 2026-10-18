@@ -1,5 +1,6 @@
 package com.sandy.sconsole.qimgtools.apps.topicreviewer;
 
+import com.sandy.sconsole.ai.HubStatus;
 import com.sandy.sconsole.ai.AIHub;
 import com.sandy.sconsole.ai.RoutingPolicy;
 import com.sandy.sconsole.ai.config.AIConfig;
@@ -443,6 +444,16 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
     @Override
     public List<RateLimitNotice> rateLimitNotices() {
         return scheduler.rateLimitNotices() ;
+    }
+
+    @Override
+    public HubStatus hubStatus() {
+        return scheduler.hubStatus() ;
+    }
+
+    @Override
+    public void setPassthrough( String modelId, boolean on ) {
+        scheduler.setPassthrough( modelId, on ) ;
     }
 
     @Override

@@ -21,6 +21,8 @@ included, with the colons of an object aligned.
 ```json
 // ai-model-config.json
 {
+  "usageLedger" : "~/.sconsole/ai-usage.json",
+
   "gateways" : {
     "openrouter" : {
       "enabled"               : true,
@@ -67,6 +69,14 @@ included, with the colons of an object aligned.
   }
 }
 ```
+
+### Top-level keys
+
+| Key | Required | Meaning |
+|---|---|---|
+| `usageLedger` | no | The file the limits of this global file (gateway and model `rateLimit`s, and the providers' rate-limit holds) are counted in across every app that uses it, so they hold however many apps run at once on this machine. `~/` is the home folder; a relative path is relative to the global file's folder. Without it, each app counts only its own requests against them. See [Limits shared across apps](04-retries-and-fallbacks.md#limits-shared-across-apps). |
+| `gateways` | yes | The gateways, by name. |
+| `models` | yes | The models, by id. |
 
 ### Gateway keys
 
@@ -118,8 +128,8 @@ appears in logs, history and status.
         "rpd" : 500
       },
       "fallback"              : {
-        "rateLimited" : [ "anthropic/claude-haiku-5.5" ],
-        "unreachable" : [ "anthropic/claude-haiku-5.5" ]
+        "rateLimitedRPD" : [ "anthropic/claude-haiku-5.5" ],
+        "unreachable"    : [ "anthropic/claude-haiku-5.5" ]
       }
     },
     "anthropic/claude-haiku-5.5" : {
@@ -171,8 +181,8 @@ Models that are only in the global file are invisible to the app.
 | `retries` | yes | Further attempts a job gets on this model after a failed one, before following its fallback. |
 | `reasoning` | yes | Let the model reason before answering. Ollama gets `think`; OpenRouter gets `reasoning: {enabled: false}` when off. |
 | `promptCaching` | `openrouter` models | Mark the prompt cacheable on models whose OpenRouter catalogue entry supports it. |
-| `rateLimit` | no | The app's own `{ "rpm", "rpd" }` on this model. It combines with the provider's: for each of rpm and rpd, the smaller non-zero value wins. |
-| `fallback` | no | Guards: `rateLimited`, `serverError`, `timeout`, `unreachable`, `badReply`, `default`. See [Retries and fallbacks](04-retries-and-fallbacks.md). |
+| `rateLimit` | no | The app's own `{ "rpm", "rpd" }` on this model, counted in this app only: its share of the provider's limit. Both apply: for each of rpm and rpd, the smaller non-zero value wins. |
+| `fallback` | no | Guards: `rateLimitedRPM`, `rateLimitedRPD`, `serverError`, `timeout`, `unreachable`, `badReply`, `passthrough`, `default`. See [Retries and fallbacks](04-retries-and-fallbacks.md). |
 
 ## Loading
 

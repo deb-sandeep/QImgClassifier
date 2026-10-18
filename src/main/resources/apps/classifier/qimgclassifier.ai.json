@@ -20,14 +20,22 @@
 //                         on top of the provider's
 //   fallback              (optional) where a question goes once the model
 //                         has failed it for good, by why it failed:
-//                         rateLimited, serverError, timeout, unreachable,
-//                         badReply, default (for the rest). Each list is in
-//                         order of preference: a later model takes the
-//                         question only while every earlier one is held back
-//                         (rate limit, daily limit, unreachable), never just
-//                         because it is busy. A rate limit uses no retry;
-//                         without a rateLimited (or default) guard the
-//                         question waits for the model.
+//                         rateLimitedRPM, rateLimitedRPD, serverError,
+//                         timeout, unreachable, badReply, default (for the
+//                         rest). Each list is in order of preference: a later
+//                         model takes the question only while every earlier
+//                         one is held back (rate limit, daily limit,
+//                         unreachable), never just because it is busy. While
+//                         the model itself is held back, its questions (new
+//                         ones too) go by the guard for why: rateLimitedRPD
+//                         for a daily limit (its own or its gateway's rpd
+//                         used up, or a per-day 429), rateLimitedRPM for
+//                         another 429, unreachable. A rate limit uses no
+//                         retry; without such a guard (or default) the
+//                         question waits for the model. passthrough: where
+//                         its questions go while it is set, by hand on the
+//                         Models tab (right-click its column), to pass them
+//                         through; it then takes none itself.
 {
   "parent" : "classpath:/common/ai-model-config.json",
 
@@ -55,29 +63,15 @@
       "reasoning"             : false,
       "promptCaching"         : true,
       "fallback"              : {
-        "rateLimited" : [
-          "google/gemma-4-31b-it:free",
-          "google/gemma-4-26b-a4b-it:free"
-        ],
-        "default"     : [ "google/gemma-4-31b-it:free" ]
+        "rateLimitedRPD" : [ "nvidia/nemotron-3.5-super-vl" ],
+        "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ]
       }
     },
-    "google/gemma-4-31b-it:free" : {
+    "nvidia/nemotron-3.5-super-vl" : {
       "enabled"               : true,
-      "maxParallel"           : 2,
+      "maxParallel"           : 3,
       "requestTimeoutSeconds" : 180,
-      "retries"               : 0,
-      "reasoning"             : false,
-      "promptCaching"         : true,
-      "fallback"              : {
-        "rateLimited" : [ "google/gemma-4-26b-a4b-it:free" ]
-      }
-    },
-    "google/gemma-4-26b-a4b-it:free" : {
-      "enabled"               : true,
-      "maxParallel"           : 2,
-      "requestTimeoutSeconds" : 180,
-      "retries"               : 0,
+      "retries"               : 1,
       "reasoning"             : false,
       "promptCaching"         : true
     }

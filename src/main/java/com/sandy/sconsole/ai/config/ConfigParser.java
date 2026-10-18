@@ -29,7 +29,8 @@ import java.util.Set;
 /**
  * Reads and validates the two config files.
  * <p>
- * <b>Global (parent) file</b>: {@code gateways} by name, each with
+ * <b>Global (parent) file</b>: optional {@code usageLedger} (the file the
+ * providers' limits are counted in across apps), {@code gateways} by name, each with
  * {@code enabled}, {@code type} ({@code openrouter} / {@code ollama}),
  * {@code url}, {@code connectTimeoutSeconds}, {@code cooldownSeconds},
  * {@code rateLimit} ({@code {rpm, rpd}}), optional {@code maxParallel}, and
@@ -99,8 +100,11 @@ final class ConfigParser {
         JsonNode global   = parse( parent ) ;
 
         file = parent.location() ;
-        checkKeys( global, "", Set.of( "gateways", "models" ) ) ;
+        checkKeys( global, "", Set.of( "usageLedger", "gateways", "models" ) ) ;
 
+        File ledger = global.has( "usageLedger" )
+                    ? relativeTo( text( global, "", "usageLedger" ), parent )
+                    : null ;
         Map<String,GatewayInfo> gateways = gateways( global, parent ) ;
         Map<String,GlobalModel> defined  = globalModels( global, gateways ) ;
 
@@ -111,7 +115,7 @@ final class ConfigParser {
         models = markReachable( models, roots ) ;
 
         AIConfig config = new AIConfig( app.location(), parent.location(),
-                                        gateways, models, roots ) ;
+                                        gateways, models, roots, ledger ) ;
         checkUsable( config ) ;
         logSummary( config ) ;
         return config ;
@@ -397,6 +401,14 @@ final class ConfigParser {
 
         log.info( "AI config {} (parent {})", config.appLocation(),
                   config.parentLocation() ) ;
+        if( config.usageLedger() != null ) {
+            log.info( "  provider limits counted across apps in {}",
+                      config.usageLedger() ) ;
+        }
+        else {
+            log.info( "  no usage ledger: provider limits counted in this " +
+                      "app only" ) ;
+        }
         config.gateways().values().forEach( g -> log.info( "  gateway {}", g ) ) ;
         config.models().values().forEach( m -> log.info( "  model {}", m ) ) ;
         config.roots().forEach( ( name, ids ) -> {
