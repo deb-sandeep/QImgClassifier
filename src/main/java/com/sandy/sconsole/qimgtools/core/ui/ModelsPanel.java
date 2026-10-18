@@ -80,8 +80,8 @@ public class ModelsPanel extends JPanel {
         new Col( "Question",     220 ),
         new Col( "Waiting",      120 ),
         new Col( "Att#",          60 ),
-        new Col( "Can run on",   200 ),
-        new Col( "Last failure", 300 ),
+        new Col( "Can run on",   250 ),
+        new Col( "Last failure", 250 ),
     } ;
 
     /**
