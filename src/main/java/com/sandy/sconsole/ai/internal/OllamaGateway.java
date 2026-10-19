@@ -101,7 +101,9 @@ final class OllamaGateway extends Gateway {
                                             "the model returned no answer",
                                             response.body(), usage ) ;
             }
-            return new AIReply( reply, usage ) ;
+            String thinking = body.path( "thinking" ).asText( "" ) ;
+            return new AIReply( reply, thinking.isBlank() ? null : thinking,
+                                usage ) ;
         }
         catch( GatewayException e ) {
             throw e ;

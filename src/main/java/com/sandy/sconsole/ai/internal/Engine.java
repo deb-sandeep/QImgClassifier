@@ -535,15 +535,18 @@ public final class Engine {
             } ;
             return new AttemptResult( attempt, elapsed, outcome,
                                       error.getDetail(), error.getMessage(),
-                                      error.getKind(), error.getUsage() ) ;
+                                      error.getKind(), error.getUsage(),
+                                      null ) ;
         }
         if( check instanceof ReplyCheck.Reject<?> reject ) {
             return new AttemptResult( attempt, elapsed, Outcome.FAILED,
                                       reply.text(), reject.reason(),
-                                      FailureKind.BAD_REPLY, reply.usage() ) ;
+                                      FailureKind.BAD_REPLY, reply.usage(),
+                                      reply.reasoning() ) ;
         }
         return new AttemptResult( attempt, elapsed, Outcome.OK, reply.text(),
-                                  null, null, reply.usage() ) ;
+                                  null, null, reply.usage(),
+                                  reply.reasoning() ) ;
     }
 
     /**
@@ -1256,7 +1259,9 @@ public final class Engine {
                         m.succeeded, m.failed, m.info.rateLimit().rpm(),
                         m.info.rateLimit().rpd(), m.countLastMinute( now ),
                         m.countToday( now ), m.info.enabledGlobally(),
-                        m.info.enabledInApp(), m.passthrough ) ) ;
+                        m.info.enabledInApp(), m.passthrough,
+                        m.info.fallback().guards()
+                              .containsKey( FailureKind.PASSTHROUGH ) ) ) ;
             }
 
             HubStatus.Jobs jobs = new HubStatus.Jobs(

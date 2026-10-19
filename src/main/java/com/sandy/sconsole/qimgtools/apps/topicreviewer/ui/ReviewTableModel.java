@@ -2,6 +2,7 @@ package com.sandy.sconsole.qimgtools.apps.topicreviewer.ui;
 
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewDecision;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewItem;
+import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewOpinions;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewStatus;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewVerdict;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ServerQuestion;
@@ -16,25 +17,25 @@ import java.util.Map;
 
 /**
  * The topic reviewer's table: one row per question of the review queue, with
- * the server's topic, the model's verdict, and where the question stands.
+ * the server's topic, the review model's and the tie-breaker's, and where
+ * the question stands.
  * All state lives here and is touched on the EDT only.
  */
 @SuppressWarnings( "serial" )
 final class ReviewTableModel extends AbstractTableModel {
 
-    static final int COL_ID       = 0 ;
-    static final int COL_SOURCE   = 1 ;
-    static final int COL_QUESTION = 2 ;
-    static final int COL_CURRENT  = 3 ;
-    static final int COL_ASSOC    = 4 ;
-    static final int COL_AI       = 5 ;
-    static final int COL_STATUS   = 6 ;
-    static final int COL_RESULT   = 7 ;
-    static final int COL_SAVED    = 8 ;
+    static final int COL_ID          = 0 ;
+    static final int COL_SOURCE      = 1 ;
+    static final int COL_QUESTION    = 2 ;
+    static final int COL_SERVER      = 3 ;
+    static final int COL_REVIEWER    = 4 ;
+    static final int COL_TIE_BREAKER = 5 ;
+    static final int COL_STATUS      = 6 ;
+    static final int COL_SAVED       = 7 ;
 
     private static final String[] COLUMNS = {
-            "Id", "Source", "Question", "Server topic", "Associated by",
-            "Model's topic", "Status", "Result", ""
+            "Id", "Source", "Question", "Server", "Reviewer", "Tie breaker",
+            "Status", ""
     } ;
 
     /** One question and everything that has happened to it. */
@@ -46,15 +47,22 @@ final class ReviewTableModel extends AbstractTableModel {
         ServerQuestion question ;
         ReviewStatus   status ;
 
-        /** The model's opinion; null until it has given one. */
-        ReviewVerdict verdict ;
+        /** The server's topic as loaded, which a saved decision replaces. */
+        final Integer serverTopicId ;
+        final String  serverTopicName ;
+
+        /** The AI's opinions; null until the review model has given one. */
+        ReviewOpinions opinions ;
 
         /** Model of the latest attempt, and the attempt's number. */
         String model ;
         int    attempts ;
 
-        /** Failure reason, server error, or what the decision does or did. */
-        String result ;
+        /**
+         * What is going on or went wrong, for the detail panel: the attempt
+         * under way, a failure reason, a server error, or the decision.
+         */
+        String message ;
 
         /**
          * The user's decision until the server has taken it (kept if the
@@ -62,16 +70,34 @@ final class ReviewTableModel extends AbstractTableModel {
          */
         ReviewDecision decision ;
 
-        /** Status and result to go back to if the decision is cleared. */
+        /**
+         * The topic decided on, also once saved; null while undecided. Its
+         * cell is shown green.
+         */
+        Topic assigned ;
+
+        /** Status and message to go back to if the decision is cleared. */
         ReviewStatus undecidedStatus ;
-        String       undecidedResult ;
+        String       undecidedMessage ;
 
         Row( ReviewItem item ) {
-            this.item     = item ;
-            this.question = item.question() ;
-            this.status   = item.hasImages() ? ReviewStatus.PENDING
-                                             : ReviewStatus.NO_IMAGES ;
-            this.result   = item.problem() ;
+            this.item            = item ;
+            this.question        = item.question() ;
+            this.serverTopicId   = question.getTopicId() ;
+            this.serverTopicName = question.getTopicName() ;
+            this.status          = item.hasImages() ? ReviewStatus.PENDING
+                                                    : ReviewStatus.NO_IMAGES ;
+            this.message         = item.problem() ;
+        }
+
+        /** The review model's verdict; null until it has given one. */
+        ReviewVerdict reviewer() {
+            return opinions == null ? null : opinions.reviewer() ;
+        }
+
+        /** The tie-breaker's verdict; null unless it has given one. */
+        ReviewVerdict tieBreaker() {
+            return opinions == null ? null : opinions.tieBreaker() ;
         }
 
         /**
@@ -85,9 +111,14 @@ final class ReviewTableModel extends AbstractTableModel {
                    && !status.isDecided() ;
         }
 
-        /** True if it may be given the model's topic. */
-        boolean canUseModel() {
-            return isOpen() && verdict != null ;
+        /** True if it may be given the review model's topic. */
+        boolean canUseReviewer() {
+            return isOpen() && reviewer() != null ;
+        }
+
+        /** True if it may be given the tie-breaker's topic. */
+        boolean canUseTieBreaker() {
+            return isOpen() && tieBreaker() != null ;
         }
 
         /** True if its server topic may be kept. */
@@ -110,11 +141,33 @@ final class ReviewTableModel extends AbstractTableModel {
     private final List<Row>        rows = new ArrayList<>() ;
     private final Map<Integer,Row> byId = new HashMap<>() ;
 
-    /** The names models are shown by. */
-    private final ModelNames names ;
+    /** The column names, the model columns' with their models. */
+    private final String[] columns = COLUMNS.clone() ;
 
-    ReviewTableModel( ModelNames names ) {
-        this.names = names ;
+    /**
+     * @param reviewer   the review model's id, named in its column's title;
+     *                   null for none
+     * @param tieBreaker the tie-breaker's id, likewise
+     */
+    ReviewTableModel( ModelNames names, String reviewer, String tieBreaker ) {
+
+        columns[COL_REVIEWER]    = title( COL_REVIEWER, reviewer, names ) ;
+        columns[COL_TIE_BREAKER] = title( COL_TIE_BREAKER, tieBreaker,
+                                          names ) ;
+    }
+
+    /**
+     * "Reviewer (Nemotron)": column {@code col}'s title with the first word
+     * of {@code model}'s display name; the plain title without a model.
+     */
+    private static String title( int col, String model, ModelNames names ) {
+
+        if( model == null ) return COLUMNS[col] ;
+        String name = names.of( model ).strip() ;
+        int    sp   = name.indexOf( ' ' ) ;
+
+        return COLUMNS[col] + " (" + ( sp < 0 ? name : name.substring( 0, sp ) )
+               + ")" ;
     }
 
     /** Replace the rows with one for each of {@code items}. */
@@ -184,7 +237,7 @@ final class ReviewTableModel extends AbstractTableModel {
 
     @Override
     public String getColumnName( int column ) {
-        return COLUMNS[column] ;
+        return columns[column] ;
     }
 
     @Override
@@ -204,16 +257,15 @@ final class ReviewTableModel extends AbstractTableModel {
         ServerQuestion q   = row.question ;
 
         return switch( column ) {
-            case COL_ID       -> q.getId() ;
-            case COL_SOURCE   -> q.getSourceId() ;
-            case COL_QUESTION -> row.questionLabel() ;
-            case COL_CURRENT  -> q.getTopicName() ;
-            case COL_ASSOC    -> provenance( row ) ;
-            case COL_AI       -> aiTopic( row ) ;
-            case COL_STATUS   -> statusText( row ) ;
-            case COL_RESULT   -> row.result ;
-            case COL_SAVED    -> saved( row ) ;
-            default           -> null ;
+            case COL_ID          -> q.getId() ;
+            case COL_SOURCE      -> q.getSourceId() ;
+            case COL_QUESTION    -> row.questionLabel() ;
+            case COL_SERVER      -> row.serverTopicName ;
+            case COL_REVIEWER    -> topic( row.reviewer() ) ;
+            case COL_TIE_BREAKER -> tieBreakerText( row ) ;
+            case COL_STATUS      -> statusText( row ) ;
+            case COL_SAVED       -> saved( row ) ;
+            default              -> null ;
         } ;
     }
 
@@ -226,24 +278,62 @@ final class ReviewTableModel extends AbstractTableModel {
         return row.status.isDecided() ;
     }
 
-    /**
-     * Who the association is by: as decided, while the decision isn't saved
-     * yet, else as on the server (which a saved decision has updated).
-     */
-    private String provenance( Row row ) {
-
-        ReviewDecision d = row.decision ;
-        if( d == null ) return row.question.provenance( names ) ;
-        return ServerQuestion.provenance( d.actor(), d.model(),
-                                          d.confidence(), names ) ;
+    /** "Kinematics (92%)", or blank without a verdict. */
+    private static String topic( ReviewVerdict v ) {
+        return v == null ? ""
+                         : v.top().getTopicName() + " (" + v.topConfidence() +
+                           "%)" ;
     }
 
-    /** "Kinematics (92%)", or blank before the model has answered. */
-    private static String aiTopic( Row row ) {
+    /**
+     * The tie-breaker's topic, "-" if it gave none, or "[U] Work" when the
+     * topic decided on is none of the three opinions' (chosen by the user).
+     */
+    private static String tieBreakerText( Row row ) {
 
-        if( row.verdict == null ) return "" ;
-        Topic top = row.verdict.top() ;
-        return top.getTopicName() + " (" + row.verdict.topConfidence() + "%)" ;
+        if( decidedColumn( row ) == COL_TIE_BREAKER && !isTieBreakers( row ) ) {
+            return "[U] " + row.assigned.getTopicName() ;
+        }
+        if( row.opinions != null && row.opinions.tieBreakerFailed() ) {
+            return "-" ;
+        }
+        return topic( row.tieBreaker() ) ;
+    }
+
+    /**
+     * The topic column of the topic decided on for {@code row}: the server's
+     * if it is the server's topic as loaded, else the reviewer's or the
+     * tie-breaker's if it is theirs, else the tie-breaker's (where a topic
+     * the user chose is shown); -1 while undecided.
+     */
+    static int decidedColumn( Row row ) {
+
+        Topic t = row.assigned ;
+        if( t == null ) return -1 ;
+        if( row.serverTopicId != null && row.serverTopicId == t.getId() ) {
+            return COL_SERVER ;
+        }
+        if( row.reviewer() != null && row.reviewer().agreesWith( t.getId() ) ) {
+            return COL_REVIEWER ;
+        }
+        return COL_TIE_BREAKER ;
+    }
+
+    /**
+     * True if column {@code col} of {@code row} holds the topic decided on:
+     * its {@link #decidedColumn}, and the tie-breaker's too when the topic
+     * is the tie-breaker's (it broke the tie).
+     */
+    static boolean isDecidedCell( Row row, int col ) {
+        return col == decidedColumn( row )
+               || col == COL_TIE_BREAKER && row.assigned != null
+                  && isTieBreakers( row ) ;
+    }
+
+    /** True if the topic decided on is the tie-breaker's. */
+    private static boolean isTieBreakers( Row row ) {
+        return row.tieBreaker() != null
+               && row.tieBreaker().agreesWith( row.assigned.getId() ) ;
     }
 
     /** The status, with the attempt number while running or on a retry. */

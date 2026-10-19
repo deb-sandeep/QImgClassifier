@@ -2,15 +2,20 @@
 // The questions go to the "review" root, strictly in table order; see the
 // classifier's qimgclassifier.ai.json for what each setting means.
 //
-// The paid Nemotron is used only while the free one is held back by its
-// daily limit, after a server error, or while the free one is set to pass
-// its questions through (Models tab, right-click its column). To review with Claude Haiku instead, put it in
-// the root and enable it.
+// A question whose review topic differs from the server's is sent on to the
+// "tieBreaker" root, a stronger model whose topic settles it when it sides
+// with the reviewer or the server. Both roots need a usable model, else the
+// reviewer refuses to start.
+//
+// DeepSeek is used only while the free Nemotron is held back by its daily
+// limit, after a server error, or while the free one is set to pass its
+// questions through (Models tab, right-click its column).
 {
   "parent" : "classpath:/common/ai-model-config.json",
 
   "roots" : {
-    "review" : [ "nvidia/nemotron-3.5-super-vl:free" ]
+    "review"     : [ "nvidia/nemotron-3.5-super-vl:free" ],
+    "tieBreaker" : [ "z-ai/glm-5.3-flash" ]
   },
 
   "models" : {
@@ -22,25 +27,33 @@
       "reasoning"             : false,
       "promptCaching"         : true,
       "fallback"              : {
-        "rateLimitedRPD" : [ "nvidia/nemotron-3.5-super-vl" ],
-        "serverError"    : [ "nvidia/nemotron-3.5-super-vl" ],
-        "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ]
+        "rateLimitedRPD" : [ "deepseek/deepseek-v4.1-flash" ],
+        "serverError"    : [ "deepseek/deepseek-v4.1-flash" ],
+        "passthrough"    : [ "deepseek/deepseek-v4.1-flash" ]
       }
     },
-    "nvidia/nemotron-3.5-super-vl" : {
-      "enabled"               : true,
-      "maxParallel"           : 3,
-      "requestTimeoutSeconds" : 60,
-      "retries"               : 0,
-      "reasoning"             : false,
-      "promptCaching"         : true
-    },
     "anthropic/claude-haiku-5.5" : {
-      "enabled"               : false,
+      "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 60,
       "retries"               : 1,
       "reasoning"             : false,
+      "promptCaching"         : true
+    },
+    "deepseek/deepseek-v4.1-flash" : {
+      "enabled"               : true,
+      "maxParallel"           : 3,
+      "requestTimeoutSeconds" : 60,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "promptCaching"         : true
+    },
+    "z-ai/glm-5.3-flash" : {
+      "enabled"               : true,
+      "maxParallel"           : 3,
+      "requestTimeoutSeconds" : 60,
+      "retries"               : 1,
+      "reasoning"             : true,
       "promptCaching"         : true
     }
   }

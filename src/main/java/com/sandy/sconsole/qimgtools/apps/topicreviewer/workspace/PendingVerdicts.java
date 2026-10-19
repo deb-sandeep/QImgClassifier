@@ -1,6 +1,6 @@
 package com.sandy.sconsole.qimgtools.apps.topicreviewer.workspace;
 
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewVerdict;
+import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewOpinions;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ServerQuestion;
 import com.sandy.sconsole.qimgtools.core.workspace.JsonFiles;
 
@@ -14,19 +14,23 @@ import java.time.Instant;
 import java.util.Collection;
 
 /**
- * The model's verdicts on questions whose review is not settled on the
- * server yet, so that loading them again needs no new AI call. A JSON object
- * keyed by the question's numeric server id:
+ * The AI's opinions on questions whose review is not settled on the server
+ * yet, so that loading them again needs no new AI call. A JSON object keyed
+ * by the question's numeric server id:
  * <pre>
  * "5012" : {
  *   "questionId" : "C/SCA/74", "sourceId" : "...", "time" : "...",
  *   "server"     : { "topicId", "topicName", "actor", "model", "confidence" },
- *   "verdict"    : { "model", "topics" : [ { "id", "topicName",
- *                                            "confidence" } ] }
+ *   "verdict"    : { "model", "chosenTopicId",
+ *                    "topics" : [ { "id", "topicName", "confidence" } ] },
+ *   "tieBreaker" : { ... as verdict ... },
+ *   "tieBreakerFailure" : "..."
  * }
  * </pre>
- * {@code server} is the association the verdict was compared with; the
- * verdict is reused only while the question still has that topic. An entry
+ * {@code verdict} is the review model's; {@code tieBreaker} (or why it gave
+ * none) is there only if the review model differed from the server.
+ * {@code server} is the association they were compared with; they are
+ * reused only while the question still has that topic. An entry
  * goes once the server has taken a decision on the question and cleared its
  * review flag, so the file holds only the unsaved backlog; the full history
  * is in {@link ReviewAuditLog}.
@@ -64,24 +68,22 @@ public final class PendingVerdicts {
     }
 
     /**
-     * The model's verdict on question {@code q}, if one was stored while the
+     * The AI's opinions on question {@code q}, if stored while the
      * question's server topic was the one it has now; null otherwise.
      */
-    public synchronized ReviewVerdict verdict( ServerQuestion q ) {
+    public synchronized ReviewOpinions opinions( ServerQuestion q ) {
 
         JsonNode entry   = root.path( key( q ) ) ;
-        JsonNode verdict = entry.path( "verdict" ) ;
-        if( !verdict.isObject() ) return null ;
-
         JsonNode topicId = entry.path( "server" ).path( "topicId" ) ;
+
         if( q.getTopicId() == null || topicId.asInt( -1 ) != q.getTopicId() ) {
             return null ;
         }
-        return ReviewJson.readVerdict( verdict ) ;
+        return ReviewJson.readOpinions( entry ) ;
     }
 
-    /** Store the model's verdict on {@code q}, replacing any earlier one. */
-    public synchronized void save( ServerQuestion q, ReviewVerdict v )
+    /** Store the AI's opinions on {@code q}, replacing any earlier ones. */
+    public synchronized void save( ServerQuestion q, ReviewOpinions o )
             throws IOException {
 
         ObjectNode entry = root.putObject( key( q ) ) ;
@@ -89,7 +91,7 @@ public final class PendingVerdicts {
         entry.put( "sourceId", q.getSourceId() ) ;
         entry.put( "time", Instant.now().toString() ) ;
         entry.set( "server", ReviewJson.server( q ) ) ;
-        entry.set( "verdict", ReviewJson.verdict( v ) ) ;
+        ReviewJson.putOpinions( entry, o ) ;
         write() ;
     }
 

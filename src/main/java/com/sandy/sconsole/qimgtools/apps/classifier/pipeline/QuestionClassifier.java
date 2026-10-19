@@ -132,7 +132,7 @@ public class QuestionClassifier implements TaskOutcomes {
      */
     @Override
     public String secondOpinionRoot( QTask task, List<Topic> topics,
-                                     AIAgent agent ) {
+                                     AIAgent agent, String model ) {
         return agent == AIAgent.GEMMA && needsSecondOpinion( task, topics )
                ? ClassifierRouting.CLOUD : null ;
     }

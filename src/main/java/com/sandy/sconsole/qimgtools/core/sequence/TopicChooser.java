@@ -41,7 +41,6 @@ public final class TopicChooser {
                 .toList() ;
         Resolution r = TopicResolver.current().resolve( recs ) ;
 
-        log.debug( "[{}] Topic {} - {}", what, r.topicId(), r.reason() ) ;
         for( T item : items ) {
             if( id.applyAsInt( item ) == r.topicId() ) return item ;
         }

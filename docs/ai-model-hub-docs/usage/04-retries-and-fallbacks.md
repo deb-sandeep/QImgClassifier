@@ -100,7 +100,9 @@ with the guard `passthrough` (else `default`), whatever else may hold it:
 New jobs of its roots, and jobs waiting to retry it or handed back by it,
 go to that guard's models; without the guard they wait for it. Its requests
 in flight finish. The setting is kept in memory only, per hub, and shows as
-`ModelStatus.passthrough()` in the [status](08-monitoring.md). See
+`ModelStatus.passthrough()` in the [status](08-monitoring.md);
+`ModelStatus.passthroughGuard()` says whether the model has the guard, e.g.
+to offer the setting only where it has somewhere to send the jobs. See
 [`AIHub.setPassthrough`](../javadocs/com/sandy/sconsole/ai/AIHub.html#setPassthrough(java.lang.String,boolean)).
 
 ## Ordered lists: a later model is a last resort

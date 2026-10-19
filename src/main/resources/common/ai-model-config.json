@@ -31,6 +31,9 @@
 //                         this model
 //   contextTokens         (optional) context window to ask for (Ollama's
 //                         num_ctx; its default of 4096 would cut our prompts)
+//   costPerMillionToken   (optional) { input, output }: the provider's price in
+//                         USD per million tokens; for documentation only,
+//                         never used by the processing
 {
   "usageLedger" : "~/.sconsole/ai-usage.json",
 
@@ -69,6 +72,10 @@
       "rateLimit"   : {
         "rpm" : 20,
         "rpd" : 1000
+      },
+      "costPerMillionToken" : {
+        "input" : 0.0,
+        "output" : 0.0
       }
     },
     "nvidia/nemotron-3.5-super-vl" : {
@@ -78,22 +85,60 @@
       "rateLimit"   : {
         "rpm" : 0,
         "rpd" : 5000
+      },
+      "costPerMillionToken" : {
+        "input" : 0.1,
+        "output" : 0.4
+      }
+    },
+    "deepseek/deepseek-v4.1-flash" : {
+      "enabled"     : true,
+      "gateway"     : "openrouter",
+      "displayName" : "DeepSeek V4.1*",
+      "rateLimit"   : {
+        "rpm" : 0,
+        "rpd" : 5000
+      },
+      "costPerMillionToken" : {
+        "input" : 0.044,
+        "output" : 0.08
       }
     },
     "anthropic/claude-haiku-5.5" : {
       "enabled"     : true,
       "gateway"     : "openrouter",
-      "displayName" : "Haiku",
+      "displayName" : "Haiku*",
       "rateLimit"   : {
         "rpm" : 0,
         "rpd" : 5000
+      },
+      "costPerMillionToken" : {
+        "input" : 0.1,
+        "output" : 0.5
+      }
+    },
+    "z-ai/glm-5.3-flash" : {
+      "enabled"     : true,
+      "gateway"     : "openrouter",
+      "displayName" : "GLM Flash*",
+      "rateLimit"   : {
+        "rpm" : 0,
+        "rpd" : 5000
+      },
+      "costPerMillionToken" : {
+        "input" : 0.048,
+        "output" : 0.16
       }
     },
     "gemma4:latest" : {
       "enabled"       : true,
       "gateway"       : "ollama-home",
       "displayName"   : "Gemma 4",
-      "contextTokens" : 12288
+      "contextTokens" : 12288,
+      "costPerMillionToken" : {
+        "input" : 0.0,
+        "output" : 0.0
+      }
     }
   }
 }

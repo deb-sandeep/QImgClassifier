@@ -43,8 +43,8 @@ import java.util.stream.Collectors;
  * flight and the jobs waiting for a model. Shown as the Models tab beside
  * the transcripts in both apps; call {@link #update} on the EDT, e.g. each
  * second while the tab is showing. The models table's first row holds a
- * check box per model to pass its questions through to its
- * {@code passthrough} fallback; such a model's column is pink.
+ * check box per model with a {@code passthrough} fallback, to pass its
+ * questions through to it; such a model's column is pink.
  */
 @SuppressWarnings( "serial" )
 public class ModelsPanel extends JPanel {
@@ -247,7 +247,8 @@ public class ModelsPanel extends JPanel {
     private static Object attribute( ModelStatus m, boolean gatewayOn,
                                      String label, long now ) {
         return switch( label ) {
-            case "Passthrough" -> m.usable() ? m.passthrough() : "" ;
+            case "Passthrough" -> m.usable() && m.passthroughGuard()
+                                  ? m.passthrough() : "" ;
             case "Gateway"     -> m.gateway() ;
             case "State"       -> state( m, gatewayOn, now ) ;
             case "In flight"   -> of( m.inFlight(), m.maxParallel() ) ;
@@ -432,8 +433,9 @@ public class ModelsPanel extends JPanel {
     }
 
     /**
-     * The models table's rows: the Passthrough cell of a usable model can be
-     * ticked, which sets it to pass its questions through.
+     * The models table's rows: the Passthrough cell of a usable model with a
+     * {@code passthrough} guard can be ticked, which sets it to pass its
+     * questions through.
      */
     private final class ModelRows extends RowsModel {
 

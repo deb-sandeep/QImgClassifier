@@ -1,5 +1,6 @@
 package com.sandy.sconsole.qimgtools.apps.topicreviewer.workspace;
 
+import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewOpinions;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewVerdict;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ServerQuestion;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
@@ -16,8 +17,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The JSON form of a question's server association and of a verdict, shared
- * by {@link ReviewAuditLog} and {@link PendingVerdicts}.
+ * The JSON form of a question's server association and of the AI's
+ * opinions, shared by {@link ReviewAuditLog} and {@link PendingVerdicts}.
  */
 @Slf4j
 final class ReviewJson {
@@ -32,6 +33,40 @@ final class ReviewJson {
                 .put( "actor", q.getTopicAssocActor() )
                 .put( "model", q.getTopicAssocAiModel() )
                 .put( "confidence", q.getTopicAssocConfidence() ) ;
+    }
+
+    /**
+     * Put {@code o} into {@code node}: the reviewer's verdict as
+     * {@code verdict}, and the tie-breaker's as {@code tieBreaker} or why it
+     * gave none as {@code tieBreakerFailure}, when there is one.
+     */
+    static void putOpinions( ObjectNode node, ReviewOpinions o ) {
+
+        node.set( "verdict", verdict( o.reviewer() ) ) ;
+        if( o.tieBreaker() != null ) {
+            node.set( "tieBreaker", verdict( o.tieBreaker() ) ) ;
+        }
+        if( o.tieBreakerFailure() != null ) {
+            node.put( "tieBreakerFailure", o.tieBreakerFailure() ) ;
+        }
+    }
+
+    /**
+     * The opinions written by {@link #putOpinions} into {@code node}; null if
+     * the reviewer's verdict can't be read.
+     */
+    static ReviewOpinions readOpinions( JsonNode node ) {
+
+        JsonNode reviewer = node.path( "verdict" ) ;
+        if( !reviewer.isObject() ) return null ;
+        ReviewVerdict r = readVerdict( reviewer ) ;
+        if( r == null ) return null ;
+
+        JsonNode      tb = node.path( "tieBreaker" ) ;
+        ReviewVerdict t  = tb.isObject() ? readVerdict( tb ) : null ;
+
+        return new ReviewOpinions( r, t, node.path( "tieBreakerFailure" )
+                                             .asText( null ) ) ;
     }
 
     /**

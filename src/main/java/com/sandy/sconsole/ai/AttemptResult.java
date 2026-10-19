@@ -11,10 +11,13 @@ package com.sandy.sconsole.ai;
  * @param failure   a short readable reason; null on success
  * @param kind      why it failed, for fallback; null on success
  * @param usage     the tokens it used; null if the gateway did not say
+ * @param reasoning the model's reasoning before it answered, when a reply
+ *                  came with one; null otherwise (an error body keeps any
+ *                  reasoning in {@code response})
  */
 public record AttemptResult( Attempt attempt, long elapsedMs, Outcome outcome,
                              String response, String failure, FailureKind kind,
-                             TokenUsage usage ) {
+                             TokenUsage usage, String reasoning ) {
 
     /** How an attempt ended. */
     public enum Outcome {

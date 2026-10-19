@@ -70,11 +70,13 @@ final class ConfigParser {
             "enabled", "type", "url", "apiKeyFile", "connectTimeoutSeconds",
             "cooldownSeconds", "maxParallel", "rateLimit" ) ;
     private static final Set<String> GLOBAL_MODEL_KEYS = Set.of(
-            "enabled", "gateway", "displayName", "rateLimit", "contextTokens" ) ;
+            "enabled", "gateway", "displayName", "rateLimit", "contextTokens",
+            "costPerMillionToken" ) ;
     private static final Set<String> APP_MODEL_KEYS = Set.of(
             "enabled", "maxParallel", "requestTimeoutSeconds", "retries",
             "reasoning", "promptCaching", "rateLimit", "fallback" ) ;
     private static final Set<String> RATE_LIMIT_KEYS = Set.of( "rpm", "rpd" ) ;
+    private static final Set<String> COST_KEYS = Set.of( "input", "output" ) ;
 
     /** A config file's text and where it came from. */
     private record Source( String location, String text, File dir ) {}
@@ -179,6 +181,7 @@ final class ConfigParser {
 
             requireObject( m, path ) ;
             checkKeys( m, path, GLOBAL_MODEL_KEYS ) ;
+            if( m.has( "costPerMillionToken" ) ) checkCost( m, path ) ;
 
             String      gwName  = text( m, path, "gateway" ) ;
             GatewayInfo gateway = gateways.get( gwName ) ;
@@ -581,6 +584,26 @@ final class ConfigParser {
         checkKeys( n, at, RATE_LIMIT_KEYS ) ;
         return new RateLimit( integer( n, at, "rpm", 0 ),
                               integer( n, at, "rpd", 0 ) ) ;
+    }
+
+    /**
+     * Checks a model's costPerMillionToken: { input, output }, each a
+     * non-negative number of USD. It is for documentation only and is not
+     * read into the config.
+     */
+    private void checkCost( JsonNode parent, String path ) {
+
+        JsonNode n  = object( parent, path, "costPerMillionToken" ) ;
+        String   at = join( path, "costPerMillionToken" ) ;
+
+        checkKeys( n, at, COST_KEYS ) ;
+        for( String key : COST_KEYS ) {
+            JsonNode v = required( n, at, key ) ;
+            if( !v.isNumber() || v.asDouble() < 0 ) {
+                throw error( join( at, key ), "must be a number of at " +
+                             "least 0" ) ;
+            }
+        }
     }
 
     private void checkKeys( JsonNode n, String path, Set<String> allowed ) {

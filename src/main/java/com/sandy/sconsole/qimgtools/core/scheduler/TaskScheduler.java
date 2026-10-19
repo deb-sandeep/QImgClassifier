@@ -352,11 +352,12 @@ public class TaskScheduler {
             }
 
             String root = outcomes.secondOpinionRoot(
-                    task, topics, agentOf( attempt.model() ) ) ;
+                    task, topics, agentOf( attempt.model() ),
+                    attempt.model().id() ) ;
             return root == null
                    ? ReplyCheck.accept( topics )
-                   : ReplyCheck.escalate( topics, root, "the top topic is not " +
-                                          "confident enough" ) ;
+                   : ReplyCheck.escalate( topics, root,
+                                          outcomes.secondOpinionReason() ) ;
         }
 
         @Override
@@ -372,7 +373,8 @@ public class TaskScheduler {
             Entry e = job.payload() ;
             e.attempts.attemptFinished( new AttemptTranscript(
                     e.request, result.elapsedMs(), result.response(),
-                    result.failure(), outcome, result.usage() ) ) ;
+                    result.failure(), outcome, result.usage(),
+                    result.reasoning() ) ) ;
         }
 
         @Override

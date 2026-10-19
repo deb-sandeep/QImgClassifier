@@ -11,6 +11,7 @@ import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewCriteria;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewDecision;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewItem;
+import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewOpinions;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewResult;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewStatus;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewVerdict;
@@ -51,6 +52,7 @@ import javax.swing.JSplitPane;
 import javax.swing.InputMap;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
+import javax.swing.JTextArea;
 import javax.swing.JToolBar;
 import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
@@ -105,18 +107,22 @@ import com.sandy.sconsole.qimgtools.core.util.ModelNames;
 
 /**
  * The topic reviewer's window. The table lists questions of the server's
- * review queue; Load fetches its first questions in place of those shown,
- * Start sends those not yet judged to the review model, and Stop winds that
- * down. Selecting a row shows its image, its AI transcripts and a
- * {@link ReviewDecisionPanel} to keep the server's topic, use the model's,
- * or choose another, for every selected row. Decisions stay in the table,
- * where they can be changed or cleared, until Save decisions sends them to
- * the server off the EDT, with their provenance from
- * {@link ReviewDecision#of}; it accepts every Agreed question it covers
- * that has no decision. Every command is an {@code Action} on the menu bar,
- * the main ones also as icon buttons ({@link ToolIcon}) on the toolbar; the
- * decision keys and buttons, sending, saving and clearing are also on the
- * table's right-click menu.
+ * review queue with the server's topic, the review model's and, where those
+ * differ, the tie-breaker's; Load fetches its first questions in place of
+ * those shown, Start sends those not yet judged to the review model, and
+ * Stop winds that down. When the tie-breaker sides with the reviewer or the
+ * server, that topic is decided on at once (unsaved); otherwise the user
+ * decides. Selecting a row shows what is going on with it, its image, its
+ * AI transcripts and a {@link ReviewDecisionPanel} to keep the server's
+ * topic, use the reviewer's or the tie-breaker's, or choose another, for
+ * every selected row; the topic decided on is shown in a green cell.
+ * Decisions stay in the table, where they can be changed or cleared, until
+ * Save decisions sends them to the server off the EDT, with their
+ * provenance from {@link ReviewDecision#of}; it accepts every Agreed
+ * question it covers that has no decision. Every command is an
+ * {@code Action} on the menu bar, the main ones also as icon buttons
+ * ({@link ToolIcon}) on the toolbar; the decision keys and buttons, sending,
+ * saving and clearing are also on the table's right-click menu.
  * <p>
  * Implements {@link ReviewListener}; its calls arrive on worker threads and
  * are moved to the EDT, where all row state lives.
@@ -151,10 +157,10 @@ public class TopicReviewFrame extends JFrame
         List<String> syllabusNames() ;
 
         /**
-         * The verdict stored for {@code item} by an earlier run, if the
-         * server's topic is unchanged since; null otherwise.
+         * The AI's opinions stored for {@code item} by an earlier run, if
+         * the server's topic is unchanged since; null otherwise.
          */
-        ReviewVerdict storedVerdict( ReviewItem item ) ;
+        ReviewOpinions storedOpinions( ReviewItem item ) ;
 
         /**
          * Send {@code items} to the review model, in order: start a run, or
@@ -211,9 +217,11 @@ public class TopicReviewFrame extends JFrame
      */
     public record Loaded( List<ReviewItem> items, int flagged ) {}
 
-    private static final double SPLIT_RATIO          = 0.72 ;
+    private static final double SPLIT_RATIO          = 0.64 ;
     private static final int    PREVIEW_PANEL_HEIGHT = 300 ;
+    private static final int    PREVIEW_IMAGE_WIDTH  = 800 ;
     private static final int    ROW_HEIGHT           = 20 ;
+    private static final int    DETAIL_ROWS          = 2 ;
 
     /** Seconds an unattended run waits between batches, to be stopped. */
     private static final int UNATTENDED_PAUSE_SECONDS = 5 ;
@@ -232,11 +240,10 @@ public class TopicReviewFrame extends JFrame
              50,    // Id
             140,    // Source
              80,    // Question
-            200,    // Server topic
-            150,    // Associated by
-            200,    // Model's topic
-             60,    // Status
-            300,    // Result
+            200,    // Server
+            200,    // Reviewer
+            200,    // Tie breaker
+             80,    // Status
             SQUARE  // saved dot (untitled)
     } ;
 
@@ -262,6 +269,15 @@ public class TopicReviewFrame extends JFrame
      */
     private static final Color KEPT_AGAINST_MODEL_BG = new Color( 0xC8E4CA ) ;
 
+    /**
+     * The cell of the topic decided on, saved or not, and the Status cell
+     * of a Decided row.
+     */
+    private static final Color DECIDED_CELL_BG = new Color( 0xB9E4BB ) ;
+
+    /** The Status cell of a Differs row. */
+    private static final Color DIFFERS_CELL_BG = new Color( 0xD32F2F ) ;
+
     // The queue section's background: idle, requests in flight, and
     // questions waiting with none in flight (e.g. held by a rate limit).
     private static final Color QUEUE_IDLE    = new Color( 0xC8E6C9 ) ;
@@ -278,7 +294,7 @@ public class TopicReviewFrame extends JFrame
     private enum Show {
 
         ALL      ( "All questions",   s -> true ),
-        UNDECIDED( "Not yet decided", s -> !s.isDecided() ),
+        UNDECIDED( "Not yet decided", Show::undecided ),
         DIFFERS  ( "Differs",         s -> s == ReviewStatus.DIFFERS ),
         AGREED   ( "Agreed",          s -> s == ReviewStatus.AGREED ),
         UNSAVED  ( "Unsaved",         s -> s == ReviewStatus.DECIDED ),
@@ -292,6 +308,15 @@ public class TopicReviewFrame extends JFrame
         Show( String label, Predicate<ReviewStatus> test ) {
             this.label = label ;
             this.test  = test ;
+        }
+
+        /**
+         * Neither agreed, decided (saved or not) nor being saved: the rows
+         * still needing a judgement or a decision.
+         */
+        private static boolean undecided( ReviewStatus s ) {
+            return s != ReviewStatus.AGREED && s != ReviewStatus.DECIDED
+                   && s != ReviewStatus.SAVING && !s.isDecided() ;
         }
 
         @Override
@@ -313,9 +338,11 @@ public class TopicReviewFrame extends JFrame
             ( id, on ) -> setPassthrough( id, on ) ) ;
     private final ReviewDecisionPanel decisionPanel ;
     private final ImagePreview        preview =
-            new ImagePreview( PREVIEW_PANEL_HEIGHT ) ;
+            new ImagePreview( PREVIEW_PANEL_HEIGHT, PREVIEW_IMAGE_WIDTH ) ;
     private final RateLimitStrip      rateLimitStrip ;
     private final TopicCompareStrip   compareStrip ;
+    private final JTextArea           detail    =
+            new JTextArea( DETAIL_ROWS, 20 ) ;
     private final JLabel              statusBar = new JLabel( " " ) ;
     private final JPanel              queueBar  =
             new JPanel( new BorderLayout() ) ;
@@ -348,9 +375,10 @@ public class TopicReviewFrame extends JFrame
             "Send every failed question to the review model again",
             this::requeueFailed ) ;
     private final Action useAllAction = action(
-            "Use AI reco for all differing", ToolIcon.USE_AI, null,
-            "Use the model's top topic for every undecided Differs row; " +
-            "nothing is sent until Save decisions", this::useModelForDiffering ) ;
+            "Use tie breaker's topic for all differing", ToolIcon.USE_AI,
+            null, "Use the tie-breaker's topic for every undecided Differs " +
+            "row it answered; nothing is sent until Save decisions",
+            this::useTieBreakerForDiffering ) ;
     private final Action saveAction = action( "Save decisions",
             ToolIcon.SAVE, shortcut( KeyEvent.VK_S ), "Send the decisions " +
             "made to the server, accepting every question the model agreed " +
@@ -363,20 +391,22 @@ public class TopicReviewFrame extends JFrame
 
     /** Named "Stop unattended processing" while the loop runs. */
     private final Action unattendedAction = action( RUN_UNATTENDED, null,
-            shortcut( KeyEvent.VK_U ), "Load, judge, use the model's topic " +
-            "where it differs, save, and repeat until stopped",
+            shortcut( KeyEvent.VK_U ), "Load, judge, use the tie-breaker's " +
+            "topic where the models differ, save, and repeat until stopped",
             this::toggleUnattended ) ;
 
-    /** The decision keys 1-4 as menu items; the keys are the table's. */
+    /** The decision keys 1-5 as menu items; the keys are the table's. */
     private final Action[] decideActions = {
-            action( "1  Use model's topic", null, null, null,
+            action( "1  Keep server's topic", null, null, null,
                     () -> pressKey( 1 ) ),
-            action( "2  Keep server's topic", null, null, null,
+            action( "2  Use reviewer's topic", null, null, null,
                     () -> pressKey( 2 ) ),
-            action( "3  Choose topic…", null, null, null,
+            action( "3  Use tie breaker's topic", null, null, null,
                     () -> pressKey( 3 ) ),
-            action( "4  Skip to the next differing", null, null, null,
-                    () -> pressKey( 4 ) ) } ;
+            action( "4  Choose topic…", null, null, null,
+                    () -> pressKey( 4 ) ),
+            action( "5  Skip to the next differing", null, null, null,
+                    () -> pressKey( 5 ) ) } ;
 
     /** The toolbar's Load and Save buttons spin while their call runs. */
     private final JButton loadButton = toolButton( loadAction ) ;
@@ -422,11 +452,13 @@ public class TopicReviewFrame extends JFrame
      * @param transcripts source of the transcripts shown on the right
      * @param names       the names models are shown by
      */
-    public TopicReviewFrame( TranscriptStore transcripts, ModelNames names ) {
+    public TopicReviewFrame( TranscriptStore transcripts, ModelNames names,
+                             String reviewer, String tieBreaker ) {
 
         super( "QTopicReviewer" ) ;
         this.names           = names ;
-        this.model           = new ReviewTableModel( names ) ;
+        this.model           = new ReviewTableModel( names, reviewer,
+                                                     tieBreaker ) ;
         this.table           = new JTable( model ) ;
         this.sorter          = new TableRowSorter<>( model ) ;
         this.headerFilters   = new HeaderFilterController( table, model,
@@ -473,8 +505,19 @@ public class TopicReviewFrame extends JFrame
         JPanel left = new JPanel( new BorderLayout() ) ;
         left.add( new JScrollPane( table ), BorderLayout.CENTER ) ;
 
-        // The preview with the two topics to compare under it.
+        // What is going on with the selected question, the preview, and the
+        // three topics to compare under it.
+        detail.setEditable( false ) ;
+        detail.setLineWrap( true ) ;
+        detail.setWrapStyleWord( true ) ;
+        detail.setFocusable( false ) ;
+        detail.setBackground( left.getBackground() ) ;
+        detail.setBorder( BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder( 1, 0, 1, 0, Color.GRAY ),
+                BorderFactory.createEmptyBorder( 4, 8, 4, 8 ) ) ) ;
+
         JPanel below = new JPanel( new BorderLayout() ) ;
+        below.add( detail, BorderLayout.NORTH ) ;
         below.add( preview, BorderLayout.CENTER ) ;
         below.add( compareStrip, BorderLayout.SOUTH ) ;
         left.add( below, BorderLayout.SOUTH ) ;
@@ -693,16 +736,12 @@ public class TopicReviewFrame extends JFrame
         sendAction.setEnabled( controller != null && !unattended
                                && procState != ProcessingState.STOPPING
                                && !sendableSelection().isEmpty() ) ;
-        for( int n = 1 ; n <= 3 ; n++ ) {
+        for( int n = 1 ; n <= 4 ; n++ ) {
             decideActions[n - 1].setEnabled( decisionPanel.canPress( n ) ) ;
         }
-        decideActions[3].setEnabled( table.getRowCount() > 0 ) ;
+        decideActions[4].setEnabled( table.getRowCount() > 0 ) ;
     }
 
-    /**
-     * Decision key {@code n}: 1-3 press the decision panel's buttons, 4
-     * skips to the next question that differs.
-     */
     /**
      * A click on the topic strip: decide as key {@code n} does, then give
      * the table the focus back so the keys go on working.
@@ -712,8 +751,12 @@ public class TopicReviewFrame extends JFrame
         table.requestFocusInWindow() ;
     }
 
+    /**
+     * Decision key {@code n}: 1-4 press the decision panel's buttons, 5
+     * skips to the next question that differs.
+     */
     private void pressKey( int n ) {
-        if( n == 4 ) select( nextDiffering( List.of() ) ) ;
+        if( n == 5 ) select( nextDiffering( List.of() ) ) ;
         else decisionPanel.press( n ) ;
     }
 
@@ -780,7 +823,7 @@ public class TopicReviewFrame extends JFrame
         clear.addActionListener( e -> clear( selectedRows() ) ) ;
         menu.add( send ) ;
         menu.addSeparator() ;
-        for( int i = 0 ; i < 3 ; i++ ) menu.add( decideActions[i] ) ;
+        for( int i = 0 ; i < 4 ; i++ ) menu.add( decideActions[i] ) ;
         menu.addSeparator() ;
         menu.add( save ) ;
         menu.add( clear ) ;
@@ -869,18 +912,18 @@ public class TopicReviewFrame extends JFrame
     }
 
     /**
-     * Keys 1-4 on the table (main row or keypad), for every selected row: 1
-     * use the model's topic, 2 keep the server's, 3 choose a topic; 4 skips
-     * to the next question that differs. The Decisions menu's items show
-     * them; they aren't its accelerators, which would take the digits from
-     * the whole window.
+     * Keys 1-5 on the table (main row or keypad), for every selected row: 1
+     * keep the server's topic, 2 use the reviewer's, 3 the tie-breaker's, 4
+     * choose a topic; 5 skips to the next question that differs. The
+     * Decisions menu's items show them; they aren't its accelerators, which
+     * would take the digits from the whole window.
      */
     private void bindDecisionKeys() {
 
         InputMap  keys    = table.getInputMap( JComponent.WHEN_FOCUSED ) ;
         ActionMap actions = table.getActionMap() ;
 
-        for( int n = 1 ; n <= 4 ; n++ ) {
+        for( int n = 1 ; n <= 5 ; n++ ) {
             String name = "decision-" + n ;
             int    key  = n ;
 
@@ -952,7 +995,7 @@ public class TopicReviewFrame extends JFrame
     }
 
     /**
-     * Fill the table with {@code loaded}, with the verdicts stored by
+     * Fill the table with {@code loaded}, with the opinions stored by
      * earlier runs; the rows shown before are dropped.
      */
     private void showItems( Loaded loaded ) {
@@ -961,13 +1004,14 @@ public class TopicReviewFrame extends JFrame
         model.setItems( loaded.items() ) ;
         decisionPanel.show( List.of() ) ;
         compareStrip.show( null ) ;
+        showDetail( null ) ;
         preview.show( null ) ;
         for( ReviewItem item : loaded.items() ) {
             Row row = model.rowOf( item ) ;
             if( row == null || !item.hasImages() ) continue ;
-            ReviewVerdict v = controller.storedVerdict( item ) ;
-            if( v == null ) continue ;
-            setVerdict( row, v ) ;
+            ReviewOpinions o = controller.storedOpinions( item ) ;
+            if( o == null ) continue ;
+            setOpinions( row, o ) ;
             model.changed( row ) ;
         }
         updateControls() ;
@@ -1062,8 +1106,9 @@ public class TopicReviewFrame extends JFrame
                    .toList() ;
         for( Row row : rows ) {
             row.status   = ReviewStatus.QUEUED ;
-            row.result   = null ;
+            row.message  = null ;
             row.decision = null ;
+            row.assigned = null ;
         }
         model.changedAll() ;
         decisionPanel.show( selectedRows() ) ;
@@ -1099,15 +1144,15 @@ public class TopicReviewFrame extends JFrame
      * {@code after} (at once if there are none); {@code button}, if not
      * null, spins meanwhile. Each
      * Agreed row among them is first decided as accepted: its server topic,
-     * the model's best, so it is sent as the model's.
+     * the reviewer's, so it is sent as the reviewer's.
      */
     private void save( List<Row> rows, JButton button, Runnable after ) {
 
         if( controller == null ) return ;
         for( Row row : rows ) {
             if( row.status != ReviewStatus.AGREED ) continue ;
-            decide( row, ReviewDecision.of( row.item, row.verdict.top(),
-                                            row.verdict ) ) ;
+            decide( row, ReviewDecision.of( row.item, row.reviewer().top(),
+                                            row.opinions ) ) ;
         }
 
         List<ReviewDecision> decisions = rows.stream()
@@ -1122,18 +1167,18 @@ public class TopicReviewFrame extends JFrame
     }
 
     /**
-     * Give every undecided Differs row the model's best topic (staged, as
-     * key 1 would).
+     * Give every undecided Differs row the tie-breaker answered its topic
+     * (staged, as key 3 would).
      */
-    private void useModelForDiffering() {
-        useModel( differingUndecided(), null ) ;
+    private void useTieBreakerForDiffering() {
+        useTieBreaker( differingUndecided(), null ) ;
     }
 
-    /** The Differs rows that may still be given the model's topic. */
+    /** The Differs rows that may still be given the tie-breaker's topic. */
     private List<Row> differingUndecided() {
         return model.rows().stream()
                     .filter( r -> r.status == ReviewStatus.DIFFERS
-                                  && r.canUseModel() )
+                                  && r.canUseTieBreaker() )
                     .toList() ;
     }
 
@@ -1158,8 +1203,9 @@ public class TopicReviewFrame extends JFrame
         for( Row row : rows ) {
             if( !row.isUnsaved() ) continue ;
             row.status   = row.undecidedStatus ;
-            row.result   = row.undecidedResult ;
+            row.message  = row.undecidedMessage ;
             row.decision = null ;
+            row.assigned = null ;
 
             model.changed( row ) ;
         }
@@ -1191,9 +1237,10 @@ public class TopicReviewFrame extends JFrame
 
     /**
      * Loop until stopped, logging each step: load a batch with the criteria
-     * in effect, send its pending questions to the model, use the model's
-     * top topic for every question that differs, save (accepting those it
-     * agrees with), and after {@link #UNATTENDED_PAUSE_SECONDS} load the
+     * in effect, send its pending questions to the model, use the
+     * tie-breaker's topic for every question still in dispute, save
+     * (accepting those the reviewer agrees with and those the tie-breaker
+     * settled), and after {@link #UNATTENDED_PAUSE_SECONDS} load the
      * next batch. The loop ends by itself when nothing awaits review, or a
      * batch clears no question (its rows would only come back).
      */
@@ -1269,8 +1316,9 @@ public class TopicReviewFrame extends JFrame
     }
 
     /**
-     * The model is done with the batch (or none of it needed sending): use
-     * its top topic for every question that differs, and save.
+     * The models are done with the batch (or none of it needed sending):
+     * use the tie-breaker's topic for every question still in dispute, and
+     * save.
      */
     private void batchJudged() {
 
@@ -1278,32 +1326,44 @@ public class TopicReviewFrame extends JFrame
         List<Row> differing = differingUndecided() ;
 
         for( Row row : model.rows() ) logJudgement( row ) ;
-        useModel( differing, null ) ;
-        log.info( "[unattended] Batch {}: saving ({} overridden with the " +
-                  "model's topic)", batch, differing.size() ) ;
+        useTieBreaker( differing, null ) ;
+        log.info( "[unattended] Batch {}: saving ({} disputed, given the " +
+                  "tie-breaker's topic)", batch, differing.size() ) ;
         step( "saving" ) ;
         save( model.rows(), saveButton, this::batchSaved ) ;
     }
 
-    /** Log what the model made of {@code row}, before it is decided. */
+    /**
+     * Log what the models made of {@code row}, before the disputed ones are
+     * decided.
+     */
     private void logJudgement( Row row ) {
 
-        String q      = row.questionLabel() ;
-        String server = row.question.getTopicName() ;
+        String        q      = row.questionLabel() ;
+        String        server = row.serverTopicName ;
+        ReviewVerdict r      = row.reviewer() ;
+        ReviewVerdict t      = row.tieBreaker() ;
 
         if( row.status == ReviewStatus.AGREED ) {
             log.info( "[unattended]   {}: agrees - {} ({}%)", q, server,
-                      row.verdict.topConfidence() ) ;
+                      r.topConfidence() ) ;
         }
-        else if( row.status == ReviewStatus.DIFFERS && row.canUseModel() ) {
-            log.info( "[unattended]   {}: differs - {} -> {} ({}%)", q,
-                      server, row.verdict.top().getTopicName(),
-                      row.verdict.topConfidence() ) ;
+        else if( row.status == ReviewStatus.DECIDED && r != null ) {
+            log.info( "[unattended]   {}: settled by the tie-breaker - {} " +
+                      "(server {}, reviewer {})", q,
+                      row.decision.topic().getTopicName(), server,
+                      r.top().getTopicName() ) ;
+        }
+        else if( row.status == ReviewStatus.DIFFERS && t != null ) {
+            log.info( "[unattended]   {}: disputed - server {}, reviewer {} " +
+                      "({}%), tie-breaker {} ({}%)", q, server,
+                      r.top().getTopicName(), r.topConfidence(),
+                      t.top().getTopicName(), t.topConfidence() ) ;
         }
         else {
             log.info( "[unattended]   {}: skipped - {}{}", q,
                       row.status.getLabel(),
-                      row.result != null ? ": " + row.result : "" ) ;
+                      row.message != null ? ": " + row.message : "" ) ;
         }
     }
 
@@ -1320,7 +1380,7 @@ public class TopicReviewFrame extends JFrame
         for( Row row : model.rows() ) {
             if( row.status != ReviewStatus.ERROR ) continue ;
             log.warn( "[unattended]   {}: not saved - {}",
-                      row.questionLabel(), row.result ) ;
+                      row.questionLabel(), row.message ) ;
         }
         log.info( "[unattended] Batch {} saved: {} kept, {} overridden, " +
                   "{} still flagged, {} errors, {} failed, {} without " +
@@ -1372,14 +1432,20 @@ public class TopicReviewFrame extends JFrame
     // ---- decisions -----------------------------------------------------
 
     @Override
-    public void useModel( List<Row> rows, Topic topic ) {
-        decide( rows, Row::canUseModel,
-                r -> topic != null ? topic : r.verdict.top() ) ;
+    public void keep( List<Row> rows ) {
+        decide( rows, Row::canKeep, this::serverTopic ) ;
     }
 
     @Override
-    public void keep( List<Row> rows ) {
-        decide( rows, Row::canKeep, this::serverTopic ) ;
+    public void useReviewer( List<Row> rows, Topic topic ) {
+        decide( rows, Row::canUseReviewer,
+                r -> topic != null ? topic : r.reviewer().top() ) ;
+    }
+
+    @Override
+    public void useTieBreaker( List<Row> rows, Topic topic ) {
+        decide( rows, Row::canUseTieBreaker,
+                r -> topic != null ? topic : r.tieBreaker().top() ) ;
     }
 
     /**
@@ -1398,7 +1464,8 @@ public class TopicReviewFrame extends JFrame
         for( Row row : chosen ) {
             Topic topic = topicOf.apply( row ) ;
             if( topic != null ) {
-                decide( row, ReviewDecision.of( row.item, topic, row.verdict ) ) ;
+                decide( row, ReviewDecision.of( row.item, topic,
+                                                row.opinions ) ) ;
             }
         }
         select( next ) ;
@@ -1413,24 +1480,25 @@ public class TopicReviewFrame extends JFrame
     private void decide( Row row, ReviewDecision d ) {
 
         if( row.decision == null ) {
-            row.undecidedStatus = row.status ;
-            row.undecidedResult = row.result ;
+            row.undecidedStatus  = row.status ;
+            row.undecidedMessage = row.message ;
         }
         row.decision = d ;
+        row.assigned = d.topic() ;
         row.status   = ReviewStatus.DECIDED ;
-        row.result   = describe( d ) ;
+        row.message  = "Decided: " + describe( d ) ;
 
         model.changed( row ) ;
     }
 
     /**
-     * The topic decision {@code d} gives, tagged with whose it is: "[ai]
-     * Work" for the model's top pick, "[server] Kinematics" for keeping the
-     * server's topic against the model, "[user] Work" for any other choice.
+     * The topic decision {@code d} gives, tagged with whose it is: "[Haiku]
+     * Work" for a model's chosen topic, "[server] Kinematics" for keeping the
+     * server's topic against the models, "[user] Work" for any other choice.
      */
-    private static String describe( ReviewDecision d ) {
+    private String describe( ReviewDecision d ) {
 
-        String by = d.isAI()        ? "ai"
+        String by = d.isAI()        ? names.of( d.model() )
                   : d.keepsTopic() ? "server"
                   :                  "user" ;
 
@@ -1440,8 +1508,9 @@ public class TopicReviewFrame extends JFrame
     /**
      * Let the user pick one topic of the rows' syllabus, for all of the open
      * ones, from a list tall enough to show them all; for a single row the
-     * server's and the model's topics are marked. Enter or a double-click
-     * picks. Rows of different syllabuses can't share a topic.
+     * server's, the reviewer's and the tie-breaker's topics are marked.
+     * Enter or a double-click picks. Rows of different syllabuses can't
+     * share a topic.
      */
     @Override
     public void chooseTopic( List<Row> rows ) {
@@ -1466,11 +1535,10 @@ public class TopicReviewFrame extends JFrame
 
         if( topics.isEmpty() ) return ;
 
-        Map<Integer,Integer> modelPct = new HashMap<>() ;
-        if( row != null && row.verdict != null ) {
-            row.verdict.topics().forEach( t -> modelPct.put(
-                    t.getId(), Math.round( t.getMatchProbability() * 100 ) ) ) ;
-        }
+        Map<Integer,Integer> reviewerPct = percents(
+                row == null ? null : row.reviewer() ) ;
+        Map<Integer,Integer> tiePct      = percents(
+                row == null ? null : row.tieBreaker() ) ;
         int serverId = row == null || row.question.getTopicId() == null
                      ? -1 : row.question.getTopicId() ;
 
@@ -1488,21 +1556,26 @@ public class TopicReviewFrame extends JFrame
                         .append( "  ·  " ).append( t.getTopicName() ) ;
 
                 if( t.getId() == serverId ) text.append( "   [server]" ) ;
-                Integer pct = modelPct.get( t.getId() ) ;
-                if( pct != null ) text.append( "   [model " + pct + "%]" ) ;
+                Integer pct = reviewerPct.get( t.getId() ) ;
+                if( pct != null ) text.append( "   [reviewer " + pct + "%]" ) ;
+                pct = tiePct.get( t.getId() ) ;
+                if( pct != null ) text.append( "   [tie breaker " + pct + "%]" ) ;
                 return super.getListCellRendererComponent(
                         l, text.toString(), index, selected, focus ) ;
             }
         } ) ;
 
-        Topic first = row != null && row.verdict != null
-                      && !row.verdict.agreesWith( serverId )
-                    ? row.verdict.top() : null ;
-        for( int i = 0 ; i < topics.size() && row != null ; i++ ) {
-            int id = topics.get( i ).getId() ;
-            if( first != null ? id == first.getId() : id == serverId ) {
-                list.setSelectedIndex( i ) ;
+        Topic first = null ;
+        for( ReviewVerdict v : row == null ? new ReviewVerdict[0]
+                               : new ReviewVerdict[] { row.tieBreaker(),
+                                                       row.reviewer() } ) {
+            if( first == null && v != null && !v.agreesWith( serverId ) ) {
+                first = v.top() ;
             }
+        }
+        int firstId = first == null ? serverId : first.getId() ;
+        for( int i = 0 ; i < topics.size() && row != null ; i++ ) {
+            if( topics.get( i ).getId() == firstId ) list.setSelectedIndex( i ) ;
         }
 
         JOptionPane pane = new JOptionPane( new JScrollPane( list ),
@@ -1536,6 +1609,17 @@ public class TopicReviewFrame extends JFrame
         if( !Integer.valueOf( JOptionPane.OK_OPTION ).equals( pane.getValue() )
             || chosen == null ) return ;
         decide( open, r -> true, r -> chosen ) ;
+    }
+
+    /** Each of {@code v}'s topics' confidence (0-100) by id; empty if null. */
+    private static Map<Integer,Integer> percents( ReviewVerdict v ) {
+
+        Map<Integer,Integer> pct = new HashMap<>() ;
+        if( v != null ) {
+            v.topics().forEach( t -> pct.put(
+                    t.getId(), Math.round( t.getMatchProbability() * 100 ) ) ) ;
+        }
+        return pct ;
     }
 
     /**
@@ -1667,16 +1751,17 @@ public class TopicReviewFrame extends JFrame
 
         // A refused decision stays, to save again or clear.
         if( !r.accepted() ) {
-            row.status = ReviewStatus.ERROR ;
-            row.result = r.message() != null ? r.message()
-                                             : "refused by the server" ;
+            row.status  = ReviewStatus.ERROR ;
+            row.message = "Not saved: " + ( r.message() != null
+                                            ? r.message()
+                                            : "refused by the server" ) ;
             return ;
         }
 
         ServerQuestion q     = row.question ;
         boolean        keeps = d.keepsTopic() ;
 
-        row.result   = describe( d ) ;
+        row.message  = "Saved: " + describe( d ) ;
         row.decision = null ;
 
         if( q.isTopicReviewNeeded() && !r.stillFlagged() && flagged > 0 ) {
@@ -1690,8 +1775,8 @@ public class TopicReviewFrame extends JFrame
         q.setTopicReviewNeeded( r.stillFlagged() ) ;
 
         if( r.stillFlagged() ) {
-            row.status  = ReviewStatus.STILL_FLAGGED ;
-            row.result += " - still flagged on the server" ;
+            row.status   = ReviewStatus.STILL_FLAGGED ;
+            row.message += " - still flagged on the server" ;
         }
         else {
             row.status = keeps ? ReviewStatus.KEPT : ReviewStatus.OVERRIDDEN ;
@@ -1723,8 +1808,8 @@ public class TopicReviewFrame extends JFrame
     }
 
     private void setSaving( Row row ) {
-        row.status = ReviewStatus.SAVING ;
-        row.result = null ;
+        row.status  = ReviewStatus.SAVING ;
+        row.message = "Saving: " + describe( row.decision ) ;
         rowChanged( row ) ;
     }
 
@@ -1736,11 +1821,16 @@ public class TopicReviewFrame extends JFrame
     }
 
     @Override
-    public void itemAttempt( ReviewItem item, String model, int attempt ) {
+    public void itemAttempt( ReviewItem item, String model, int attempt,
+                             boolean tieBreaker ) {
         onRow( item, row -> {
             row.status   = ReviewStatus.RUNNING ;
             row.model    = model ;
             row.attempts = attempt ;
+            row.message  = ( tieBreaker ? "The reviewer differs from the " +
+                                          "server - asking the tie-breaker, "
+                                        : "Asking the reviewer, " ) +
+                           "attempt " + attempt + " on " + names.of( model ) ;
         } ) ;
     }
 
@@ -1756,8 +1846,8 @@ public class TopicReviewFrame extends JFrame
     }
 
     @Override
-    public void verdictReached( ReviewItem item, ReviewVerdict verdict ) {
-        onRow( item, row -> setVerdict( row, verdict ) ) ;
+    public void verdictReached( ReviewItem item, ReviewOpinions opinions ) {
+        onRow( item, row -> setOpinions( row, opinions ) ) ;
     }
 
     @Override
@@ -1765,7 +1855,8 @@ public class TopicReviewFrame extends JFrame
         onRow( item, row -> {
             row.status   = ReviewStatus.FAILED ;
             row.attempts = attempts ;
-            row.result   = reason ;
+            row.message  = "Failed after " + plural( attempts, "attempt" ) +
+                           ": " + reason ;
         } ) ;
     }
 
@@ -1779,8 +1870,11 @@ public class TopicReviewFrame extends JFrame
                 // or judged before they were sent again.
                 for( Row row : model.rows() ) {
                     if( row.status != ReviewStatus.QUEUED ) continue ;
-                    if( row.verdict != null ) setVerdict( row, row.verdict ) ;
-                    else row.status = ReviewStatus.PENDING ;
+                    if( row.opinions != null ) setOpinions( row, row.opinions ) ;
+                    else {
+                        row.status  = ReviewStatus.PENDING ;
+                        row.message = null ;
+                    }
                 }
                 model.changedAll() ;
                 // Only a selection the user hasn't made is moved.
@@ -1803,14 +1897,31 @@ public class TopicReviewFrame extends JFrame
         } ) ;
     }
 
-    /** Record {@code verdict} on {@code row}, unless it is already decided. */
-    private void setVerdict( Row row, ReviewVerdict verdict ) {
+    /**
+     * Record {@code opinions} on {@code row}, unless it is already decided:
+     * Agreed or Differs, and when the tie-breaker sided with the reviewer or
+     * the server, decided (unsaved) on that topic.
+     */
+    private void setOpinions( Row row, ReviewOpinions opinions ) {
 
-        row.verdict = verdict ;
+        row.opinions = opinions ;
         if( row.status.isDecided() ) return ;
-        row.status = verdict.agreesWith( row.question.getTopicId() )
-                   ? ReviewStatus.AGREED : ReviewStatus.DIFFERS ;
-        row.result = null ;
+
+        Integer topicId = row.question.getTopicId() ;
+        Topic   settled = opinions.settled( topicId ) ;
+
+        row.status  = opinions.outcome( topicId )
+                      == ReviewOpinions.Outcome.AGREED
+                    ? ReviewStatus.AGREED : ReviewStatus.DIFFERS ;
+        row.message = opinions.tieBreakerFailed()
+                    ? "The tie-breaker gave no answer: " +
+                      opinions.tieBreakerFailure()
+                    : null ;
+        if( settled == null || row.decision != null ) return ;
+
+        decide( row, ReviewDecision.of( row.item, settled, opinions ) ) ;
+        row.message = "Settled by the tie-breaker: " +
+                      describe( row.decision ) ;
     }
 
     // ---- display -------------------------------------------------------
@@ -1819,19 +1930,48 @@ public class TopicReviewFrame extends JFrame
         model.changed( row ) ;
         decisionPanel.refresh( row ) ;
         compareStrip.refresh( row ) ;
+        if( table.getSelectedRowCount() == 1 && selectedRow() == row ) {
+            showDetail( row ) ;
+        }
         updateControls() ;
     }
 
     private void showSelection() {
 
         Row row = selectedRow() ;
+        Row one = table.getSelectedRowCount() == 1 ? row : null ;
+
         decisionPanel.show( selectedRows() ) ;
-        compareStrip.show( table.getSelectedRowCount() == 1 ? row : null ) ;
+        compareStrip.show( one ) ;
+        showDetail( one ) ;
         preview.show( row != null && row.item.hasImages()
                       ? row.item.task().getImgFiles() : null ) ;
         if( row != null && row.item.hasImages() ) {
             transcriptPanel.showIfOther( row.item.task() ) ;
         }
+    }
+
+    /**
+     * Show what is going on with {@code row} above the preview: its status,
+     * the attempt under way, or what failed; blank for null.
+     */
+    private void showDetail( Row row ) {
+
+        if( row == null ) {
+            detail.setText( "" ) ;
+            return ;
+        }
+        String text = row.questionLabel() + ": " + statusLabel( row ) ;
+        if( row.message != null ) text += "\n" + row.message ;
+        detail.setText( text ) ;
+        detail.setCaretPosition( 0 ) ;
+    }
+
+    /** The row's status, with the attempt number while running. */
+    private static String statusLabel( Row row ) {
+        return row.status == ReviewStatus.RUNNING && row.attempts > 1
+               ? row.status.getLabel() + " (attempt " + row.attempts + ")"
+               : row.status.getLabel() ;
     }
 
     private Row selectedRow() {
@@ -2032,9 +2172,10 @@ public class TopicReviewFrame extends JFrame
     }
 
     /**
-     * Tints rows by status, spins in the Status cell of a row being saved on
-     * the server, and shows the last column as a dot: green once the
-     * decision is saved on the server, red until then.
+     * Tints rows by status, the cell of the topic decided on (and a Decided
+     * row's Status cell) green, spins in the Status cell of a row being
+     * saved on the server, and shows the last column as a dot: green once
+     * the decision is saved on the server, red until then.
      */
     private final class RowRenderer extends DefaultTableCellRenderer {
 
@@ -2044,6 +2185,10 @@ public class TopicReviewFrame extends JFrame
 
             int       col  = t.convertColumnIndexToModel( column ) ;
             boolean   dot  = col == ReviewTableModel.COL_SAVED ;
+
+            // setForeground sticks to the renderer, which paints every
+            // cell: clear it so each cell starts with the table's colour.
+            setForeground( null ) ;
             Component c    = super.getTableCellRendererComponent(
                     t, dot ? null : value, selected, focus, viewRow, column ) ;
             Row       row  = model.getRow( t.convertRowIndexToModel( viewRow ) ) ;
@@ -2056,6 +2201,21 @@ public class TopicReviewFrame extends JFrame
             }
             else {
                 setIcon( spin ? Spinner.ICON : null ) ;
+            }
+            // The topic decided on, and a Decided status, are green,
+            // selected or not.
+            boolean status = col == ReviewTableModel.COL_STATUS ;
+            if( status && row.status == ReviewStatus.DECIDED
+                || ReviewTableModel.isDecidedCell( row, col ) ) {
+                c.setBackground( DECIDED_CELL_BG ) ;
+                c.setForeground( t.getForeground() ) ;
+                return c ;
+            }
+            // A Differs status is red, selected or not, to stand out.
+            if( status && row.status == ReviewStatus.DIFFERS ) {
+                c.setBackground( DIFFERS_CELL_BG ) ;
+                c.setForeground( Color.WHITE ) ;
+                return c ;
             }
             if( selected ) return c ;
             c.setBackground( keepsAgainstModel( row )

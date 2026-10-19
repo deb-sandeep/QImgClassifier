@@ -139,7 +139,9 @@ final class OpenRouterGateway extends Gateway {
                 throw new GatewayException( f.kind(), f.reason(),
                                             response.body(), usage ) ;
             }
-            return new AIReply( reply.asText(), usage ) ;
+            return new AIReply( reply.asText(),
+                                reasoning( choice.path( "message" ) ),
+                                usage ) ;
         }
         catch( GatewayException e ) {
             throw e ;
@@ -312,6 +314,27 @@ final class OpenRouterGateway extends Gateway {
     private static String provider( JsonNode error ) {
         String name = error.path( "metadata" ).path( "provider_name" ).asText( "" ) ;
         return name.isBlank() || name.equals( "null" ) ? null : name ;
+    }
+
+    /**
+     * The reasoning in a reply's {@code message}: its {@code reasoning}
+     * text, else the text and summaries of its {@code reasoning_details}
+     * (encrypted ones are skipped); null if there is none.
+     */
+    private static String reasoning( JsonNode message ) {
+
+        String text = message.path( "reasoning" ).asText( "" ) ;
+        if( !text.isBlank() ) return text ;
+
+        StringBuilder sb = new StringBuilder() ;
+        for( JsonNode d : message.path( "reasoning_details" ) ) {
+            String part = d.path( "text" ).asText(
+                          d.path( "summary" ).asText( "" ) ) ;
+            if( part.isBlank() ) continue ;
+            if( sb.length() > 0 ) sb.append( "\n\n" ) ;
+            sb.append( part ) ;
+        }
+        return sb.length() > 0 ? sb.toString() : null ;
     }
 
     /**

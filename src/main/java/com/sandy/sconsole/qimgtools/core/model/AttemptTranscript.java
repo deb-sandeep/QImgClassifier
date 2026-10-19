@@ -31,6 +31,9 @@ public class AttemptTranscript {
     /** Tokens the request used; null if the backend did not report them. */
     TokenUsage usage ;
 
+    /** The model's reasoning before it answered; null if it gave none. */
+    String reasoning ;
+
     /** How an attempt ended. */
     public enum Outcome {
 

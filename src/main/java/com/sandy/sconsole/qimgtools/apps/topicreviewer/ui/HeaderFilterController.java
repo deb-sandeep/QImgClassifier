@@ -26,7 +26,6 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Predicate;
 
-import static com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.ReviewTableModel.COL_ASSOC;
 import static com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.ReviewTableModel.COL_SAVED;
 import static com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.ReviewTableModel.COL_SOURCE;
 import static com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.ReviewTableModel.COL_STATUS;
@@ -37,8 +36,8 @@ import static com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.ReviewTableMode
  * row sorter). The filters are ANDed with each other and with the toolbar's
  * Show choice.
  * <p>
- * Text columns filter by "contains" (case-insensitive); {@code Source},
- * {@code Associated by} and {@code Status} filter by a set of allowed values
+ * Text columns filter by "contains" (case-insensitive); {@code Source} and
+ * {@code Status} filter by a set of allowed values
  * (Status by its plain label, without the attempt number). A filtered
  * column's header is shown in bold with a trailing {@code *}.
  */
@@ -230,8 +229,7 @@ class HeaderFilterController {
     // ---- filter application ----------------------------------------
 
     private static boolean isEnumerable( int modelCol ) {
-        return modelCol == COL_SOURCE || modelCol == COL_ASSOC
-               || modelCol == COL_STATUS ;
+        return modelCol == COL_SOURCE || modelCol == COL_STATUS ;
     }
 
     private boolean hasFilter( int modelCol ) {

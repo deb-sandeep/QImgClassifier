@@ -141,7 +141,11 @@ public final class TranscriptStore {
              + RULE + "\n"
              + ( t.getResponse() != null ? JsonText.format( t.getResponse() )
                                          : "(no response body)" )
-             + "\n" ;
+             + "\n"
+             + ( t.getReasoning() != null
+                 ? "\n" + RULE + "\nReasoning:\n" + t.getReasoning().strip()
+                   + "\n"
+                 : "" ) ;
     }
 
     private static String header( String name, String value ) {

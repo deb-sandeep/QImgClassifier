@@ -3,7 +3,7 @@ package com.sandy.sconsole.qimgtools.apps.topicreviewer.review;
 import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
 import com.sandy.sconsole.qimgtools.core.model.ProcessingState;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewItem;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewVerdict;
+import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewOpinions;
 
 /**
  * Receives the topic reviewer's progress. Calls arrive on worker threads.
@@ -13,8 +13,13 @@ public interface ReviewListener {
     /** A worker picked the question up for its first attempt. */
     void itemStarted( ReviewItem item ) ;
 
-    /** Attempt {@code attempt} (1-based) on {@code model} is starting. */
-    default void itemAttempt( ReviewItem item, String model, int attempt ) {}
+    /**
+     * Attempt {@code attempt} (1-based, counting the tie-breaker's) on
+     * {@code model} is starting; {@code tieBreaker} if it asks the
+     * tie-breaker.
+     */
+    default void itemAttempt( ReviewItem item, String model, int attempt,
+                              boolean tieBreaker ) {}
 
     /** A request went out and awaits its reply. */
     default void requestSent( AttemptRequest request ) {}
@@ -22,8 +27,8 @@ public interface ReviewListener {
     /** An attempt ended and its transcript is saved. */
     default void attemptFinished( ReviewItem item ) {}
 
-    /** The model classified the question. */
-    void verdictReached( ReviewItem item, ReviewVerdict verdict ) ;
+    /** The models classified the question. */
+    void verdictReached( ReviewItem item, ReviewOpinions opinions ) ;
 
     /** The model gave no usable answer. */
     void itemFailed( ReviewItem item, int attempts, String reason ) ;

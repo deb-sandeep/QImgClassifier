@@ -13,7 +13,7 @@ import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewCriteria;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewDecision;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewItem;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewResult;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewVerdict;
+import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewOpinions;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ServerQuestion;
 import com.sandy.sconsole.qimgtools.core.model.Subject;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
@@ -140,10 +140,11 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
         try {
             config = ReviewConfig.load() ;
             AIConfig ai = config.getAi() ;
-            if( !ai.isRootUsable( ReviewOutcomes.ROOT ) ) {
+            for( String root : List.of( ReviewOutcomes.ROOT,
+                                        ReviewOutcomes.TIE_BREAKER_ROOT ) ) {
+                if( ai.isRootUsable( root ) ) continue ;
                 throw new IllegalStateException( ai.appLocation() + ": root '" +
-                        ReviewOutcomes.ROOT + "' is missing or has no model " +
-                        "enabled" ) ;
+                        root + "' is missing or has no model enabled" ) ;
             }
         }
         catch( IllegalStateException e ) {
@@ -186,7 +187,10 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
             SwingUtilities.invokeAndWait( () -> {
                 TopicReviewFrame frame = new TopicReviewFrame(
                         new TranscriptStore( config.getWorkspaceDir() ),
-                        ModelNames.of( config.getAi() ) ) ;
+                        ModelNames.of( config.getAi() ),
+                        firstUsable( config.getAi(), ReviewOutcomes.ROOT ),
+                        firstUsable( config.getAi(),
+                                     ReviewOutcomes.TIE_BREAKER_ROOT ) ) ;
                 QTopicReviewer app = new QTopicReviewer(
                         config, server, topicRepo, frame ) ;
 
@@ -258,8 +262,8 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
     }
 
     @Override
-    public ReviewVerdict storedVerdict( ReviewItem item ) {
-        return pending.verdict( item.question() ) ;
+    public ReviewOpinions storedOpinions( ReviewItem item ) {
+        return pending.opinions( item.question() ) ;
     }
 
     /**
@@ -470,16 +474,23 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
     public String scope() {
 
         return criteria.describe() + " (" + criteria.limit() + " per fetch) - " +
-               firstModel() + " @ " + config.getServerUrl() ;
+               firstModel( ReviewOutcomes.ROOT ) + ", tie-breaker " +
+               firstModel( ReviewOutcomes.TIE_BREAKER_ROOT ) + " @ " +
+               config.getServerUrl() ;
     }
 
-    /** The first model the review root may use. */
-    private String firstModel() {
+    /** The first model root {@code root} may use. */
+    private String firstModel( String root ) {
+        String id = firstUsable( config.getAi(), root ) ;
+        return id != null ? id : "no model" ;
+    }
 
-        return config.getAi().root( ReviewOutcomes.ROOT ).stream()
-                     .filter( m -> m.usable() )
-                     .map( m -> m.id() )
-                     .findFirst().orElse( "no model" ) ;
+    /** The id of the first model {@code root} may use; null if none. */
+    private static String firstUsable( AIConfig ai, String root ) {
+        return ai.root( root ).stream()
+                 .filter( m -> m.usable() )
+                 .map( m -> m.id() )
+                 .findFirst().orElse( null ) ;
     }
 
     @Override

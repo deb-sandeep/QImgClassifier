@@ -103,6 +103,7 @@ appears in logs, history and status.
 | `displayName` | no | The name to show users; see [`AIConfig.displayName`](../javadocs/com/sandy/sconsole/ai/config/AIConfig.html). |
 | `rateLimit` | no | `{ "rpm", "rpd" }` the provider enforces on this model. |
 | `contextTokens` | no | The context window to ask for (Ollama's `num_ctx`). |
+| `costPerMillionToken` | no | `{ "input", "output" }`: the provider's price in USD per million tokens. Documentation only: checked for shape, never used. |
 
 ## The app file
 

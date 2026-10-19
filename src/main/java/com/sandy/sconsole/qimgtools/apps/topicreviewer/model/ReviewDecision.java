@@ -9,7 +9,7 @@ import com.sandy.sconsole.qimgtools.core.model.Topic;
  * @param item       the question
  * @param topic      the topic it gets; its current one to accept that
  * @param actor      {@code AI} or {@code User}
- * @param model      the reviewer model for {@code AI}; null for {@code User}
+ * @param model      the model for {@code AI}; null for {@code User}
  * @param confidence 0-100
  */
 public record ReviewDecision( ReviewItem item, Topic topic, String actor,
@@ -19,20 +19,26 @@ public record ReviewDecision( ReviewItem item, Topic topic, String actor,
     public static final String USER = "User" ;
 
     /**
-     * The decision giving {@code item} the topic {@code topic}. It is the
-     * model's (AI, with the model's confidence) when {@code topic} is the
-     * model's chosen topic ({@link ReviewVerdict#top}), and the user's (User,
-     * 100) otherwise: keeping the server's topic against the model, picking
-     * another of the model's topics, or choosing another.
+     * The decision giving {@code item} the topic {@code topic}, credited to
+     * the model whose chosen topic ({@link ReviewVerdict#top}) it is: the
+     * reviewer's (AI, with its confidence), else the tie-breaker's (AI, with
+     * its confidence; also when it sided with the server's topic), else the
+     * user's (User, 100): keeping the server's topic against the models,
+     * picking another of their topics, or choosing another.
      *
-     * @param verdict the model's verdict on the question; null if none
+     * @param opinions the AI's opinions on the question; null if none
      */
     public static ReviewDecision of( ReviewItem item, Topic topic,
-                                     ReviewVerdict verdict ) {
+                                     ReviewOpinions opinions ) {
 
-        if( verdict != null && verdict.top().getId() == topic.getId() ) {
-            return new ReviewDecision( item, topic, AI, verdict.model(),
-                                       verdict.topConfidence() ) ;
+        if( opinions != null ) {
+            for( ReviewVerdict v : new ReviewVerdict[] {
+                    opinions.reviewer(), opinions.tieBreaker() } ) {
+                if( v != null && v.agreesWith( topic.getId() ) ) {
+                    return new ReviewDecision( item, topic, AI, v.model(),
+                                               v.topConfidence() ) ;
+                }
+            }
         }
         return new ReviewDecision( item, topic, USER, null, 100 ) ;
     }
@@ -43,7 +49,7 @@ public record ReviewDecision( ReviewItem item, Topic topic, String actor,
         return current != null && current == topic.getId() ;
     }
 
-    /** True if the model's verdict is what is confirmed. */
+    /** True if a model's verdict is what is confirmed. */
     public boolean isAI() {
         return AI.equals( actor ) ;
     }

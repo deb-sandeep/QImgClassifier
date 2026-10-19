@@ -96,7 +96,7 @@ public void attemptFinished( JobContext<Question> job, AttemptResult r ) {
 | Type | Holds |
 |---|---|
 | [`Attempt`](../javadocs/com/sandy/sconsole/ai/Attempt.html) | job id, attempt number (handed-back attempts aren't counted, so the next one reuses the number), the model, the exact request, the start time |
-| [`AttemptResult`](../javadocs/com/sandy/sconsole/ai/AttemptResult.html) | elapsed ms; outcome `OK` / `FAILED` / `RATE_LIMITED` / `UNREACHABLE`; the raw reply or raw error body; a readable failure reason; the [`FailureKind`](../javadocs/com/sandy/sconsole/ai/FailureKind.html); token usage |
+| [`AttemptResult`](../javadocs/com/sandy/sconsole/ai/AttemptResult.html) | elapsed ms; outcome `OK` / `FAILED` / `RATE_LIMITED` / `UNREACHABLE`; the raw reply or raw error body; a readable failure reason; the [`FailureKind`](../javadocs/com/sandy/sconsole/ai/FailureKind.html); token usage; the model's reasoning, if a reply came with one |
 
 ## Token usage and cost
 

@@ -2,7 +2,7 @@ package com.sandy.sconsole.qimgtools.apps.topicreviewer.workspace;
 
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewDecision;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewResult;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewVerdict;
+import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewOpinions;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ServerQuestion;
 import com.sandy.sconsole.qimgtools.core.workspace.JsonFiles;
 
@@ -25,16 +25,19 @@ import java.time.Instant;
  * <pre>
  * { "time", "event" : "verdict", "serverId", "questionId", "sourceId",
  *   "server"  : { "topicId", "topicName", "actor", "model", "confidence" },
- *   "verdict" : { "model", "topics" : [ { "id", "topicName",
- *                                         "confidence" } ] } }
+ *   "verdict" : { "model", "chosenTopicId",
+ *                 "topics" : [ { "id", "topicName", "confidence" } ] },
+ *   "tieBreaker" : { ... as verdict ... }, "tieBreakerFailure" }
  * { "time", "event" : "decision", "serverId", "questionId", "sourceId",
  *   "decision" : { "topicId", "topicName", "actor" : "AI" | "User",
  *                  "model", "confidence" },
  *   "status" : "APPLIED" | "UNCHANGED", "topicReviewNeeded" }
  * </pre>
- * {@code server} is the association the verdict was compared with. A
- * decision made by the user against the model is sent as User, so the
- * verdict line before it is where the model's opinion is kept. Thread-safe.
+ * {@code server} is the association the verdict was compared with;
+ * {@code tieBreaker} (or why it gave none) is there only if the review model
+ * differed from it. A decision made by the user against the models is sent
+ * as User, so the verdict line before it is where their opinions are kept.
+ * Thread-safe.
  */
 public final class ReviewAuditLog {
 
@@ -49,13 +52,13 @@ public final class ReviewAuditLog {
         this.file = file ;
     }
 
-    /** Record the model's verdict {@code v} on question {@code q}. */
-    public void verdict( ServerQuestion q, ReviewVerdict v )
+    /** Record the AI's opinions {@code o} on question {@code q}. */
+    public void verdict( ServerQuestion q, ReviewOpinions o )
             throws IOException {
 
         ObjectNode line = entry( "verdict", q ) ;
         line.set( "server", ReviewJson.server( q ) ) ;
-        line.set( "verdict", ReviewJson.verdict( v ) ) ;
+        ReviewJson.putOpinions( line, o ) ;
         append( line ) ;
     }
 

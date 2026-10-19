@@ -79,6 +79,9 @@ public record HubStatus( long takenAt, List<GatewayStatus> gateways,
      * @param enabledInApp    its switch in the app config
      * @param passthrough     set to pass its jobs through
      *                        ({@link AIHub#setPassthrough})
+     * @param passthroughGuard its fallback has a {@code passthrough} guard,
+     *                        so passing its jobs through has somewhere to
+     *                        send them
      */
     public record ModelStatus( String id, String gateway, String displayName,
                                boolean usable, boolean available,
@@ -88,7 +91,8 @@ public record HubStatus( long takenAt, List<GatewayStatus> gateways,
                                long avgLatencyMs, int succeeded,
                                int failed, int rpm, int rpd, int lastMinute,
                                int today, boolean enabledGlobally,
-                               boolean enabledInApp, boolean passthrough ) {}
+                               boolean enabledInApp, boolean passthrough,
+                               boolean passthroughGuard ) {}
 
     /**
      * @param waiting jobs waiting, including those between attempts

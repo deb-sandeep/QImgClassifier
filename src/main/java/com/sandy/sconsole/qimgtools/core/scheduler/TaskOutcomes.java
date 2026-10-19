@@ -38,11 +38,18 @@ public interface TaskOutcomes {
     void failed( QTask task, int attempts, String reason ) ;
 
     /**
-     * The root to ask for a second opinion on {@code topics}, from a model
-     * on a gateway of {@code agent}'s kind; null to keep them. If no model
-     * of that root gives an answer, {@code topics} are kept.
+     * The root to ask for a second opinion on {@code topics}, from
+     * {@code model} on a gateway of {@code agent}'s kind; null to keep them.
+     * If no model of that root gives an answer, {@code topics} are kept.
+     * Called on every reply that parses, the second opinion's too.
      */
-    String secondOpinionRoot( QTask task, List<Topic> topics, AIAgent agent ) ;
+    String secondOpinionRoot( QTask task, List<Topic> topics, AIAgent agent,
+                              String model ) ;
+
+    /** Why a reply is sent for a second opinion, for the logs. */
+    default String secondOpinionReason() {
+        return "the top topic is not confident enough" ;
+    }
 
     /** Told about each attempt on {@code task} as it starts and ends. */
     AttemptListener attemptListener( QTask task ) ;

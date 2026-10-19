@@ -80,9 +80,12 @@ class TopicListener implements JobListener<Question,List<Answer>> {
 
 ## What you get alongside the reply
 
-[`AIReply`](../javadocs/com/sandy/sconsole/ai/AIReply.html) carries `text()`
-and `usage()`: a [`TokenUsage`](../javadocs/com/sandy/sconsole/ai/TokenUsage.html)
+[`AIReply`](../javadocs/com/sandy/sconsole/ai/AIReply.html) carries `text()`,
+`reasoning()` (the model's reasoning when the gateway returned it:
+OpenRouter's `message.reasoning` or `reasoning_details`, Ollama's
+`thinking`; else `null`) and `usage()`: a [`TokenUsage`](../javadocs/com/sandy/sconsole/ai/TokenUsage.html)
 with input, output, reasoning and cached tokens and the cost in USD, or
-`null` if the gateway didn't report it. The same usage is in the attempt's
+`null` if the gateway didn't report it. The same usage and reasoning are in
+the attempt's
 [`AttemptResult`](../javadocs/com/sandy/sconsole/ai/AttemptResult.html),
 reported to `attemptFinished` (see [Monitoring](08-monitoring.md)).
