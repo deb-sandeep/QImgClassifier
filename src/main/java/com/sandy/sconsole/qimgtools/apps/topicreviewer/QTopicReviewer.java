@@ -4,6 +4,7 @@ import com.sandy.sconsole.ai.HubStatus;
 import com.sandy.sconsole.ai.AIHub;
 import com.sandy.sconsole.ai.RoutingPolicy;
 import com.sandy.sconsole.ai.config.AIConfig;
+import com.sandy.sconsole.ai.config.FallbackInfo;
 import com.sandy.sconsole.qimgtools.core.ai.TopicPrompter;
 import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
 import com.sandy.sconsole.qimgtools.core.model.ProcessingState;
@@ -41,8 +42,12 @@ import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -453,6 +458,52 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
     @Override
     public HubStatus hubStatus() {
         return scheduler.hubStatus() ;
+    }
+
+    @Override
+    public String heldForTheDay() {
+
+        HubStatus status = scheduler.hubStatus() ;
+        for( String root : List.of( ReviewOutcomes.ROOT,
+                                    ReviewOutcomes.TIE_BREAKER_ROOT ) ) {
+            if( heldForTheDay( status, root ) ) {
+                return "every model of the " + root + " root, fallbacks " +
+                       "included, is held for the day" ;
+            }
+        }
+        return null ;
+    }
+
+    /**
+     * True if every usable model {@code root} reaches, its own and those in
+     * their fallbacks, is held for the day, by its own daily limit or its
+     * gateway's.
+     */
+    private boolean heldForTheDay( HubStatus status, String root ) {
+
+        AIConfig      ai   = config.getAi() ;
+        Set<String>   ids  = new HashSet<>() ;
+        Deque<String> next = new ArrayDeque<>() ;
+
+        ai.root( root ).forEach( m -> next.add( m.id() ) ) ;
+        while( !next.isEmpty() ) {
+            String id = next.pop() ;
+            if( !ids.add( id ) ) continue ;
+
+            FallbackInfo fb = ai.model( id ).fallback() ;
+            fb.guards().values().forEach( next::addAll ) ;
+            next.addAll( fb.defaults() ) ;
+        }
+
+        Set<String> dayGateways = new HashSet<>() ;
+        status.gateways().stream()
+              .filter( HubStatus.GatewayStatus::heldForTheDay )
+              .forEach( g -> dayGateways.add( g.name() ) ) ;
+
+        return status.models().stream()
+                     .filter( m -> m.usable() && ids.contains( m.id() ) )
+                     .allMatch( m -> m.heldForTheDay()
+                                     || dayGateways.contains( m.gateway() ) ) ;
     }
 
     @Override

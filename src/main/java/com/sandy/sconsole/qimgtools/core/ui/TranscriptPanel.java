@@ -385,13 +385,14 @@ public final class TranscriptPanel extends JPanel {
     }
 
     /**
-     * An attempt's label: time, attempt number, agent, model and outcome, from
-     * its file name and headers.
+     * An attempt's label: time, attempt number, agent, model, outcome and the
+     * time the request took, from its file name and headers.
      */
     private String describe( Attempt a ) {
 
         String model   = names.of( headerValue( a.request(), "Model" ) ) ;
         String outcome = headerValue( a.response(), "Outcome" ) ;
+        String took    = took( headerValue( a.response(), "Elapsed" ) ) ;
 
         if( outcome != null ) {
             int colon = outcome.indexOf( ':' ) ;
@@ -399,7 +400,21 @@ public final class TranscriptPanel extends JPanel {
         }
         return stemLabel( a.stem() )
                + ( model != null ? "  " + model : "" )
-               + "  " + ( outcome != null ? outcome : "(no response)" ) ;
+               + "  " + ( outcome != null ? outcome : "(no response)" )
+               + ( took != null ? "  (" + took + ")" : "" ) ;
+    }
+
+    /** {@code 23.4 s} (the Elapsed header) -> {@code 23s}; null if unreadable. */
+    private static String took( String elapsed ) {
+
+        if( elapsed == null ) return null ;
+        try {
+            double s = Double.parseDouble( elapsed.replace( "s", "" ).trim() ) ;
+            return Math.round( s ) + "s" ;
+        }
+        catch( NumberFormatException e ) {
+            return null ;
+        }
     }
 
     private String liveLabel( AttemptRequest r ) {

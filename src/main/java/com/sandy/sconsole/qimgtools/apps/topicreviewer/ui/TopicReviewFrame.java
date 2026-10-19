@@ -62,6 +62,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
 import javax.swing.WindowConstants;
+import javax.swing.border.Border;
 import javax.swing.event.MenuEvent;
 import javax.swing.event.MenuListener;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -187,6 +188,13 @@ public class TopicReviewFrame extends JFrame
 
         /** The AI hub's state now, for the Models tab. */
         HubStatus hubStatus() ;
+
+        /**
+         * Why no more questions can be judged today: a root whose every
+         * model, fallbacks included, is held for the day; null while each
+         * root has a model that isn't.
+         */
+        String heldForTheDay() ;
 
         /** Set a model to pass its questions through, from the Models tab. */
         void setPassthrough( String modelId, boolean on ) ;
@@ -1879,14 +1887,27 @@ public class TopicReviewFrame extends JFrame
     public void itemAttempt( ReviewItem item, String model, int attempt,
                              boolean tieBreaker ) {
         onRow( item, row -> {
-            row.status   = ReviewStatus.RUNNING ;
-            row.model    = model ;
-            row.attempts = attempt ;
-            row.message  = ( tieBreaker ? "The reviewer differs from the " +
-                                          "server - asking the tie-breaker, "
-                                        : "Asking the reviewer, " ) +
-                           "attempt " + attempt + " on " + names.of( model ) ;
+            row.status         = ReviewStatus.RUNNING ;
+            row.model          = model ;
+            row.attempts       = attempt ;
+            row.inFlightColumn = tieBreaker ? ReviewTableModel.COL_TIE_BREAKER
+                                            : ReviewTableModel.COL_REVIEWER ;
+            row.message        = ( tieBreaker
+                                   ? "The reviewer differs from the server " +
+                                     "- asking the tie-breaker, "
+                                   : "Asking the reviewer, " ) +
+                                 "attempt " + attempt + " on " +
+                                 names.of( model ) ;
         } ) ;
+    }
+
+    /**
+     * Show the reviewer's verdict while the tie-breaker is asked; the row
+     * stays running, so it can't be decided on yet.
+     */
+    @Override
+    public void reviewerDiffers( ReviewItem item, ReviewVerdict verdict ) {
+        onRow( item, row -> row.opinions = ReviewOpinions.of( verdict ) ) ;
     }
 
     @Override
@@ -1898,20 +1919,25 @@ public class TopicReviewFrame extends JFrame
     public void attemptFinished( ReviewItem item ) {
         SwingUtilities.invokeLater(
                 () -> transcriptPanel.attemptFinished( item.task() ) ) ;
+        onRow( item, row -> row.inFlightColumn = -1 ) ;
     }
 
     @Override
     public void verdictReached( ReviewItem item, ReviewOpinions opinions ) {
-        onRow( item, row -> setOpinions( row, opinions ) ) ;
+        onRow( item, row -> {
+            row.inFlightColumn = -1 ;
+            setOpinions( row, opinions ) ;
+        } ) ;
     }
 
     @Override
     public void itemFailed( ReviewItem item, int attempts, String reason ) {
         onRow( item, row -> {
-            row.status   = ReviewStatus.FAILED ;
-            row.attempts = attempts ;
-            row.message  = "Failed after " + plural( attempts, "attempt" ) +
-                           ": " + reason ;
+            row.status         = ReviewStatus.FAILED ;
+            row.attempts       = attempts ;
+            row.inFlightColumn = -1 ;
+            row.message        = "Failed after " +
+                                 plural( attempts, "attempt" ) + ": " + reason ;
         } ) ;
     }
 
@@ -2202,27 +2228,35 @@ public class TopicReviewFrame extends JFrame
     }
 
     /**
-     * During an unattended run: end it once the daily quota is used up, as
-     * nothing more can be judged today. Any other limit (per minute, a busy
-     * model) is logged as it starts; the scheduler waits it out and goes on.
+     * During an unattended run: end it once nothing more can be judged
+     * today, every model of a root, fallbacks included, being held for the
+     * day. A model held for the day whose fallback can still send (the free
+     * reviewer passing its questions to a paid one) is no reason to stop.
+     * Any other limit (per minute, a busy model) is logged as it starts; the
+     * scheduler waits it out, or falls back, and goes on.
      */
     private void watchRateLimits( List<RateLimitNotice> notices ) {
 
-        for( RateLimitNotice n : notices ) {
-            if( n.daily() ) {
-                endUnattended( "daily request limit reached (" + n.reason() +
-                               "), it resets at " + clock( n.until() ) ) ;
-                return ;
-            }
+        String held = controller.heldForTheDay() ;
+        if( held != null ) {
+            long resets = notices.stream()
+                                 .filter( RateLimitNotice::daily )
+                                 .mapToLong( RateLimitNotice::until )
+                                 .max().orElse( 0 ) ;
+            endUnattended( held + ( resets > 0 ? ", it resets at " +
+                                                 clock( resets ) : "" ) ) ;
+            return ;
         }
         for( RateLimitNotice n : notices ) {
             String key = n.agent() + "/" + n.model() + "@" + n.until() ;
             if( !loggedLimits.add( key ) ) continue ;
-            log.info( "[unattended] {} rate limited ({}) - waiting till {}, " +
+            log.info( "[unattended] {} rate limited ({}) - {} till {}, " +
                       "then going on", n.model() != null
                                        ? names.of( n.model() )
                                        : n.agent().getDisplayName(),
-                      n.reason(), clock( n.until() ) ) ;
+                      n.reason(), n.daily() ? "its fallback takes over"
+                                            : "waiting",
+                      clock( n.until() ) ) ;
         }
     }
 
@@ -2235,11 +2269,15 @@ public class TopicReviewFrame extends JFrame
 
     /**
      * Tints rows by status, the cell of the topic decided on (and a Decided
-     * row's Status cell) green, spins in the Status cell of a row being
+     * row's Status cell) green, frames in red the cell of the model a
+     * request is in flight to, spins in the Status cell of a row being
      * saved on the server, and shows the last column as a dot: green once
      * the decision is saved on the server, red until then.
      */
     private final class RowRenderer extends DefaultTableCellRenderer {
+
+        private static final Border IN_FLIGHT_BORDER =
+                BorderFactory.createLineBorder( new Color( 0xD32F2F ), 2 ) ;
 
         @Override
         public Component getTableCellRendererComponent( JTable t, Object value,
@@ -2256,6 +2294,9 @@ public class TopicReviewFrame extends JFrame
             Row       row  = model.getRow( t.convertRowIndexToModel( viewRow ) ) ;
             boolean   spin = row.status == ReviewStatus.SAVING
                              && col == ReviewTableModel.COL_STATUS ;
+
+            // The model a request is in flight to, framed in red.
+            if( col == row.inFlightColumn ) setBorder( IN_FLIGHT_BORDER ) ;
 
             setHorizontalAlignment( dot ? CENTER : LEADING ) ;
             if( dot ) {

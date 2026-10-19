@@ -4,6 +4,7 @@ import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
 import com.sandy.sconsole.qimgtools.core.model.ProcessingState;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewItem;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewOpinions;
+import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewVerdict;
 
 /**
  * Receives the topic reviewer's progress. Calls arrive on worker threads.
@@ -20,6 +21,13 @@ public interface ReviewListener {
      */
     default void itemAttempt( ReviewItem item, String model, int attempt,
                               boolean tieBreaker ) {}
+
+    /**
+     * The reviewer's {@code verdict} differs from the server's topic, so
+     * the question goes on to the tie-breaker; {@link #verdictReached}
+     * follows once that is done.
+     */
+    default void reviewerDiffers( ReviewItem item, ReviewVerdict verdict ) {}
 
     /** A request went out and awaits its reply. */
     default void requestSent( AttemptRequest request ) {}

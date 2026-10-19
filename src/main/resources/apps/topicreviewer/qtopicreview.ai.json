@@ -22,7 +22,7 @@
     "nvidia/nemotron-3.5-super-vl:free" : {
       "enabled"               : true,
       "maxParallel"           : 3,
-      "requestTimeoutSeconds" : 60,
+      "requestTimeoutSeconds" : 100,
       "retries"               : 1,
       "reasoning"             : false,
       "promptCaching"         : true,
@@ -35,7 +35,7 @@
     "deepseek/deepseek-v4.1-flash" : {
       "enabled"               : true,
       "maxParallel"           : 3,
-      "requestTimeoutSeconds" : 60,
+      "requestTimeoutSeconds" : 120,
       "retries"               : 1,
       "reasoning"             : false,
       "promptCaching"         : true
@@ -44,7 +44,18 @@
       "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 180,
-      "retries"               : 1,
+      "retries"               : 0,
+      "reasoning"             : true,
+      "promptCaching"         : true,
+      "fallback"              : {
+        "timeout" : [ "anthropic/claude-haiku-5.5" ]
+      }
+    },
+    "anthropic/claude-haiku-5.5" : {
+      "enabled"               : true,
+      "maxParallel"           : 3,
+      "requestTimeoutSeconds" : 180,
+      "retries"               : 0,
       "reasoning"             : true,
       "promptCaching"         : true
     }

@@ -59,6 +59,13 @@ final class ReviewTableModel extends AbstractTableModel {
         int    attempts ;
 
         /**
+         * The column of the model a request of it is in flight to
+         * ({@link #COL_REVIEWER} or {@link #COL_TIE_BREAKER}); -1 while
+         * none is. Its cell is framed in red.
+         */
+        int inFlightColumn = -1 ;
+
+        /**
          * What is going on or went wrong, for the detail panel: the attempt
          * under way, a failure reason, a server error, or the decision.
          */
@@ -341,7 +348,7 @@ final class ReviewTableModel extends AbstractTableModel {
 
         String s = row.status.getLabel() ;
         if( row.status == ReviewStatus.RUNNING && row.attempts > 1 ) {
-            s += " (attempt " + row.attempts + ")" ;
+            s += " (" + row.attempts + ")" ;
         }
         return s ;
     }

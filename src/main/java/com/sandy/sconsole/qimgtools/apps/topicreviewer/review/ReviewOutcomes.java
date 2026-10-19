@@ -126,6 +126,7 @@ public class ReviewOutcomes implements TaskOutcomes {
             return null ;
         }
         tieBreaks.put( task, new TieBreak( verdict ) ) ;
+        listener.reviewerDiffers( item, verdict ) ;
         log.info( "[{}] {} chose {}, the server has {} - asking the " +
                   "tie-breaker", task, model, verdict.top().getId(),
                   item.question().getTopicId() ) ;
