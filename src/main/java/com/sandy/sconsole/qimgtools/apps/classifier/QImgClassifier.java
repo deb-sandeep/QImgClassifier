@@ -380,6 +380,11 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     }
 
     @Override
+    public void abortRequest( long jobId ) {
+        scheduler.abortRequest( jobId ) ;
+    }
+
+    @Override
     public void reprocess( QTask task ) {
         log.debug( "Re-queueing {}", task ) ;
         scheduler.submitFirst( task, () -> true ) ;

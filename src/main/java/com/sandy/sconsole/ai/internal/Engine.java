@@ -315,6 +315,27 @@ public final class Engine {
         return true ;
     }
 
+    /**
+     * Abort job {@code jobId}'s request in flight. The attempt fails as a
+     * {@link FailureKind#TIMEOUT}, so the job goes on as after a timeout: a
+     * retry, the model's {@code timeout} fallback, or its end.
+     *
+     * @return false if the job has no request in flight
+     */
+    public boolean abort( long jobId ) {
+
+        Call call = null ;
+        synchronized( lock ) {
+            for( JobImpl<?,?> j : running ) {
+                if( j.id == jobId ) call = j.call ;
+            }
+        }
+        if( call == null ) return false ;
+        log.info( "[job {}] request in flight aborted", jobId ) ;
+        call.abort() ;
+        return true ;
+    }
+
     // ---- workers -------------------------------------------------------
 
     private void work( ModelState m ) {
@@ -466,15 +487,23 @@ public final class Engine {
         AIReply          reply = null ;
         GatewayException error = null ;
 
-        synchronized( lock ) { j.current = attempt ; }
+        Call call = new Call() ;
+
+        synchronized( lock ) {
+            j.current = attempt ;
+            j.call    = call ;
+        }
         try {
-            reply = m.gateway.transport.complete( m.info, request ) ;
+            reply = m.gateway.transport.complete( m.info, request, call ) ;
         }
         catch( GatewayException e ) {
             error = e ;
         }
         finally {
-            synchronized( lock ) { j.current = null ; }
+            synchronized( lock ) {
+                j.current = null ;
+                j.call    = null ;
+            }
         }
         long elapsed = System.currentTimeMillis() - start ;
 

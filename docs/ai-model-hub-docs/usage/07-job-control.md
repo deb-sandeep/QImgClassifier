@@ -67,7 +67,28 @@ Once it returns `false`:
 | a request in flight | the request finishes; then as above |
 
 Stopping never interrupts a request in flight. Only
-[`AIHub.shutdown()`](../javadocs/com/sandy/sconsole/ai/AIHub.html) does that.
+[`AIHub.shutdown()`](../javadocs/com/sandy/sconsole/ai/AIHub.html) does that,
+or `abortRequest` for one request (below).
+
+## Terminating a request in flight
+
+A request is bounded by its model's `requestTimeoutSeconds` (the whole
+reply, not just its headers). To end one sooner, e.g. one a user sees hang
+in a monitoring view, abort it by its job id:
+
+```java
+for( HubStatus.Request r : hub.status().requests() ) {
+    if( System.currentTimeMillis() - r.startedAt() > 120_000 ) {
+        hub.abortRequest( r.jobId() ) ;
+    }
+}
+```
+
+The attempt fails as a `TIMEOUT` ("request terminated by the user"), so the
+job goes on as after a timeout: a retry on the same model, the model's
+`timeout` fallback, or its end (with its provisional result if it was
+escalated). Returns `false` if the job has no request in flight. See
+[`AIHub.abortRequest`](../javadocs/com/sandy/sconsole/ai/AIHub.html#abortRequest(long)).
 
 ## Holding, releasing and cancelling one job
 

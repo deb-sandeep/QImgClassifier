@@ -461,6 +461,11 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
     }
 
     @Override
+    public void abortRequest( long jobId ) {
+        scheduler.abortRequest( jobId ) ;
+    }
+
+    @Override
     public TaskScheduler.Counts queueCounts() {
         return scheduler.counts() ;
     }

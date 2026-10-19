@@ -191,6 +191,14 @@ public class TaskScheduler {
     }
 
     /**
+     * Abort hub job {@code jobId}'s request in flight; the attempt fails as
+     * a timeout (see {@code AIHub.abortRequest}).
+     */
+    public void abortRequest( long jobId ) {
+        hub.abortRequest( jobId ) ;
+    }
+
+    /**
      * The gateways and models held back by a limit right now, with why and
      * until when.
      */

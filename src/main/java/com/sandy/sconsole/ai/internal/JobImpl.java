@@ -54,6 +54,9 @@ final class JobImpl<P,R> implements JobContext<P>, JobHandle {
     /** Its request in flight; null while it has none. Under the lock. */
     Attempt current ;
 
+    /** {@link #current}'s call, to abort it with. Under the lock. */
+    Call call ;
+
     /** Models it may no longer run on (the one that gave the escalation). */
     final Set<String> excluded = new HashSet<>() ;
 

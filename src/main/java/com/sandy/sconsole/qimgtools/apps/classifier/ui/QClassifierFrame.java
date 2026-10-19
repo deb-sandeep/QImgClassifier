@@ -145,6 +145,9 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
         /** Set a model to pass its questions through, from the Models tab. */
         void setPassthrough( String modelId, boolean on ) ;
 
+        /** Terminate job {@code jobId}'s request, from the Models tab. */
+        void abortRequest( long jobId ) ;
+
         /** Stop the worker pool; called when the window closes. */
         void shutdown() ;
     }
@@ -182,7 +185,7 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     private final ModelNames          names ;
     private final TranscriptPanel     transcriptPanel ;
     private final ModelsPanel         modelsPanel = new ModelsPanel(
-            ( id, on ) -> setPassthrough( id, on ) ) ;
+            ( id, on ) -> setPassthrough( id, on ), this::abortRequest ) ;
     private final JTable              table ;
     private final JLabel              statusBar = new JLabel( " " ) ;
     private final RateLimitStrip      rateLimitStrip ;
@@ -1130,6 +1133,13 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     private void setPassthrough( String modelId, boolean on ) {
         if( controller == null ) return ;
         controller.setPassthrough( modelId, on ) ;
+        refreshModels() ;
+    }
+
+    /** From the Models tab: a request in flight is to be terminated. */
+    private void abortRequest( long jobId ) {
+        if( controller == null ) return ;
+        controller.abortRequest( jobId ) ;
         refreshModels() ;
     }
 

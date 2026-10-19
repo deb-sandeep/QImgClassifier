@@ -28,10 +28,10 @@ public record ReviewOpinions( ReviewVerdict reviewer, ReviewVerdict tieBreaker,
         /** The tie-breaker chose the server's topic. */
         SERVER_CONFIRMED,
 
-        /**
-         * All three differ, or the tie-breaker gave no answer: the user
-         * decides.
-         */
+        /** The tie-breaker chose a third topic, which wins all the same. */
+        TIE_BREAKER_CHOSEN,
+
+        /** The tie-breaker gave no answer: the user decides. */
         DISPUTED
     }
 
@@ -55,19 +55,19 @@ public record ReviewOpinions( ReviewVerdict reviewer, ReviewVerdict tieBreaker,
             return Outcome.REVIEWER_CONFIRMED ;
         }
         return tieBreaker.agreesWith( topicId ) ? Outcome.SERVER_CONFIRMED
-                                                : Outcome.DISPUTED ;
+                                                : Outcome.TIE_BREAKER_CHOSEN ;
     }
 
     /**
-     * The topic the opinions settle on without the user: the reviewer's
-     * when the tie-breaker confirmed it, the tie-breaker's when it sided with
-     * the server; null otherwise.
+     * The topic the opinions settle on without the user: whenever the
+     * tie-breaker answered, its topic wins (the reviewer's or the server's
+     * when it sided with one, else its own); null when the reviewer agreed
+     * with the server or the tie-breaker gave no answer.
      */
     public Topic settled( Integer topicId ) {
         return switch( outcome( topicId ) ) {
-            case REVIEWER_CONFIRMED -> reviewer.top() ;
-            case SERVER_CONFIRMED   -> tieBreaker.top() ;
-            default                 -> null ;
+            case AGREED, DISPUTED -> null ;
+            default               -> tieBreaker.top() ;
         } ;
     }
 

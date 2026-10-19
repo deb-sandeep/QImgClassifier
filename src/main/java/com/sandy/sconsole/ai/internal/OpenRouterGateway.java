@@ -56,7 +56,7 @@ final class OpenRouterGateway extends Gateway {
      * 200 response are failures too.
      */
     @Override
-    AIReply complete( ModelInfo model, AIRequest request )
+    AIReply complete( ModelInfo model, AIRequest request, Call call )
             throws GatewayException {
 
         String id = model.id() ;
@@ -101,8 +101,8 @@ final class OpenRouterGateway extends Gateway {
                             mapper.writeValueAsString( payload ) ) ) ;
             if( appName != null ) builder.header( "X-Title", appName ) ;
 
-            HttpResponse<String> response = httpClient.send(
-                    builder.build(), HttpResponse.BodyHandlers.ofString() ) ;
+            HttpResponse<String> response =
+                    send( builder.build(), model.requestTimeout(), call ) ;
             JsonNode body  = parse( response.body() ) ;
             JsonNode error = body.path( "error" ) ;
 

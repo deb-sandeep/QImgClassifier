@@ -32,14 +32,6 @@
         "passthrough"    : [ "deepseek/deepseek-v4.1-flash" ]
       }
     },
-    "anthropic/claude-haiku-5.5" : {
-      "enabled"               : true,
-      "maxParallel"           : 3,
-      "requestTimeoutSeconds" : 60,
-      "retries"               : 1,
-      "reasoning"             : false,
-      "promptCaching"         : true
-    },
     "deepseek/deepseek-v4.1-flash" : {
       "enabled"               : true,
       "maxParallel"           : 3,
@@ -51,7 +43,7 @@
     "z-ai/glm-5.3-flash" : {
       "enabled"               : true,
       "maxParallel"           : 3,
-      "requestTimeoutSeconds" : 60,
+      "requestTimeoutSeconds" : 180,
       "retries"               : 1,
       "reasoning"             : true,
       "promptCaching"         : true

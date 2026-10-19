@@ -10,7 +10,9 @@ import javax.swing.BorderFactory;
 import javax.swing.DefaultCellEditor;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTable;
@@ -25,6 +27,8 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -34,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.IntPredicate;
+import java.util.function.LongConsumer;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -44,7 +49,8 @@ import java.util.stream.Collectors;
  * the transcripts in both apps; call {@link #update} on the EDT, e.g. each
  * second while the tab is showing. The models table's first row holds a
  * check box per model with a {@code passthrough} fallback, to pass its
- * questions through to it; such a model's column is pink.
+ * questions through to it; such a model's column is pink. Right-clicking a
+ * request in flight offers to terminate it.
  */
 @SuppressWarnings( "serial" )
 public class ModelsPanel extends JPanel {
@@ -116,17 +122,27 @@ public class ModelsPanel extends JPanel {
     /** Called with a model's id and whether it is to pass questions through. */
     private final BiConsumer<String,Boolean> passthrough ;
 
+    /** Called with a hub job's id to terminate its request in flight. */
+    private final LongConsumer abort ;
+
     /** The models shown, one per column after the row headers. */
     private List<ModelStatus> shownModels = List.of() ;
+
+    /** The requests shown, one per row of the requests table. */
+    private List<Request> shownRequests = List.of() ;
 
     /**
      * @param passthrough called on the EDT with a model's id and true to
      *        pass its questions through, false to take them again
+     * @param abort called on the EDT with a hub job's id to terminate its
+     *        request in flight
      */
-    public ModelsPanel( BiConsumer<String,Boolean> passthrough ) {
+    public ModelsPanel( BiConsumer<String,Boolean> passthrough,
+                        LongConsumer abort ) {
 
         super( new BorderLayout() ) ;
         this.passthrough = passthrough ;
+        this.abort       = abort ;
 
         JPanel hub = new JPanel( new BorderLayout() ) ;
         hub.add( section( "Gateways", gateways, 2, false ),
@@ -155,6 +171,32 @@ public class ModelsPanel extends JPanel {
                 new Cells( true, this::isPassthrough ) ) ;
         models.table.setDefaultEditor( Object.class,
                                        new DefaultCellEditor( box ) ) ;
+        requests.table.addMouseListener( new MouseAdapter() {
+            @Override public void mousePressed( MouseEvent e ) { popup( e ) ; }
+            @Override public void mouseReleased( MouseEvent e ) { popup( e ) ; }
+        } ) ;
+    }
+
+    /**
+     * On the popup trigger over a request: select its row and offer to
+     * terminate it.
+     */
+    private void popup( MouseEvent e ) {
+
+        JTable table = requests.table ;
+        int    row   = table.rowAtPoint( e.getPoint() ) ;
+
+        if( !e.isPopupTrigger() || row < 0 ) return ;
+        table.setRowSelectionInterval( row, row ) ;
+
+        Request   r    = shownRequests.get( table.convertRowIndexToModel( row ) ) ;
+        JMenuItem item = new JMenuItem( "Terminate request (" + r.job() +
+                                        ", attempt " + r.attempt() + ")" ) ;
+        JPopupMenu menu = new JPopupMenu() ;
+
+        item.addActionListener( a -> abort.accept( r.jobId() ) ) ;
+        menu.add( item ) ;
+        menu.show( table, e.getX(), e.getY() ) ;
     }
 
     /** True if models table column {@code c} is a model passing through. */
@@ -167,7 +209,8 @@ public class ModelsPanel extends JPanel {
     public void update( HubStatus s ) {
 
         if( s == null ) {
-            shownModels = List.of() ;
+            shownModels   = List.of() ;
+            shownRequests = List.of() ;
             summary.setText( " " ) ;
             List.of( gateways, models, requests, queue )
                 .forEach( m -> m.set( List.of() ) ) ;
@@ -193,7 +236,8 @@ public class ModelsPanel extends JPanel {
 
         showModels( s.models(), gwOn, now ) ;
 
-        rows = new ArrayList<>() ;
+        rows          = new ArrayList<>() ;
+        shownRequests = s.requests() ;
         for( Request r : s.requests() ) {
             rows.add( new Object[] {
                     r.job(), names.getOrDefault( r.model(), r.model() ),

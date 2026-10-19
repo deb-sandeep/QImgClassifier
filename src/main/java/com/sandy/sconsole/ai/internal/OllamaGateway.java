@@ -39,7 +39,7 @@ final class OllamaGateway extends Gateway {
      * cut a long prompt).
      */
     @Override
-    AIReply complete( ModelInfo model, AIRequest request )
+    AIReply complete( ModelInfo model, AIRequest request, Call call )
             throws GatewayException {
 
         String id = model.id() ;
@@ -66,8 +66,8 @@ final class OllamaGateway extends Gateway {
                             mapper.writeValueAsString( payload ) ) )
                     .build() ;
 
-            HttpResponse<String> response = httpClient.send(
-                    httpRequest, HttpResponse.BodyHandlers.ofString() ) ;
+            HttpResponse<String> response =
+                    send( httpRequest, model.requestTimeout(), call ) ;
             if( response.statusCode() == 429 ) {
                 log.warn( "{} rate limit hit: {}", id, response.body() ) ;
                 throw new RateLimited(

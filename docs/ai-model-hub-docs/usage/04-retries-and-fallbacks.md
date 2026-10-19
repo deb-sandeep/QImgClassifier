@@ -16,7 +16,7 @@ names the guard used:
 | `RATE_LIMITED_RPD` | `rateLimitedRPD` | HTTP 429 for the requests per day | **no**: handed back |
 | `UNREACHABLE` | `unreachable` | connection refused, connect timeout | **no**: handed back |
 | `SERVER_ERROR` | `serverError` | 5xx, upstream provider error | yes |
-| `TIMEOUT` | `timeout` | no reply within `requestTimeoutSeconds` | yes |
+| `TIMEOUT` | `timeout` | no complete reply within `requestTimeoutSeconds`, or the request was aborted (`AIHub.abortRequest`) | yes |
 | `BAD_REPLY` | `badReply` | empty or cut-off reply, refusal, or your `check` rejected it | yes |
 | `OTHER` | (`default` only) | e.g. the gateway refused the request (4xx) | yes |
 

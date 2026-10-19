@@ -93,6 +93,19 @@ public final class AIHub implements AutoCloseable {
         return engine.setPassthrough( modelId, on ) ;
     }
 
+    /**
+     * Abort job {@code jobId}'s request in flight (see
+     * {@link HubStatus#requests()}), e.g. one that hangs. The attempt fails
+     * as a {@link FailureKind#TIMEOUT}, so the job goes on as after a
+     * timeout: a retry, the model's {@code timeout} fallback, or its end
+     * (with its provisional result, if it was escalated).
+     *
+     * @return false if the job has no request in flight
+     */
+    public boolean abortRequest( long jobId ) {
+        return engine.abort( jobId ) ;
+    }
+
     /** A snapshot of the gateways, models and jobs. */
     public HubStatus status() { return engine.status() ; }
 

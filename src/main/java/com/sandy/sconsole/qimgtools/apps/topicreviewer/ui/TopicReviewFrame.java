@@ -21,7 +21,6 @@ import com.sandy.sconsole.qimgtools.apps.topicreviewer.review.ReviewListener;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.ReviewTableModel.Row;
 import com.sandy.sconsole.qimgtools.core.workspace.TranscriptStore;
 
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.AbstractAction;
@@ -48,6 +47,7 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JRadioButtonMenuItem;
 import javax.swing.JScrollPane;
+import javax.swing.JSpinner;
 import javax.swing.JSplitPane;
 import javax.swing.InputMap;
 import javax.swing.JTabbedPane;
@@ -57,6 +57,7 @@ import javax.swing.JToolBar;
 import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.RowFilter;
+import javax.swing.SpinnerNumberModel;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.Timer;
@@ -70,6 +71,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
@@ -110,9 +112,8 @@ import com.sandy.sconsole.qimgtools.core.util.ModelNames;
  * review queue with the server's topic, the review model's and, where those
  * differ, the tie-breaker's; Load fetches its first questions in place of
  * those shown, Start sends those not yet judged to the review model, and
- * Stop winds that down. When the tie-breaker sides with the reviewer or the
- * server, that topic is decided on at once (unsaved); otherwise the user
- * decides. Selecting a row shows what is going on with it, its image, its
+ * Stop winds that down. Whenever the tie-breaker answers, its topic is
+ * decided on at once (unsaved); otherwise the user decides. Selecting a row shows what is going on with it, its image, its
  * AI transcripts and a {@link ReviewDecisionPanel} to keep the server's
  * topic, use the reviewer's or the tie-breaker's, or choose another, for
  * every selected row; the topic decided on is shown in a green cell.
@@ -190,6 +191,9 @@ public class TopicReviewFrame extends JFrame
         /** Set a model to pass its questions through, from the Models tab. */
         void setPassthrough( String modelId, boolean on ) ;
 
+        /** Terminate job {@code jobId}'s request, from the Models tab. */
+        void abortRequest( long jobId ) ;
+
         /** The model queue: questions waiting, running and done. */
         TaskScheduler.Counts queueCounts() ;
 
@@ -225,6 +229,9 @@ public class TopicReviewFrame extends JFrame
 
     /** Seconds an unattended run waits between batches, to be stopped. */
     private static final int UNATTENDED_PAUSE_SECONDS = 5 ;
+
+    /** The most loads an unattended run may be given. */
+    private static final int MAX_UNATTENDED_LOADS = 999 ;
 
     private static final String RUN_UNATTENDED  = "Run unattended" ;
     private static final String STOP_UNATTENDED = "Stop unattended processing" ;
@@ -323,7 +330,6 @@ public class TopicReviewFrame extends JFrame
         public String toString() { return label ; }
     }
 
-    @Setter
     private Controller controller ;
 
     /** The names models are shown by. */
@@ -335,7 +341,7 @@ public class TopicReviewFrame extends JFrame
     private final HeaderFilterController headerFilters ;
     private final TranscriptPanel     transcriptPanel ;
     private final ModelsPanel         modelsPanel = new ModelsPanel(
-            ( id, on ) -> setPassthrough( id, on ) ) ;
+            ( id, on ) -> setPassthrough( id, on ), this::abortRequest ) ;
     private final ReviewDecisionPanel decisionPanel ;
     private final ImagePreview        preview =
             new ImagePreview( PREVIEW_PANEL_HEIGHT, PREVIEW_IMAGE_WIDTH ) ;
@@ -392,7 +398,8 @@ public class TopicReviewFrame extends JFrame
     /** Named "Stop unattended processing" while the loop runs. */
     private final Action unattendedAction = action( RUN_UNATTENDED, null,
             shortcut( KeyEvent.VK_U ), "Load, judge, use the tie-breaker's " +
-            "topic where the models differ, save, and repeat until stopped",
+            "topic where the models differ, save, and repeat up to a " +
+            "given number of loads",
             this::toggleUnattended ) ;
 
     /** The decision keys 1-5 as menu items; the keys are the table's. */
@@ -435,6 +442,12 @@ public class TopicReviewFrame extends JFrame
 
     /** The unattended run's batch under way, from 1. */
     private int batch ;
+
+    /**
+     * The loads the unattended run may make; asked for as it starts, and
+     * offered again the next time.
+     */
+    private int maxLoads = 10 ;
 
     /**
      * What the unattended run is doing, or why it ended, for the status
@@ -580,6 +593,15 @@ public class TopicReviewFrame extends JFrame
     }
 
     /** Show what is reviewed in the title. Call once the controller is set. */
+    /**
+     * Talk to {@code controller}; the commands that need one are enabled
+     * now, as the window was built before it was set.
+     */
+    public void setController( Controller controller ) {
+        this.controller = controller ;
+        updateControls() ;
+    }
+
     public void showScope() {
         setTitle( "QTopicReviewer - " + controller.scope() ) ;
     }
@@ -1241,13 +1263,15 @@ public class TopicReviewFrame extends JFrame
      * tie-breaker's topic for every question still in dispute, save
      * (accepting those the reviewer agrees with and those the tie-breaker
      * settled), and after {@link #UNATTENDED_PAUSE_SECONDS} load the
-     * next batch. The loop ends by itself when nothing awaits review, or a
-     * batch clears no question (its rows would only come back).
+     * next batch. The loop ends by itself after the number of loads the
+     * user gives as it starts, when nothing awaits review, or when a batch
+     * clears no question (its rows would only come back).
      */
     private void startUnattended() {
 
         if( controller == null || loading
             || procState != ProcessingState.STOPPED ) return ;
+        if( !askMaxLoads() ) return ;
         if( !discardUnsaved( RUN_UNATTENDED ) ) return ;
 
         unattended = true ;
@@ -1256,8 +1280,36 @@ public class TopicReviewFrame extends JFrame
         loggedLimits.clear() ;
 
         unattendedAction.putValue( Action.NAME, STOP_UNATTENDED ) ;
-        log.info( "[unattended] Started: {}", controller.scope() ) ;
+        log.info( "[unattended] Started, at most {} loads: {}", maxLoads,
+                  controller.scope() ) ;
         nextBatch() ;
+    }
+
+    /**
+     * Ask how many loads the unattended run may make, into
+     * {@link #maxLoads}.
+     *
+     * @return false if the user cancelled
+     */
+    private boolean askMaxLoads() {
+
+        JSpinner spinner = new JSpinner( new SpinnerNumberModel(
+                maxLoads, 1, MAX_UNATTENDED_LOADS, 1 ) ) ;
+        JPanel   panel   = new JPanel( new FlowLayout( FlowLayout.LEFT,
+                                                       8, 0 ) ) ;
+
+        // Wide enough for three digits, at its natural height.
+        ( (JSpinner.DefaultEditor) spinner.getEditor() ).getTextField()
+                                                        .setColumns( 3 ) ;
+        panel.add( new JLabel( "Stop after this many loads:" ) ) ;
+        panel.add( spinner ) ;
+
+        int answer = JOptionPane.showConfirmDialog( this, panel,
+                RUN_UNATTENDED, JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.PLAIN_MESSAGE ) ;
+        if( answer != JOptionPane.OK_OPTION ) return false ;
+        maxLoads = (Integer) spinner.getValue() ;
+        return true ;
     }
 
     /**
@@ -1396,6 +1448,9 @@ public class TopicReviewFrame extends JFrame
         else if( cleared == 0 ) {
             endUnattended( "the batch cleared no question, so the next " +
                            "would bring the same ones back" ) ;
+        }
+        else if( batch >= maxLoads ) {
+            endUnattended( "all " + maxLoads + " loads done" ) ;
         }
         else pauseBeforeNextBatch() ;
     }
@@ -1899,8 +1954,8 @@ public class TopicReviewFrame extends JFrame
 
     /**
      * Record {@code opinions} on {@code row}, unless it is already decided:
-     * Agreed or Differs, and when the tie-breaker sided with the reviewer or
-     * the server, decided (unsaved) on that topic.
+     * Agreed or Differs, and whenever the tie-breaker answered, decided
+     * (unsaved) on its topic.
      */
     private void setOpinions( Row row, ReviewOpinions opinions ) {
 
@@ -1970,7 +2025,7 @@ public class TopicReviewFrame extends JFrame
     /** The row's status, with the attempt number while running. */
     private static String statusLabel( Row row ) {
         return row.status == ReviewStatus.RUNNING && row.attempts > 1
-               ? row.status.getLabel() + " (attempt " + row.attempts + ")"
+               ? row.status.getLabel() + " (" + row.attempts + ")"
                : row.status.getLabel() ;
     }
 
@@ -2050,8 +2105,8 @@ public class TopicReviewFrame extends JFrame
         if( procState == ProcessingState.STOPPING ) text += "   |   stopping" ;
         // Kept after the run ends, to say why it did.
         if( unattendedStep != null ) {
-            text = "Unattended, batch " + batch + ": " + unattendedStep +
-                   "   |   " + text ;
+            text = "Unattended, batch " + batch + " of " + maxLoads + ": " +
+                   unattendedStep + "   |   " + text ;
         }
         statusBar.setText( text ) ;
     }
@@ -2126,6 +2181,13 @@ public class TopicReviewFrame extends JFrame
     private void setPassthrough( String modelId, boolean on ) {
         if( controller == null ) return ;
         controller.setPassthrough( modelId, on ) ;
+        refreshModels() ;
+    }
+
+    /** From the Models tab: a request in flight is to be terminated. */
+    private void abortRequest( long jobId ) {
+        if( controller == null ) return ;
+        controller.abortRequest( jobId ) ;
         refreshModels() ;
     }
 
