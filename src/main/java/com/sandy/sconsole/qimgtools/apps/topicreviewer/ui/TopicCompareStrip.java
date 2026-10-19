@@ -4,6 +4,10 @@ import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewVerdict;
 import com.sandy.sconsole.qimgtools.core.util.ModelNames;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.ReviewTableModel.Row;
 
+import static com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.ReviewTableModel.REVIEWER;
+import static com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.ReviewTableModel.SERVER;
+import static com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.ReviewTableModel.TIE_BREAKER;
+
 import javax.swing.BorderFactory;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -85,9 +89,9 @@ final class TopicCompareStrip extends JPanel {
 
         this.row = row ;
         if( row == null ) {
-            server.set( "Server", " ", null, false ) ;
-            ai.set( "Reviewer", " ", null, false ) ;
-            tie.set( "Tie breaker", " ", null, false ) ;
+            server.set( SERVER, " ", null, false ) ;
+            ai.set( REVIEWER, " ", null, false ) ;
+            tie.set( TIE_BREAKER, " ", null, false ) ;
             server.clickable( null ) ;
             ai.clickable( null ) ;
             tie.clickable( null ) ;
@@ -102,18 +106,18 @@ final class TopicCompareStrip extends JPanel {
         Integer       rId     = r == null ? null : r.top().getId() ;
         Integer       tId     = t == null ? null : t.top().getId() ;
 
-        server.set( "Server" + ( by.isEmpty() ? "" : "   [" + by + "]" ),
+        server.set( SERVER + ( by.isEmpty() ? "" : "   [" + by + "]" ),
                     row.serverTopicName,
                     r == null ? null : colour( sId, rId, tId ),
                     decided == ReviewTableModel.COL_SERVER ) ;
         server.clickable( "Click to keep the server's topic (1)" ) ;
 
         if( r == null ) {
-            ai.set( "Reviewer", null, null, false ) ;
+            ai.set( REVIEWER, null, null, false ) ;
             ai.clickable( null ) ;
         }
         else {
-            ai.set( "Reviewer   " + caption( r ), r.top().getTopicName(),
+            ai.set( REVIEWER + "   " + caption( r ), r.top().getTopicName(),
                     colour( rId, sId, tId ),
                     decided == ReviewTableModel.COL_REVIEWER ) ;
             ai.clickable( "Click to use the reviewer's topic (2)" ) ;
@@ -130,10 +134,10 @@ final class TopicCompareStrip extends JPanel {
                          && row.opinions.tieBreakerFailed()
                        ? "no answer: " + row.opinions.tieBreakerFailure()
                        : null ;
-            tie.set( "Tie breaker", why, null, false ) ;
+            tie.set( TIE_BREAKER, why, null, false ) ;
         }
         else {
-            tie.set( "Tie breaker   " + caption( t ), t.top().getTopicName(),
+            tie.set( TIE_BREAKER + "   " + caption( t ), t.top().getTopicName(),
                      colour( tId, sId, rId ),
                      decided == ReviewTableModel.COL_TIE_BREAKER ) ;
         }

@@ -64,8 +64,8 @@ final class ReviewDecisionPanel extends JPanel {
     private final JLabel heading = new JLabel( " " ) ;
     private final JLabel current = new JLabel( " " ) ;
 
-    private final Opinion reviewer   = new Opinion( "Reviewer" ) ;
-    private final Opinion tieBreaker = new Opinion( "Tie breaker" ) ;
+    private final Opinion reviewer   = new Opinion( ReviewTableModel.REVIEWER ) ;
+    private final Opinion tieBreaker = new Opinion( ReviewTableModel.TIE_BREAKER ) ;
 
     private final JButton keep          = new JButton( "1  Server's" ) ;
     private final JButton useReviewer   = new JButton( "2  Reviewer's" ) ;

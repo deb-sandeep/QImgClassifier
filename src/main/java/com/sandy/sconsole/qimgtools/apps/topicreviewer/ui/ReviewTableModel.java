@@ -33,8 +33,16 @@ final class ReviewTableModel extends AbstractTableModel {
     static final int COL_STATUS      = 6 ;
     static final int COL_SAVED       = 7 ;
 
+    /**
+     * The three opinions' names: the Server, Reviewer and Tie breaker
+     * columns' headers, also used by the decision panel and the topic strip.
+     */
+    static final String SERVER      = "Server" ;
+    static final String REVIEWER    = "Reviewer" ;
+    static final String TIE_BREAKER = "Tie breaker" ;
+
     private static final String[] COLUMNS = {
-            "Id", "Source", "Question", "Server", "Reviewer", "Tie breaker",
+            "Id", "Source", "Question", SERVER, REVIEWER, TIE_BREAKER,
             "Status", ""
     } ;
 

@@ -361,22 +361,22 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
                 statusWidest = st.name() ;
             }
         }
-        String[][] samples = {
-                { "Subj",     "M" },
-                { "Status",   statusWidest },
-                { "Attempts", "10" },
-                { "Time",     "99:59" } } ;
-        int[] fixedCols = { COL_SUBJ, COL_STATUS, COL_ATTEMPTS, COL_TIME } ;
+        String[] samples   = { "M", statusWidest, "10", "99:59" } ;
+        int[]    fixedCols = { COL_SUBJ, COL_STATUS, COL_ATTEMPTS, COL_TIME } ;
+
         for( int i = 0 ; i < fixedCols.length ; i++ ) {
-            int w = Math.max( head.stringWidth( samples[i][0] + "  ▲  *" ),
-                              cell.stringWidth( samples[i][1] ) ) + COL_PAD ;
+            String name = model.getColumnName( fixedCols[i] ) ;
+            int    w    = Math.max( head.stringWidth( name + "  ▲  *" ),
+                                    cell.stringWidth( samples[i] ) ) + COL_PAD ;
             TableColumn col = table.getColumnModel().getColumn( fixedCols[i] ) ;
 
             col.setMinWidth( w ) ;
             col.setMaxWidth( w ) ;
             col.setPreferredWidth( w ) ;
         }
-        int agentW = Math.max( head.stringWidth( "AI  ▲  *" ), AgentIcon.SIZE )
+        int agentW = Math.max( head.stringWidth(
+                             model.getColumnName( COL_AGENT ) + "  ▲  *" ),
+                             AgentIcon.SIZE )
                      + COL_PAD ;
         TableColumn agent = table.getColumnModel().getColumn( COL_AGENT ) ;
 

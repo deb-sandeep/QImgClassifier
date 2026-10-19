@@ -92,15 +92,29 @@ public class ModelsPanel extends JPanel {
 
     /**
      * The models table is transposed: its first column holds the row
-     * headers ({@link #MODEL_ROWS}), then there is one column per model.
+     * headers ({@link ModelRow}), then there is one column per model.
      */
-    private static final int MODEL_LABEL_WIDTH = 150 ;
+    private static final int MODEL_LABEL_WIDTH = 180 ;
     private static final int MODEL_WIDTH       = 240 ;
 
-    /** The rows of the models table. */
-    private static final List<String> MODEL_ROWS = List.of(
-            "Passthrough", "Gateway", "State", "In flight", "Waiting",
-            "Last min", "Today", "Avg reply", "OK", "Failed" ) ;
+    /** The rows of the models table, in order, with their headers. */
+    private enum ModelRow {
+
+        CASCADE    ( "Cascade" ),
+        GATEWAY    ( "Gateway" ),
+        STATE      ( "State" ),
+        IN_FLIGHT  ( "In flight" ),
+        WAITING    ( "Waiting" ),
+        LAST_MIN   ( "Last min" ),
+        TODAY      ( "Today" ),
+        AVG_REPLY  ( "Avg reply" ),
+        OK         ( "OK" ),
+        FAILED     ( "Failed" ) ;
+
+        final String label ;
+
+        ModelRow( String label ) { this.label = label ; }
+    }
 
     // ---- table look -----------------------------------------------------
 
@@ -147,7 +161,7 @@ public class ModelsPanel extends JPanel {
         JPanel hub = new JPanel( new BorderLayout() ) ;
         hub.add( section( "Gateways", gateways, 2, false ),
                  BorderLayout.NORTH ) ;
-        hub.add( section( "Models", models, MODEL_ROWS.size(), true ),
+        hub.add( section( "Models", models, ModelRow.values().length, true ),
                  BorderLayout.CENTER ) ;
 
         JSplitPane work = new JSplitPane( JSplitPane.VERTICAL_SPLIT,
@@ -270,13 +284,13 @@ public class ModelsPanel extends JPanel {
         shownModels = ms ;
         columns.add( new Col( "", MODEL_LABEL_WIDTH ) ) ;
         ms.forEach( m -> columns.add( new Col( m.displayName(), MODEL_WIDTH ) ) ) ;
-        for( String label : MODEL_ROWS ) {
+        for( ModelRow r : ModelRow.values() ) {
             Object[] row = new Object[ ms.size() + 1 ] ;
-            row[0] = label ;
+            row[0] = r.label ;
             for( int i = 0 ; i < ms.size() ; i++ ) {
                 ModelStatus m  = ms.get( i ) ;
                 boolean     on = gatewayEnabled.getOrDefault( m.gateway(), true ) ;
-                row[i + 1] = attribute( m, on, label, now ) ;
+                row[i + 1] = attribute( m, on, r, now ) ;
             }
             rows.add( row ) ;
         }
@@ -284,26 +298,25 @@ public class ModelsPanel extends JPanel {
     }
 
     /**
-     * Row {@code label} of model {@code m}'s column.
+     * Row {@code row} of model {@code m}'s column.
      *
      * @param gatewayOn its gateway is switched on
      */
     private static Object attribute( ModelStatus m, boolean gatewayOn,
-                                     String label, long now ) {
-        return switch( label ) {
-            case "Passthrough" -> m.usable() && m.passthroughGuard()
-                                  ? m.passthrough() : "" ;
-            case "Gateway"     -> m.gateway() ;
-            case "State"       -> state( m, gatewayOn, now ) ;
-            case "In flight"   -> of( m.inFlight(), m.maxParallel() ) ;
-            case "Waiting"     -> m.waiting() ;
-            case "Last min"    -> of( m.lastMinute(), m.rpm() ) ;
-            case "Today"       -> of( m.today(), m.rpd() ) ;
-            case "Avg reply"   -> m.avgLatencyMs() > 0
-                                  ? seconds( m.avgLatencyMs() ) : "" ;
-            case "OK"          -> m.succeeded() ;
-            case "Failed"      -> m.failed() ;
-            default            -> "" ;
+                                     ModelRow row, long now ) {
+        return switch( row ) {
+            case CASCADE   -> m.usable() && m.passthroughGuard()
+                              ? m.passthrough() : "" ;
+            case GATEWAY   -> m.gateway() ;
+            case STATE     -> state( m, gatewayOn, now ) ;
+            case IN_FLIGHT -> of( m.inFlight(), m.maxParallel() ) ;
+            case WAITING   -> m.waiting() ;
+            case LAST_MIN  -> of( m.lastMinute(), m.rpm() ) ;
+            case TODAY     -> of( m.today(), m.rpd() ) ;
+            case AVG_REPLY -> m.avgLatencyMs() > 0
+                              ? seconds( m.avgLatencyMs() ) : "" ;
+            case OK        -> m.succeeded() ;
+            case FAILED    -> m.failed() ;
         } ;
     }
 
@@ -477,7 +490,7 @@ public class ModelsPanel extends JPanel {
     }
 
     /**
-     * The models table's rows: the Passthrough cell of a usable model with a
+     * The models table's rows: the Cascade cell of a usable model with a
      * {@code passthrough} guard can be ticked, which sets it to pass its
      * questions through.
      */

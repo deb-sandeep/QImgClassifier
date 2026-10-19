@@ -580,10 +580,12 @@ public class TopicReviewFrame extends JFrame
         add( split, BorderLayout.CENTER ) ;
         add( footer, BorderLayout.SOUTH ) ;
 
-        Rectangle screen = GraphicsEnvironment.getLocalGraphicsEnvironment()
-                                              .getMaximumWindowBounds() ;
-        setBounds( screen ) ;
-        setExtendedState( MAXIMIZED_BOTH ) ;
+        // The whole screen, menu bar and dock included; not maximised,
+        // which would leave them out.
+        setBounds( GraphicsEnvironment.getLocalGraphicsEnvironment()
+                                      .getDefaultScreenDevice()
+                                      .getDefaultConfiguration()
+                                      .getBounds() ) ;
         setDefaultCloseOperation( WindowConstants.DO_NOTHING_ON_CLOSE ) ;
         addWindowListener( new WindowAdapter() {
             @Override public void windowOpened( WindowEvent e ) {

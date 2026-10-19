@@ -27,9 +27,20 @@
       "reasoning"             : false,
       "promptCaching"         : true,
       "fallback"              : {
-        "rateLimitedRPD" : [ "deepseek/deepseek-v4.1-flash" ],
-        "serverError"    : [ "deepseek/deepseek-v4.1-flash" ],
-        "passthrough"    : [ "deepseek/deepseek-v4.1-flash" ]
+        "rateLimitedRPD" : [ "nvidia/nemotron-3.5-super-vl" ],
+        "serverError"    : [ "nvidia/nemotron-3.5-super-vl" ],
+        "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ]
+      }
+    },
+    "nvidia/nemotron-3.5-super-vl" : {
+      "enabled"               : true,
+      "maxParallel"           : 3,
+      "requestTimeoutSeconds" : 100,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "promptCaching"         : true,
+      "fallback"              : {
+        "serverError"    : [ "deepseek/deepseek-v4.1-flash" ]
       }
     },
     "deepseek/deepseek-v4.1-flash" : {
