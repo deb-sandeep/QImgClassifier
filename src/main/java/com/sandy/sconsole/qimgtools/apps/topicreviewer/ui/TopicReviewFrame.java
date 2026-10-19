@@ -463,6 +463,12 @@ public class TopicReviewFrame extends JFrame
      */
     private String unattendedStep ;
 
+    /**
+     * True from the time the unattended batch is loaded until it is judged,
+     * so the end of its model run is taken for the batch's once only.
+     */
+    private boolean judging ;
+
     /** Counts down the pause before the next unattended batch. */
     private Timer pauseTimer ;
 
@@ -763,9 +769,7 @@ public class TopicReviewFrame extends JFrame
      */
     private void updateSelectionActions() {
 
-        sendAction.setEnabled( controller != null && !unattended
-                               && procState != ProcessingState.STOPPING
-                               && !sendableSelection().isEmpty() ) ;
+        sendAction.setEnabled( canSend() && !sendableSelection().isEmpty() ) ;
         for( int n = 1 ; n <= 4 ; n++ ) {
             decideActions[n - 1].setEnabled( decisionPanel.canPress( n ) ) ;
         }
@@ -879,8 +883,7 @@ public class TopicReviewFrame extends JFrame
 
                 send.setText( "Send " + plural( n, "question" ) +
                               " to the model" ) ;
-                send.setEnabled( n > 0 && controller != null && !unattended
-                                 && procState != ProcessingState.STOPPING ) ;
+                send.setEnabled( n > 0 && canSend() ) ;
                 updateSelectionActions() ;
                 save.setText( "Save " + plural( savable, "decision" ) ) ;
                 save.setEnabled( savable > 0 && controller != null ) ;
@@ -921,6 +924,17 @@ public class TopicReviewFrame extends JFrame
 
     private Row rowAt( int view ) {
         return model.getRow( table.convertRowIndexToModel( view ) ) ;
+    }
+
+    /**
+     * True if rows may be sent to the model now: not while a run is
+     * stopping, and in an unattended run only while its model run is going,
+     * which takes them in; between its runs a Load would replace them.
+     */
+    private boolean canSend() {
+        return controller != null
+               && ( unattended ? procState == ProcessingState.RUNNING
+                               : procState != ProcessingState.STOPPING ) ;
     }
 
     /** The selected rows that may be sent to the model, in table order. */
@@ -1283,6 +1297,7 @@ public class TopicReviewFrame extends JFrame
         if( !discardUnsaved( RUN_UNATTENDED ) ) return ;
 
         unattended = true ;
+        judging    = false ;
         batch      = 0 ;
 
         loggedLimits.clear() ;
@@ -1364,6 +1379,7 @@ public class TopicReviewFrame extends JFrame
                                  .filter( TopicReviewFrame::isPending )
                                  .toList() ;
 
+        judging = true ;
         log.info( "[unattended] Batch {}: {} loaded, {} to send to the " +
                   "model, {} await review on the server", batch,
                   model.getRowCount(), pending.size(), flagged ) ;
@@ -1382,7 +1398,9 @@ public class TopicReviewFrame extends JFrame
      */
     private void batchJudged() {
 
-        if( !unattended ) return ;
+        if( !unattended || !judging ) return ;
+        judging = false ;
+
         List<Row> differing = differingUndecided() ;
 
         for( Row row : model.rows() ) logJudgement( row ) ;
@@ -2100,8 +2118,7 @@ public class TopicReviewFrame extends JFrame
         saveAction.setEnabled( manual && savable && controller != null ) ;
         clearAction.setEnabled( manual && unsaved > 0 ) ;
         useAllAction.setEnabled( manual && !differingUndecided().isEmpty() ) ;
-        requeueFailedAction.setEnabled( manual && controller != null
-                && procState != ProcessingState.STOPPING
+        requeueFailedAction.setEnabled( canSend()
                 && model.count( ReviewStatus.FAILED ) > 0 ) ;
         if( saving ) Spinner.spin( table ) ;
         else Spinner.halt( table ) ;
