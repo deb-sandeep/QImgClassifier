@@ -53,7 +53,7 @@
     },
     "z-ai/glm-5.3-flash" : {
       "enabled"               : true,
-      "maxParallel"           : 3,
+      "maxParallel"           : 10,
       "requestTimeoutSeconds" : 180,
       "retries"               : 0,
       "reasoning"             : true,

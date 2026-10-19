@@ -18,6 +18,7 @@ import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewVerdict;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ServerQuestion;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.review.ReviewListener;
+import com.sandy.sconsole.qimgtools.apps.topicreviewer.server.SConsoleServerClient;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.ReviewTableModel.Row;
 import com.sandy.sconsole.qimgtools.core.workspace.TranscriptStore;
 
@@ -138,11 +139,11 @@ public class TopicReviewFrame extends JFrame
     public interface Controller {
 
         /**
-         * Fetch the first questions of the review queue matching the
-         * criteria in effect and locate each one's images. Blocking;
-         * called off the EDT.
+         * Fetch the first {@code limit} questions of the review queue
+         * matching the criteria in effect and locate each one's images.
+         * Blocking; called off the EDT.
          */
-        Loaded load() throws Exception ;
+        Loaded load( int limit ) throws Exception ;
 
         /** The criteria in effect: the last saved, or the configured ones. */
         ReviewCriteria criteria() ;
@@ -172,6 +173,12 @@ public class TopicReviewFrame extends JFrame
 
         /** Wind the run down: no new requests, running ones finish. */
         void stop() ;
+
+        /**
+         * True while a run is going; a run's end reported after the next
+         * run started is then out of date.
+         */
+        boolean isRunning() ;
 
         /**
          * Send the user's {@code decisions} to the server. Blocking; called
@@ -448,8 +455,12 @@ public class TopicReviewFrame extends JFrame
     /** True while Run unattended loops: load, judge, decide, save. */
     private boolean unattended ;
 
-    /** The unattended run's batch under way, from 1. */
-    private int batch ;
+    /**
+     * The questions the unattended run has asked the server for, by every
+     * load and refill; at most {@link #maxLoads} batches of the criteria's
+     * size.
+     */
+    private int asked ;
 
     /**
      * The loads the unattended run may make; asked for as it starts, and
@@ -468,6 +479,21 @@ public class TopicReviewFrame extends JFrame
      * so the end of its model run is taken for the batch's once only.
      */
     private boolean judging ;
+
+    /**
+     * True while the unattended run saves the questions its batch has
+     * settled and fetches more, as its model run goes on.
+     */
+    private boolean refilling ;
+
+    /**
+     * True once a refill found no question to add (or the table is as large
+     * as a fetch may be): the batch runs out, and is then saved whole.
+     */
+    private boolean drained ;
+
+    /** Questions the batch's refills cleared, and dropped from the table. */
+    private long clearedEarlier ;
 
     /** Counts down the pause before the next unattended batch. */
     private Timer pauseTimer ;
@@ -995,15 +1021,15 @@ public class TopicReviewFrame extends JFrame
 
         if( controller == null || loading ) return ;
         if( !discardUnsaved( "Load" ) ) return ;
-        fetch( () -> {} ) ;
+        fetch( controller.criteria().limit(), this::showItems ) ;
     }
 
     /**
-     * Load without asking about unsaved decisions, then run
-     * {@code onLoaded} once the rows are shown; a failure is reported
-     * instead, and ends an unattended run.
+     * Fetch the first {@code limit} questions of the review queue, without
+     * asking about unsaved decisions, and hand them to {@code onLoaded}; a
+     * failure is reported instead, and ends an unattended run.
      */
-    private void fetch( Runnable onLoaded ) {
+    private void fetch( int limit, Consumer<Loaded> onLoaded ) {
 
         loading = true ;
         statusBar.setText( "Loading the review queue…" ) ;
@@ -1012,18 +1038,17 @@ public class TopicReviewFrame extends JFrame
 
         new SwingWorker<Loaded,Void>() {
             @Override protected Loaded doInBackground() throws Exception {
-                return controller.load() ;
+                return controller.load( limit ) ;
             }
 
             @Override protected void done() {
 
-                boolean loaded = false ;
+                Loaded loaded = null ;
 
                 loading = false ;
                 Spinner.idle( loadButton ) ;
                 try {
-                    showItems( get() ) ;
-                    loaded = true ;
+                    loaded = get() ;
                 }
                 catch( Exception e ) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e ;
@@ -1035,7 +1060,7 @@ public class TopicReviewFrame extends JFrame
                             JOptionPane.ERROR_MESSAGE ) ;
                 }
                 updateControls() ;
-                if( loaded ) onLoaded.run() ;
+                if( loaded != null ) onLoaded.accept( loaded ) ;
             }
         }.execute() ;
     }
@@ -1052,18 +1077,24 @@ public class TopicReviewFrame extends JFrame
         compareStrip.show( null ) ;
         showDetail( null ) ;
         preview.show( null ) ;
-        for( ReviewItem item : loaded.items() ) {
+        restoreOpinions( loaded.items() ) ;
+        updateControls() ;
+        // Every question already judged: start on the first that differs.
+        if( model.rows().stream().noneMatch( TopicReviewFrame::isPending ) ) {
+            selectFirstDiffering() ;
+        }
+    }
+
+    /** Give the rows of {@code items} the opinions earlier runs stored. */
+    private void restoreOpinions( List<ReviewItem> items ) {
+
+        for( ReviewItem item : items ) {
             Row row = model.rowOf( item ) ;
             if( row == null || !item.hasImages() ) continue ;
             ReviewOpinions o = controller.storedOpinions( item ) ;
             if( o == null ) continue ;
             setOpinions( row, o ) ;
             model.changed( row ) ;
-        }
-        updateControls() ;
-        // Every question already judged: start on the first that differs.
-        if( model.rows().stream().noneMatch( TopicReviewFrame::isPending ) ) {
-            selectFirstDiffering() ;
         }
     }
 
@@ -1287,9 +1318,11 @@ public class TopicReviewFrame extends JFrame
      * tie-breaker's topic for every question still in dispute, save
      * (accepting those the reviewer agrees with and those the tie-breaker
      * settled), and after {@link #UNATTENDED_PAUSE_SECONDS} load the
-     * next batch. The loop ends by itself after the number of loads the
-     * user gives as it starts, when nothing awaits review, or when a batch
-     * clears no question (its rows would only come back).
+     * next batch. While a batch is judged, it is refilled as half of it
+     * settles ({@link #refillIfDue}). The loop ends by itself once it has
+     * asked for as many batches of questions as the user gives as it
+     * starts (refills included), when nothing awaits review, or when a
+     * batch clears no question (its rows would only come back).
      */
     private void startUnattended() {
 
@@ -1300,7 +1333,8 @@ public class TopicReviewFrame extends JFrame
 
         unattended = true ;
         judging    = false ;
-        batch      = 0 ;
+        refilling  = false ;
+        asked      = 0 ;
 
         loggedLimits.clear() ;
 
@@ -1346,13 +1380,14 @@ public class TopicReviewFrame extends JFrame
 
         if( !unattended ) return ;
         unattended     = false ;
+        refilling      = false ;
         unattendedStep = "ended, " + why ;
 
         if( pauseTimer != null ) pauseTimer.stop() ;
         pauseTimer = null ;
         unattendedAction.putValue( Action.NAME, RUN_UNATTENDED ) ;
         if( procState == ProcessingState.RUNNING ) controller.stop() ;
-        log.info( "[unattended] Ended in batch {}: {}", batch, why ) ;
+        log.info( "[unattended] Ended in batch {}: {}", batch(), why ) ;
         updateControls() ;
     }
 
@@ -1362,16 +1397,24 @@ public class TopicReviewFrame extends JFrame
         refreshRateLimitStrip() ;
         if( !unattended ) return ;      // the daily limit is reached
 
-        batch++ ;
-        log.info( "[unattended] Batch {}: loading the review queue", batch ) ;
+        int limit = Math.min( batchSize(), allowance() - asked ) ;
+
+        asked += limit ;
+        log.info( "[unattended] Batch {}: loading the review queue",
+                  batch() ) ;
         unattendedStep = "loading" ;
-        fetch( this::batchLoaded ) ;
+        fetch( limit, loaded -> {
+            showItems( loaded ) ;
+            batchLoaded() ;
+        } ) ;
     }
 
     /** The batch is shown: send its pending questions to the model. */
     private void batchLoaded() {
 
         if( !unattended ) return ;
+        drained        = false ;
+        clearedEarlier = 0 ;
         if( model.getRowCount() == 0 ) {
             endUnattended( "no questions await review" ) ;
             return ;
@@ -1383,7 +1426,7 @@ public class TopicReviewFrame extends JFrame
 
         judging = true ;
         log.info( "[unattended] Batch {}: {} loaded, {} to send to the " +
-                  "model, {} await review on the server", batch,
+                  "model, {} await review on the server", batch(),
                   model.getRowCount(), pending.size(), flagged ) ;
         if( pending.isEmpty() ) {
             batchJudged() ;
@@ -1400,7 +1443,8 @@ public class TopicReviewFrame extends JFrame
      */
     private void batchJudged() {
 
-        if( !unattended || !judging ) return ;
+        // A refill under way takes the run's end up once it is done.
+        if( !unattended || !judging || refilling ) return ;
         judging = false ;
 
         List<Row> differing = differingUndecided() ;
@@ -1408,7 +1452,7 @@ public class TopicReviewFrame extends JFrame
         for( Row row : model.rows() ) logJudgement( row ) ;
         useTieBreaker( differing, null ) ;
         log.info( "[unattended] Batch {}: saving ({} disputed, given the " +
-                  "tie-breaker's topic)", batch, differing.size() ) ;
+                  "tie-breaker's topic)", batch(), differing.size() ) ;
         step( "saving" ) ;
         save( model.rows(), saveButton, this::batchSaved ) ;
     }
@@ -1455,7 +1499,8 @@ public class TopicReviewFrame extends JFrame
 
         if( !unattended ) return ;
         long cleared = model.count( ReviewStatus.KEPT )
-                       + model.count( ReviewStatus.OVERRIDDEN ) ;
+                       + model.count( ReviewStatus.OVERRIDDEN )
+                       + clearedEarlier ;
 
         for( Row row : model.rows() ) {
             if( row.status != ReviewStatus.ERROR ) continue ;
@@ -1464,7 +1509,7 @@ public class TopicReviewFrame extends JFrame
         }
         log.info( "[unattended] Batch {} saved: {} kept, {} overridden, " +
                   "{} still flagged, {} errors, {} failed, {} without " +
-                  "images; {} await review", batch,
+                  "images; {} await review", batch(),
                   model.count( ReviewStatus.KEPT ),
                   model.count( ReviewStatus.OVERRIDDEN ),
                   model.count( ReviewStatus.STILL_FLAGGED ),
@@ -1477,10 +1522,121 @@ public class TopicReviewFrame extends JFrame
             endUnattended( "the batch cleared no question, so the next " +
                            "would bring the same ones back" ) ;
         }
-        else if( batch >= maxLoads ) {
+        else if( asked >= allowance() ) {
             endUnattended( "all " + maxLoads + " loads done" ) ;
         }
         else pauseBeforeNextBatch() ;
+    }
+
+    /**
+     * While the unattended batch is judged: once half a batch (of the
+     * criteria's size) is Agreed or Decided, save those questions and fetch
+     * as many again, sending the new ones to the model run under way, so
+     * the reviewer never runs dry while the slower tie-breaker catches up.
+     * The questions saved and cleared are dropped from the table. Refills
+     * count as loads; once none is left, or one brings nothing new, the
+     * batch runs out and is saved whole as before.
+     */
+    private void refillIfDue() {
+
+        if( !unattended || !judging || refilling || drained || loading
+            || procState != ProcessingState.RUNNING ) return ;
+
+        int       half = Math.max( 1, batchSize() / 2 ) ;
+        int       more = Math.min( half, allowance() - asked ) ;
+        List<Row> done = model.rows().stream()
+                              .filter( r -> r.status == ReviewStatus.AGREED
+                                            || r.status == ReviewStatus.DECIDED )
+                              .toList() ;
+
+        if( done.size() < half || more <= 0 ) return ;
+        refreshRateLimitStrip() ;
+        if( !unattended ) return ;      // the daily limit is reached
+
+        refilling = true ;
+        for( Row row : done ) logJudgement( row ) ;
+        log.info( "[unattended] Batch {}: saving {} settled questions while " +
+                  "the models work on the rest", batch(), done.size() ) ;
+        save( done, saveButton, () -> refillSaved( done, more ) ) ;
+    }
+
+    /**
+     * The settled questions {@code saved} are saved: drop those cleared, and
+     * fetch {@code more} questions after the ones left in the table.
+     */
+    private void refillSaved( List<Row> saved, int more ) {
+
+        if( !unattended ) return ;
+        long kept       = model.count( ReviewStatus.KEPT ) ;
+        long overridden = model.count( ReviewStatus.OVERRIDDEN ) ;
+
+        for( Row row : saved ) {
+            if( row.status != ReviewStatus.ERROR ) continue ;
+            log.warn( "[unattended]   {}: not saved - {}",
+                      row.questionLabel(), row.message ) ;
+        }
+        clearedEarlier += model.removeIf( r -> r.status == ReviewStatus.KEPT
+                                || r.status == ReviewStatus.OVERRIDDEN ) ;
+        log.info( "[unattended] Batch {} partly saved: {} kept, {} " +
+                  "overridden, {} still flagged; {} await review", batch(),
+                  kept, overridden, model.count( ReviewStatus.STILL_FLAGGED ),
+                  flagged ) ;
+
+        // Every row left is still flagged, so it is among those fetched.
+        int limit = Math.min( model.getRowCount() + more,
+                              SConsoleServerClient.MAX_LIMIT ) ;
+        if( flagged == 0 || limit <= model.getRowCount() ) {
+            drained = true ;
+            refillDone() ;
+            return ;
+        }
+        asked += more ;
+        log.info( "[unattended] Batch {}: fetching {} more questions",
+                  batch(), more ) ;
+        step( "judging, fetching " + plural( more, "more question" ) ) ;
+        fetch( limit, this::refillLoaded ) ;
+    }
+
+    /**
+     * Add the questions of {@code loaded} not in the table yet, and send
+     * those pending to the model run.
+     */
+    private void refillLoaded( Loaded loaded ) {
+
+        if( !unattended ) return ;
+        List<ReviewItem> added = loaded.items().stream()
+                                       .filter( i -> !model.has( i.id() ) )
+                                       .toList() ;
+
+        flagged = loaded.flagged() ;
+        model.addItems( added ) ;
+        restoreOpinions( added ) ;
+
+        List<Row> pending = added.stream()
+                                 .map( model::rowOf )
+                                 .filter( r -> r != null && isPending( r ) )
+                                 .toList() ;
+
+        log.info( "[unattended] Batch {}: {} added, {} to send to the " +
+                  "model, {} await review on the server", batch(),
+                  added.size(), pending.size(), flagged ) ;
+        if( added.isEmpty() ) drained = true ;
+        step( "judging " + plural( model.getRowCount(), "question" ) ) ;
+        send( pending ) ;
+        refillDone() ;
+    }
+
+    /**
+     * The refill is over: if the model run ended meanwhile, judge the batch;
+     * else see whether another is due.
+     */
+    private void refillDone() {
+
+        refilling = false ;
+        updateControls() ;
+        if( procState == ProcessingState.STOPPED
+            && !controller.isRunning() ) batchJudged() ;
+        else refillIfDue() ;
     }
 
     /**
@@ -1504,6 +1660,24 @@ public class TopicReviewFrame extends JFrame
             nextBatch() ;
         } ) ;
         pauseTimer.start() ;
+    }
+
+    /** The questions a batch has: the criteria's fetch size. */
+    private int batchSize() {
+        return controller.criteria().limit() ;
+    }
+
+    /** The questions the unattended run may ask for: its loads' worth. */
+    private int allowance() {
+        return maxLoads * batchSize() ;
+    }
+
+    /**
+     * The batch the unattended run is in, from 1: the batch-sizes of
+     * questions asked for so far, a part one counted whole.
+     */
+    private int batch() {
+        return Math.max( 1, ( asked + batchSize() - 1 ) / batchSize() ) ;
     }
 
     /** Show {@code what} the unattended run is doing in the status bar. */
@@ -1948,6 +2122,7 @@ public class TopicReviewFrame extends JFrame
             row.inFlightColumn = -1 ;
             setOpinions( row, opinions ) ;
         } ) ;
+        SwingUtilities.invokeLater( this::refillIfDue ) ;
     }
 
     @Override
@@ -1965,6 +2140,9 @@ public class TopicReviewFrame extends JFrame
     public void processingStateChanged( ProcessingState state ) {
 
         SwingUtilities.invokeLater( () -> {
+            // Rows sent since started a new run, whose RUNNING follows.
+            if( state == ProcessingState.STOPPED && controller != null
+                && controller.isRunning() ) return ;
             procState = state ;
             if( state == ProcessingState.STOPPED ) {
                 // Rows never started go back to what they were: unjudged,
@@ -2132,7 +2310,7 @@ public class TopicReviewFrame extends JFrame
         String text = String.format(
                 "%d loaded · %d differ · %d agreed · %d unsaved · " +
                 "%d kept · %d overridden · %d still flagged · %d failed · " +
-                "%d without images · %d errors",
+                "%d errors",
                 model.getRowCount(),
                 model.count( ReviewStatus.DIFFERS ),
                 model.count( ReviewStatus.AGREED ),
@@ -2141,7 +2319,6 @@ public class TopicReviewFrame extends JFrame
                 model.count( ReviewStatus.OVERRIDDEN ),
                 model.count( ReviewStatus.STILL_FLAGGED ),
                 model.count( ReviewStatus.FAILED ),
-                model.count( ReviewStatus.NO_IMAGES ),
                 model.count( ReviewStatus.ERROR ) ) ;
         if( flagged >= 0 ) {
             text += " · " + flagged + " awaiting review on the server" ;
@@ -2150,7 +2327,7 @@ public class TopicReviewFrame extends JFrame
         if( procState == ProcessingState.STOPPING ) text += "   |   stopping" ;
         // Kept after the run ends, to say why it did.
         if( unattendedStep != null ) {
-            text = "Unattended, batch " + batch + " of " + maxLoads + ": " +
+            text = "Unattended, batch " + batch() + " of " + maxLoads + ": " +
                    unattendedStep + "   |   " + text ;
         }
         statusBar.setText( text ) ;

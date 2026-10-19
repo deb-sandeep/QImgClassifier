@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 /**
  * The topic reviewer's table: one row per question of the review queue, with
@@ -196,6 +197,50 @@ final class ReviewTableModel extends AbstractTableModel {
             byId.put( item.id(), row ) ;
         }
         fireTableDataChanged() ;
+    }
+
+    /**
+     * Add a row for each of {@code items} after the rows there; the
+     * table's selection stays.
+     */
+    void addItems( List<ReviewItem> items ) {
+
+        int first = rows.size() ;
+
+        for( ReviewItem item : items ) {
+            Row row = new Row( item ) ;
+            rows.add( row ) ;
+            byId.put( item.id(), row ) ;
+        }
+        if( rows.size() > first ) {
+            fireTableRowsInserted( first, rows.size() - 1 ) ;
+        }
+    }
+
+    /**
+     * Drop the rows {@code test} accepts; the table's selection of the
+     * others stays.
+     *
+     * @return how many were dropped
+     */
+    int removeIf( Predicate<Row> test ) {
+
+        int removed = 0 ;
+
+        for( int i = rows.size() - 1 ; i >= 0 ; i-- ) {
+            Row row = rows.get( i ) ;
+            if( !test.test( row ) ) continue ;
+            rows.remove( i ) ;
+            byId.remove( row.item.id() ) ;
+            fireTableRowsDeleted( i, i ) ;
+            removed++ ;
+        }
+        return removed ;
+    }
+
+    /** True if the question with server id {@code id} has a row. */
+    boolean has( int id ) {
+        return byId.containsKey( id ) ;
     }
 
     List<Row> rows() {

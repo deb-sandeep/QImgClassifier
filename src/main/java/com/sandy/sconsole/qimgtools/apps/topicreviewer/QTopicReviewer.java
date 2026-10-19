@@ -243,19 +243,20 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
     }
 
     /**
-     * The first questions of the review queue matching the criteria in
-     * effect, by id. There is no cursor: confirmed questions leave the
-     * queue, so the questions after them move up, while ones still flagged
-     * (undecided, refused, or reviewed by a model the server doesn't count
-     * as strong) come back.
+     * The first {@code limit} questions of the review queue matching the
+     * criteria in effect, by id. There is no cursor: confirmed questions
+     * leave the queue, so the questions after them move up, while ones
+     * still flagged (undecided, refused, or reviewed by a model the server
+     * doesn't count as strong) come back.
      */
     @Override
-    public TopicReviewFrame.Loaded load() throws ServerException {
+    public TopicReviewFrame.Loaded load( int limit ) throws ServerException {
 
         ReviewCriteria criteria = this.criteria ;
         PendingResult  r        = server.pending( criteria.syllabusNames(),
-                                                  criteria.topicIds(),
-                                                  criteria.limit() ) ;
+                criteria.topicIds(),
+                Math.min( Math.max( limit, 1 ),
+                          SConsoleServerClient.MAX_LIMIT ) ) ;
 
         List<ReviewItem> items = r.getQuestions().stream()
                                   .map( locator::locate ).toList() ;
@@ -312,13 +313,13 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
             Thread.currentThread().interrupt() ;
             endRun() ;
         }
-        listener.processingStateChanged( ProcessingState.STOPPED ) ;
         log.info( "Review run stopped" ) ;
     }
 
     /**
      * End the run unless questions were added since the batch was last
-     * found done; under the lock {@link #start} adds them with.
+     * found done; under the lock {@link #start} adds them with, so the
+     * listener hears of the end before a run {@link #start} begins next.
      *
      * @return true if the run ended
      */
@@ -328,7 +329,13 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
             && scheduler.hasBatchWork() ) return false ;
         stopRequested = false ;
         processing.set( false ) ;
+        listener.processingStateChanged( ProcessingState.STOPPED ) ;
         return true ;
+    }
+
+    @Override
+    public boolean isRunning() {
+        return processing.get() ;
     }
 
     private boolean isProcessing() {
