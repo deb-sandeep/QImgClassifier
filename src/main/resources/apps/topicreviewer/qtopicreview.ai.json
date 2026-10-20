@@ -21,7 +21,7 @@
   "models" : {
     "nvidia/nemotron-3.5-super-vl:free" : {
       "enabled"               : true,
-      "maxParallel"           : 3,
+      "maxParallel"           : 4,
       "requestTimeoutSeconds" : 100,
       "retries"               : 1,
       "reasoning"             : false,
