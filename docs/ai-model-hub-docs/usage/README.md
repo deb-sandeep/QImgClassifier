@@ -19,9 +19,11 @@ it gives back replies, which your own code checks and turns into results.
 It depends only on the JDK (17+), Jackson and SLF4J.
 
 API reference: [javadocs](../javadocs/frames.html) (framed; [plain](../javadocs/index.html)) (packages
-[`com.sandy.sconsole.ai`](../javadocs/com/sandy/sconsole/ai/package-summary.html)
+[`com.sandy.sconsole.ai`](../javadocs/com/sandy/sconsole/ai/package-summary.html),
+[`com.sandy.sconsole.ai.config`](../javadocs/com/sandy/sconsole/ai/config/package-summary.html)
 and
-[`com.sandy.sconsole.ai.config`](../javadocs/com/sandy/sconsole/ai/config/package-summary.html)).
+[`com.sandy.sconsole.ai.ui`](../javadocs/com/sandy/sconsole/ai/ui/package-summary.html),
+a ready-made Swing view of the hub's status).
 `com.sandy.sconsole.ai.internal` is not API: don't use it.
 
 ## Scenarios
@@ -35,7 +37,7 @@ and
 | 5 | [Routing policies](05-routing-policies.md) | decide which model takes which job (several roots, load spreading) |
 | 6 | [Escalation](06-escalation.md) | get a second opinion when an answer isn't good enough |
 | 7 | [Job control](07-job-control.md) | run batches, stop, hold, cancel and re-queue jobs |
-| 8 | [Monitoring](08-monitoring.md) | show progress, limits and token costs, and read the logs |
+| 8 | [Monitoring](08-monitoring.md) | show progress, limits and token costs (or drop in the Swing models panel), and read the logs |
 
 ## Concepts in one page
 

@@ -1,7 +1,7 @@
 package com.sandy.sconsole.qimgtools.apps.classifier.ui;
 
 import com.sandy.sconsole.ai.HubStatus;
-import com.sandy.sconsole.qimgtools.core.ui.ModelsPanel;
+import com.sandy.sconsole.ai.ui.ModelsPanel;
 import com.sandy.sconsole.qimgtools.core.sequence.TopicSequenceGenerator;
 import com.sandy.sconsole.qimgtools.core.ui.TopicSequenceDialog;
 import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.ClassificationListener;
@@ -185,7 +185,8 @@ public class QClassifierFrame extends JFrame implements ClassificationListener {
     private final ModelNames          names ;
     private final TranscriptPanel     transcriptPanel ;
     private final ModelsPanel         modelsPanel = new ModelsPanel(
-            ( id, on ) -> setPassthrough( id, on ), this::abortRequest ) ;
+            "Question", ( id, on ) -> setPassthrough( id, on ),
+            this::abortRequest ) ;
     private final JTable              table ;
     private final JLabel              statusBar = new JLabel( " " ) ;
     private final RateLimitStrip      rateLimitStrip ;

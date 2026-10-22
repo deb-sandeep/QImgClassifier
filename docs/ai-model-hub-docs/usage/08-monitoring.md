@@ -72,6 +72,33 @@ boolean dailyHold = hub.status().notices().stream()
                        .anyMatch( HubStatus.Notice::daily ) ;
 ```
 
+## A ready-made Swing view
+
+A Swing app need not build its own view of the snapshot:
+[`ModelsPanel`](../javadocs/com/sandy/sconsole/ai/ui/ModelsPanel.html)
+(package `com.sandy.sconsole.ai.ui`) shows the job counts and next request
+time, the gateways, the models (one column each: state, in flight / slots,
+waiting, last minute / rpm, today / rpd, average reply, OK, failed), the
+requests in flight and the waiting jobs in order. Its *Cascade* row holds a
+check box for each usable model with a `passthrough` guard, and
+right-clicking a request in flight offers to terminate it; the panel hands
+both to the callbacks you give it:
+
+```java
+ModelsPanel panel = new ModelsPanel(
+        "Question",                                  // the job columns' header
+        ( modelId, on ) -> hub.setPassthrough( modelId, on ),
+        jobId -> hub.abortRequest( jobId ) ) ;
+
+new javax.swing.Timer( 1000, e -> {
+    if( panel.isShowing() ) panel.update( hub.status() ) ;
+} ).start() ;
+```
+
+Call `update` on the EDT; `update( null )` clears it. A job shows as its
+payload's `toString()`; the two-argument constructor heads the job columns
+"Job".
+
 ## Following attempts
 
 The listener's attempt callbacks see every request:

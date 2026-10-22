@@ -1,6 +1,7 @@
 #!/bin/sh
-# Regenerates the AI model hub's API javadocs (packages com.sandy.sconsole.ai
-# and com.sandy.sconsole.ai.config; ai.internal is not API) into javadocs/,
+# Regenerates the AI model hub's API javadocs (packages com.sandy.sconsole.ai,
+# com.sandy.sconsole.ai.config and com.sandy.sconsole.ai.ui; ai.internal is
+# not API) into javadocs/,
 # plus a classic three-pane view, javadocs/frames.html (javadoc dropped its
 # own frames in JDK 12): packages top left, the chosen package's types
 # bottom left, the pages on the right.
@@ -21,7 +22,7 @@ javadoc -quiet -Xdoclint:none -public \
     -d "$OUT" \
     -doctitle "AI Model Hub API" -windowtitle "AI Model Hub API" \
     -link https://docs.oracle.com/en/java/javase/17/docs/api/ \
-    com.sandy.sconsole.ai com.sandy.sconsole.ai.config
+    com.sandy.sconsole.ai com.sandy.sconsole.ai.config com.sandy.sconsole.ai.ui
 
 # ---- frames -----------------------------------------------------------------
 

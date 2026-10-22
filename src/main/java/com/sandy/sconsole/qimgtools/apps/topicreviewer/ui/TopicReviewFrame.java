@@ -1,7 +1,7 @@
 package com.sandy.sconsole.qimgtools.apps.topicreviewer.ui;
 
 import com.sandy.sconsole.ai.HubStatus;
-import com.sandy.sconsole.qimgtools.core.ui.ModelsPanel;
+import com.sandy.sconsole.ai.ui.ModelsPanel;
 import com.sandy.sconsole.qimgtools.core.sequence.TopicSequenceGenerator;
 import com.sandy.sconsole.qimgtools.core.ui.TopicSequenceDialog;
 import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
@@ -356,7 +356,8 @@ public class TopicReviewFrame extends JFrame
     private final HeaderFilterController headerFilters ;
     private final TranscriptPanel     transcriptPanel ;
     private final ModelsPanel         modelsPanel = new ModelsPanel(
-            ( id, on ) -> setPassthrough( id, on ), this::abortRequest ) ;
+            "Question", ( id, on ) -> setPassthrough( id, on ),
+            this::abortRequest ) ;
     private final ReviewDecisionPanel decisionPanel ;
     private final ImagePreview        preview =
             new ImagePreview( PREVIEW_PANEL_HEIGHT, PREVIEW_IMAGE_WIDTH ) ;

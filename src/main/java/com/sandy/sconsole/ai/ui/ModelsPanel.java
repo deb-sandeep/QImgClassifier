@@ -1,4 +1,4 @@
-package com.sandy.sconsole.qimgtools.core.ui;
+package com.sandy.sconsole.ai.ui;
 
 import com.sandy.sconsole.ai.HubStatus;
 import com.sandy.sconsole.ai.HubStatus.GatewayStatus;
@@ -45,12 +45,12 @@ import java.util.stream.Collectors;
 /**
  * The AI hub at a glance, from a {@link HubStatus} snapshot: the job counts,
  * the gateways and models with their state, load and limits, the requests in
- * flight and the jobs waiting for a model. Shown as the Models tab beside
- * the transcripts in both apps; call {@link #update} on the EDT, e.g. each
- * second while the tab is showing. The models table's first row holds a
- * check box per model with a {@code passthrough} fallback, to pass its
- * questions through to it; such a model's column is pink. Right-clicking a
- * request in flight offers to terminate it.
+ * flight and the jobs waiting for a model. Add it to any Swing window of an
+ * app using the hub and call {@link #update} on the EDT, e.g. each second
+ * while it is showing. The models table's first row holds a check box per
+ * model with a {@code passthrough} fallback, to pass its jobs through to
+ * it; such a model's column is pink. Right-clicking a request in flight
+ * offers to terminate it.
  */
 @SuppressWarnings( "serial" )
 public class ModelsPanel extends JPanel {
@@ -74,8 +74,11 @@ public class ModelsPanel extends JPanel {
         new Col( "Today",      70 ),
     } ;
 
+    /** The job column's header in the requests and queue tables. */
+    private static final String JOB = "Job" ;
+
     private static final Col[] REQUEST_COLUMNS = {
-        new Col( "Question",    220 ),
+        new Col( JOB,           220 ),
         new Col( "Model",       200 ),
         new Col( "Attempt",      60 ),
         new Col( "Running for",  90 ),
@@ -83,7 +86,7 @@ public class ModelsPanel extends JPanel {
 
     private static final Col[] QUEUE_COLUMNS = {
         new Col( "#",             55 ),
-        new Col( "Question",     220 ),
+        new Col( JOB,            220 ),
         new Col( "Waiting",      120 ),
         new Col( "Att#",          60 ),
         new Col( "Can run on",   250 ),
@@ -130,10 +133,10 @@ public class ModelsPanel extends JPanel {
     private final JLabel    summary  = new JLabel( " " ) ;
     private final RowsModel gateways = new RowsModel( 0, GATEWAY_COLUMNS ) ;
     private final RowsModel models   = new ModelRows() ;
-    private final RowsModel requests = new RowsModel( 0, REQUEST_COLUMNS ) ;
-    private final RowsModel queue    = new RowsModel( 1, QUEUE_COLUMNS ) ;
+    private final RowsModel requests ;
+    private final RowsModel queue ;
 
-    /** Called with a model's id and whether it is to pass questions through. */
+    /** Called with a model's id and whether it is to pass jobs through. */
     private final BiConsumer<String,Boolean> passthrough ;
 
     /** Called with a hub job's id to terminate its request in flight. */
@@ -146,17 +149,34 @@ public class ModelsPanel extends JPanel {
     private List<Request> shownRequests = List.of() ;
 
     /**
+     * A panel whose job columns are headed "Job".
+     *
+     * @see #ModelsPanel(String, BiConsumer, LongConsumer)
+     */
+    public ModelsPanel( BiConsumer<String,Boolean> passthrough,
+                        LongConsumer abort ) {
+        this( JOB, passthrough, abort ) ;
+    }
+
+    /**
+     * @param jobLabel the header of the job columns of the requests and
+     *        queue tables, which show each job's payload text, e.g.
+     *        "Question"
      * @param passthrough called on the EDT with a model's id and true to
-     *        pass its questions through, false to take them again
+     *        pass its jobs through, false to take them again
      * @param abort called on the EDT with a hub job's id to terminate its
      *        request in flight
      */
-    public ModelsPanel( BiConsumer<String,Boolean> passthrough,
+    public ModelsPanel( String jobLabel, BiConsumer<String,Boolean> passthrough,
                         LongConsumer abort ) {
 
         super( new BorderLayout() ) ;
         this.passthrough = passthrough ;
         this.abort       = abort ;
+        this.requests    = new RowsModel( 0, labelled( REQUEST_COLUMNS,
+                                                       jobLabel ) ) ;
+        this.queue       = new RowsModel( 1, labelled( QUEUE_COLUMNS,
+                                                       jobLabel ) ) ;
 
         JPanel hub = new JPanel( new BorderLayout() ) ;
         hub.add( section( "Gateways", gateways, 2, false ),
@@ -189,6 +209,18 @@ public class ModelsPanel extends JPanel {
             @Override public void mousePressed( MouseEvent e ) { popup( e ) ; }
             @Override public void mouseReleased( MouseEvent e ) { popup( e ) ; }
         } ) ;
+    }
+
+    /** {@code columns} with the job column headed {@code jobLabel}. */
+    private static Col[] labelled( Col[] columns, String jobLabel ) {
+
+        Col[] cols = columns.clone() ;
+        for( int c = 0 ; c < cols.length ; c++ ) {
+            if( cols[c].name().equals( JOB ) ) {
+                cols[c] = new Col( jobLabel, cols[c].width() ) ;
+            }
+        }
+        return cols ;
     }
 
     /**
@@ -492,7 +524,7 @@ public class ModelsPanel extends JPanel {
     /**
      * The models table's rows: the Cascade cell of a usable model with a
      * {@code passthrough} guard can be ticked, which sets it to pass its
-     * questions through.
+     * jobs through.
      */
     private final class ModelRows extends RowsModel {
 
