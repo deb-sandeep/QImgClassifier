@@ -1,4 +1,4 @@
-package com.sandy.sconsole.qimgtools.apps.topicreviewer.model;
+package com.sandy.sconsole.qimgtools.core.server;
 
 import com.sandy.sconsole.qimgtools.core.util.ModelNames;
 import lombok.Data;
@@ -8,8 +8,8 @@ import java.util.List;
 
 /**
  * A question on the SConsole server: the fields of the server's
- * {@code QuestionVO} that the topic reviewer uses (the rest are ignored when
- * it is read).
+ * {@code QuestionVO} that the topic reviewer and the tagger use (the rest are
+ * ignored when it is read).
  */
 @Data
 public class ServerQuestion {
@@ -25,6 +25,15 @@ public class ServerQuestion {
     private String syllabusName ;
     private String problemType ;
 
+    /** The answer key, as the image prints the options (e.g. "B", "1,3"). */
+    private String answer ;
+
+    /** The question's number in its source. */
+    private Integer questionNumber ;
+
+    /** Position in its LCT group; -1 for a question not in one. */
+    private Integer lctSequence ;
+
     private Integer topicId ;
     private String  topicName ;
 
@@ -38,6 +47,15 @@ public class ServerQuestion {
      * rules.
      */
     private boolean topicReviewNeeded ;
+
+    /** True while the question still needs tags from the tagger. */
+    private boolean autoTaggingNeeded ;
+
+    /**
+     * The other topics of its syllabus the question's solution depends on;
+     * null where the server didn't load them (every fetch but the tagger's).
+     */
+    private List<TopicDependency> topicDependencies ;
 
     private List<ServerQuestionImage> questionImages = new ArrayList<>() ;
 

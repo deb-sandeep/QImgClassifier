@@ -1,9 +1,8 @@
-package com.sandy.sconsole.qimgtools.apps.topicreviewer.review;
+package com.sandy.sconsole.qimgtools.core.review;
 
 import com.sandy.sconsole.qimgtools.core.model.QTask;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewItem;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ServerQuestion;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ServerQuestionImage;
+import com.sandy.sconsole.qimgtools.core.server.ServerQuestion;
+import com.sandy.sconsole.qimgtools.core.server.ServerQuestionImage;
 import com.sandy.sconsole.qimgtools.core.model.Subject;
 import com.sandy.sconsole.qimgtools.core.util.FileHelper;
 
@@ -30,6 +29,17 @@ import java.util.Map;
 @Slf4j
 public class QuestionLocator {
 
+    /**
+     * Where a question's images were found.
+     *
+     * @param question the question as the server sent it
+     * @param task     its local images, ready for a model; null if they
+     *                 could not be found
+     * @param problem  why {@code task} is null; null otherwise
+     */
+    public record Located( ServerQuestion question, QTask task,
+                           String problem ) {}
+
     private final File qBankDir ;
 
     /**
@@ -46,7 +56,7 @@ public class QuestionLocator {
     }
 
     /** {@code q} with its local images, or with why they weren't found. */
-    public ReviewItem locate( ServerQuestion q ) {
+    public Located locate( ServerQuestion q ) {
 
         List<ServerQuestionImage> images = new ArrayList<>(
                 q.getQuestionImages() ) ;
@@ -89,12 +99,12 @@ public class QuestionLocator {
             return missing( q, baseId + " is not a " + q.getSyllabusName() +
                                " question id" ) ;
         }
-        return new ReviewItem( q, task, null ) ;
+        return new Located( q, task, null ) ;
     }
 
-    private ReviewItem missing( ServerQuestion q, String problem ) {
+    private Located missing( ServerQuestion q, String problem ) {
         log.warn( "Question {} ({}): {}", q.getId(), q.getQuestionId(), problem ) ;
-        return new ReviewItem( q, null, problem ) ;
+        return new Located( q, null, problem ) ;
     }
 
     /** The image file whose name ends with {@code "." + shortName}. */

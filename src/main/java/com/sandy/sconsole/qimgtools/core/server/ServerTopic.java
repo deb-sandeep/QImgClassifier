@@ -1,4 +1,4 @@
-package com.sandy.sconsole.qimgtools.apps.topicreviewer.server;
+package com.sandy.sconsole.qimgtools.core.server;
 
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 

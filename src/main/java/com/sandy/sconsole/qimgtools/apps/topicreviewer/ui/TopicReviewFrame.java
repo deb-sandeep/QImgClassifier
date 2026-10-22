@@ -15,7 +15,7 @@ import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewOpinions;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewResult;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewStatus;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewVerdict;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ServerQuestion;
+import com.sandy.sconsole.qimgtools.core.server.ServerQuestion;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.review.ReviewListener;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.server.SConsoleServerClient;
@@ -104,7 +104,10 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import com.sandy.sconsole.qimgtools.core.ui.HeaderFilterController;
 import com.sandy.sconsole.qimgtools.core.ui.ImagePreview;
+import com.sandy.sconsole.qimgtools.core.ui.Spinner;
+import com.sandy.sconsole.qimgtools.core.ui.ToolIcon;
 import com.sandy.sconsole.qimgtools.core.ui.RateLimitStrip;
 import com.sandy.sconsole.qimgtools.core.ui.TranscriptPanel;
 import com.sandy.sconsole.qimgtools.core.util.ModelNames;
@@ -353,7 +356,7 @@ public class TopicReviewFrame extends JFrame
     private final ReviewTableModel    model ;
     private final JTable              table ;
     private final TableRowSorter<ReviewTableModel> sorter ;
-    private final HeaderFilterController headerFilters ;
+    private final HeaderFilterController<Row> headerFilters ;
     private final TranscriptPanel     transcriptPanel ;
     private final ModelsPanel         modelsPanel = new ModelsPanel(
             "Question", ( id, on ) -> setPassthrough( id, on ),
@@ -515,7 +518,7 @@ public class TopicReviewFrame extends JFrame
                                                      tieBreaker ) ;
         this.table           = new JTable( model ) ;
         this.sorter          = new TableRowSorter<>( model ) ;
-        this.headerFilters   = new HeaderFilterController( table, model,
+        this.headerFilters   = new HeaderFilterController<>( table, model,
                                                            this::applyFilter ) ;
         this.transcriptPanel = new TranscriptPanel( transcripts, names ) ;
         this.decisionPanel   = new ReviewDecisionPanel( this, names ) ;

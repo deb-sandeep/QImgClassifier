@@ -1,7 +1,7 @@
 package com.sandy.sconsole.qimgtools.apps.topicreviewer.workspace;
 
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewOpinions;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ServerQuestion;
+import com.sandy.sconsole.qimgtools.core.server.ServerQuestion;
 import com.sandy.sconsole.qimgtools.core.workspace.JsonFiles;
 
 import com.fasterxml.jackson.databind.JsonNode;

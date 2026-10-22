@@ -35,7 +35,7 @@ import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
  * {@link TaskScheduler}. Thread-safe.
  */
 @Slf4j
-public class QuestionClassifier implements TaskOutcomes {
+public class QuestionClassifier implements TaskOutcomes<List<Topic>> {
 
     // Confidence a Gemma reply needs to be kept without a second opinion
     private static final int CLEAR_LEAD_MIN_CONFIDENCE = 90 ;

@@ -31,14 +31,29 @@ public record FallbackInfo( Map<FailureKind,List<String>> guards,
         defaults = List.copyOf( defaults ) ;
     }
 
-    /** The models to try after a failure of {@code kind}, in order. */
+    /**
+     * The models to try after a failure of {@code kind}, in order: its
+     * guard's, else its parent kind's (see {@link FailureKind#parent}),
+     * else the default ones.
+     */
     public List<String> candidates( FailureKind kind ) {
-        return guards.getOrDefault( kind, defaults ) ;
+        FailureKind guard = guarding( kind ) ;
+        return guard != null ? guards.get( guard ) : defaults ;
     }
 
     /** The guard {@link #candidates} uses for {@code kind}. */
     public String guardFor( FailureKind kind ) {
-        return guards.containsKey( kind ) ? kind.guard() : "default" ;
+        FailureKind guard = guarding( kind ) ;
+        return guard != null ? guard.guard() : "default" ;
+    }
+
+    /** The kind whose guard {@code kind} follows; null for the default. */
+    private FailureKind guarding( FailureKind kind ) {
+
+        for( FailureKind k = kind ; k != null ; k = k.parent() ) {
+            if( guards.containsKey( k ) ) return k ;
+        }
+        return null ;
     }
 
     public boolean isEmpty() { return guards.isEmpty() && defaults.isEmpty() ; }

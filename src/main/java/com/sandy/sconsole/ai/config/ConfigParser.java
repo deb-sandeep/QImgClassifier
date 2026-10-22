@@ -42,7 +42,10 @@ import java.util.Set;
  * a non-empty list of model ids) and {@code models} by id, each with
  * {@code enabled}, {@code maxParallel}, {@code requestTimeoutSeconds},
  * {@code retries}, {@code reasoning}, {@code promptCaching} (required on
- * {@code openrouter} models), optional {@code rateLimit} and
+ * {@code openrouter} models), optional {@code reasoningEffort}
+ * ({@code low} / {@code medium} / {@code high}) or
+ * {@code reasoningMaxTokens} (either only with {@code reasoning} on),
+ * optional {@code maxOutputTokens}, optional {@code rateLimit} and
  * {@code fallback} (guard name to a list of model ids; the guards are the
  * {@link FailureKind} guard names and {@code default}).
  * <p>
@@ -74,7 +77,11 @@ final class ConfigParser {
             "costPerMillionToken" ) ;
     private static final Set<String> APP_MODEL_KEYS = Set.of(
             "enabled", "maxParallel", "requestTimeoutSeconds", "retries",
-            "reasoning", "promptCaching", "rateLimit", "fallback" ) ;
+            "reasoning", "promptCaching", "reasoningEffort",
+            "reasoningMaxTokens", "maxOutputTokens", "rateLimit",
+            "fallback" ) ;
+    private static final Set<String> REASONING_EFFORTS =
+            Set.of( "low", "medium", "high" ) ;
     private static final Set<String> RATE_LIMIT_KEYS = Set.of( "rpm", "rpd" ) ;
     private static final Set<String> COST_KEYS = Set.of( "input", "output" ) ;
 
@@ -225,6 +232,15 @@ final class ConfigParser {
                 throw error( path, "is not defined in the parent file" ) ;
             }
 
+            boolean reasoning  = bool( m, path, "reasoning" ) ;
+            String  effort     = reasoningEffort( m, path, reasoning ) ;
+            Integer maxReason  = optInteger( m, path, "reasoningMaxTokens" ) ;
+
+            if( maxReason != null && ( !reasoning || effort != null ) ) {
+                throw error( path + ".reasoningMaxTokens", reasoning
+                             ? "can't be set with reasoningEffort"
+                             : "needs reasoning set to true" ) ;
+            }
             boolean openRouter = def.gateway().type() == GatewayType.OPENROUTER ;
             boolean caching    = openRouter ? bool( m, path, "promptCaching" )
                                : m.has( "promptCaching" )
@@ -238,7 +254,8 @@ final class ConfigParser {
                     integer( m, path, "maxParallel", 1 ),
                     seconds( m, path, "requestTimeoutSeconds" ),
                     integer( m, path, "retries", 0 ),
-                    bool( m, path, "reasoning" ), caching,
+                    reasoning, caching, effort, maxReason,
+                    optInteger( m, path, "maxOutputTokens" ),
                     fallback( m, path, all ), true ) ) ;
         }
         return models ;
@@ -570,6 +587,32 @@ final class ConfigParser {
                          "least " + min ) ;
         }
         return n.asInt() ;
+    }
+
+    /** An optional whole number of at least 1; null if absent. */
+    private Integer optInteger( JsonNode parent, String path, String key ) {
+        return parent.has( key ) ? integer( parent, path, key, 1 ) : null ;
+    }
+
+    /**
+     * A model's optional {@code reasoningEffort}; null if absent. Only a
+     * reasoning model may have one.
+     */
+    private String reasoningEffort( JsonNode model, String path,
+                                    boolean reasoning ) {
+
+        if( !model.has( "reasoningEffort" ) ) return null ;
+        String effort = text( model, path, "reasoningEffort" ) ;
+
+        if( !REASONING_EFFORTS.contains( effort ) ) {
+            throw error( path + ".reasoningEffort", "must be one of " +
+                         "low, medium, high" ) ;
+        }
+        if( !reasoning ) {
+            throw error( path + ".reasoningEffort",
+                         "needs reasoning set to true" ) ;
+        }
+        return effort ;
     }
 
     private Duration seconds( JsonNode parent, String path, String key ) {

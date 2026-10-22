@@ -1,7 +1,5 @@
-package com.sandy.sconsole.qimgtools.apps.topicreviewer.ui;
+package com.sandy.sconsole.qimgtools.core.ui;
 
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewStatus;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.ReviewTableModel.Row;
 
 import javax.swing.JCheckBoxMenuItem;
 import javax.swing.JLabel;
@@ -17,7 +15,6 @@ import java.awt.Font;
 import java.awt.Rectangle;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -26,25 +23,46 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Predicate;
 
-import static com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.ReviewTableModel.COL_SAVED;
-import static com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.ReviewTableModel.COL_SOURCE;
-import static com.sandy.sconsole.qimgtools.apps.topicreviewer.ui.ReviewTableModel.COL_STATUS;
 
 /**
- * Per-column filtering driven from the review table's header: right-click a
- * header for a filter popup (left-click still sorts, through the table's
- * row sorter). The filters are ANDed with each other and with the toolbar's
- * Show choice.
+ * Per-column filtering driven from a table's header, for the topic
+ * reviewer's and the tagger's tables: right-click a header for a filter
+ * popup (left-click still sorts, through the table's row sorter). The
+ * filters are ANDed with each other and with the app's own (e.g. a status
+ * filter in the toolbar).
  * <p>
- * Text columns filter by "contains" (case-insensitive); {@code Source} and
- * {@code Status} filter by a set of allowed values
- * (Status by its plain label, without the attempt number). A filtered
- * column's header is shown in bold with a trailing {@code *}.
+ * Text columns filter by "contains" (case-insensitive); the columns the
+ * {@link Columns} call enumerable filter by a set of allowed values. A
+ * filtered column's header is shown in bold with a trailing {@code *}.
+ *
+ * @param <R> the table's row type
  */
-class HeaderFilterController {
+public class HeaderFilterController<R> {
 
-    private final JTable           table ;
-    private final ReviewTableModel model ;
+    /** What the controller needs to know of the table's columns and rows. */
+    public interface Columns<R> {
+
+        /** The rows loaded, filtered out or not. */
+        List<R> rows() ;
+
+        /** What {@code row} is filtered by in column {@code col}. */
+        String cellText( R row, int col ) ;
+
+        /** False for a column that can't be filtered (e.g. an icon). */
+        default boolean filterable( int col ) { return true ; }
+
+        /** True for a column filtered by a set of allowed values. */
+        default boolean enumerable( int col ) { return false ; }
+
+        /**
+         * Every value an enumerable column may hold (e.g. every status);
+         * null to offer those of the loaded rows.
+         */
+        default List<String> values( int col ) { return null ; }
+    }
+
+    private final JTable     table ;
+    private final Columns<R> columns ;
 
     /** Invoked after a filter changed, to re-filter the table. */
     private final Runnable onChange ;
@@ -57,11 +75,11 @@ class HeaderFilterController {
             new LinkedHashMap<>() ;
 
     /** Installs the header mouse handling and renderer on {@code table}. */
-    HeaderFilterController( JTable table, ReviewTableModel model,
-                            Runnable onChange ) {
+    public HeaderFilterController( JTable table, Columns<R> columns,
+                                   Runnable onChange ) {
 
         this.table    = table ;
-        this.model    = model ;
+        this.columns  = columns ;
         this.onChange = onChange ;
 
         JTableHeader header = table.getTableHeader() ;
@@ -91,19 +109,19 @@ class HeaderFilterController {
     }
 
     /** True if any column has a filter set. */
-    boolean hasAnyFilter() {
+    public boolean hasAnyFilter() {
         return !textFilters.isEmpty() || !valueFilters.isEmpty() ;
     }
 
     /** Remove every filter and re-filter the table. */
-    void clearAll() {
+    public void clearAll() {
         textFilters.clear() ;
         valueFilters.clear() ;
         apply() ;
     }
 
     /** True if {@code row} passes every column filter. */
-    boolean accepts( Row row ) {
+    public boolean accepts( R row ) {
 
         for( Map.Entry<Integer,String> e : textFilters.entrySet() ) {
             String cell = cellText( row, e.getKey() ).toLowerCase() ;
@@ -127,7 +145,7 @@ class HeaderFilterController {
 
         if( viewCol < 0 ) return ;
         int modelCol = table.convertColumnIndexToModel( viewCol ) ;
-        if( modelCol == COL_SAVED ) return ;   // dot column
+        if( !columns.filterable( modelCol ) ) return ;
 
         JPopupMenu menu = isEnumerable( modelCol )
                 ? buildValueMenu( modelCol )
@@ -150,7 +168,7 @@ class HeaderFilterController {
     private JPopupMenu buildTextMenu( int modelCol ) {
 
         JPopupMenu menu = new JPopupMenu() ;
-        String name = model.getColumnName( modelCol ) ;
+        String name = table.getModel().getColumnName( modelCol ) ;
         String current = textFilters.getOrDefault( modelCol, "" ) ;
 
         JMenuItem edit = new JMenuItem(
@@ -228,8 +246,8 @@ class HeaderFilterController {
 
     // ---- filter application ----------------------------------------
 
-    private static boolean isEnumerable( int modelCol ) {
-        return modelCol == COL_SOURCE || modelCol == COL_STATUS ;
+    private boolean isEnumerable( int modelCol ) {
+        return columns.enumerable( modelCol ) ;
     }
 
     private boolean hasFilter( int modelCol ) {
@@ -238,25 +256,22 @@ class HeaderFilterController {
     }
 
     /** What {@code row} is filtered by in the column: its text, "" if none. */
-    private String cellText( Row row, int modelCol ) {
-
-        if( modelCol == COL_STATUS ) return row.status.getLabel() ;
-        Object value = model.getValueAt( model.indexOf( row ), modelCol ) ;
-        return value == null ? "" : value.toString() ;
+    private String cellText( R row, int modelCol ) {
+        String text = columns.cellText( row, modelCol ) ;
+        return text == null ? "" : text ;
     }
 
     /**
-     * The values an enumerable column offers: every status for Status, else
+     * The values an enumerable column offers: those the columns name, else
      * those of the loaded rows plus any the filter allows, sorted.
      */
     private List<String> values( int modelCol ) {
 
-        if( modelCol == COL_STATUS ) {
-            return Arrays.stream( ReviewStatus.values() )
-                         .map( ReviewStatus::getLabel ).toList() ;
-        }
+        List<String> fixed = columns.values( modelCol ) ;
+        if( fixed != null ) return fixed ;
+
         Set<String> values = new TreeSet<>( String.CASE_INSENSITIVE_ORDER ) ;
-        model.rows().forEach( r -> values.add( cellText( r, modelCol ) ) ) ;
+        columns.rows().forEach( r -> values.add( cellText( r, modelCol ) ) ) ;
         values.addAll( valueFilters.getOrDefault( modelCol, Set.of() ) ) ;
         return List.copyOf( values ) ;
     }

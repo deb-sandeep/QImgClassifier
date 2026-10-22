@@ -72,7 +72,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     private final QClassifierConfig  config ;
     private final ProcessedList      processedList ;
     private final QuestionClassifier classifier ;
-    private final TaskScheduler      scheduler ;
+    private final TaskScheduler<List<Topic>> scheduler ;
     private final ClassificationListener listener ;
     private final TopicSequenceGenerator sequenceGenerator ;
 
@@ -116,7 +116,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
         AIHub hub = AIHub.create( config.getAi(), new AIHub.Options(
                 config.getRequestHistoryFile(), new ClassifierRouting(),
                 "qclassifier" ) ) ;
-        this.scheduler = new TaskScheduler(
+        this.scheduler = new TaskScheduler<>(
                 hub, new TopicPrompter( TopicRepo.instance(), PROMPT_DIR ),
                 classifier ) ;
         this.sequenceGenerator = sequenceGenerator( config ) ;

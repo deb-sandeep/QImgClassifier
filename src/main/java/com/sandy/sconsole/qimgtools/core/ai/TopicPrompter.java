@@ -2,6 +2,7 @@ package com.sandy.sconsole.qimgtools.core.ai;
 
 import com.sandy.sconsole.ai.AIRequest;
 import com.sandy.sconsole.qimgtools.core.model.QTask;
+import com.sandy.sconsole.qimgtools.core.scheduler.TaskPrompter;
 import com.sandy.sconsole.qimgtools.core.model.Subject;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 import com.sandy.sconsole.qimgtools.core.model.TopicRepo;
@@ -38,7 +39,7 @@ import java.util.Map;
  * subject. Thread-safe.
  */
 @Slf4j
-public class TopicPrompter {
+public class TopicPrompter implements TaskPrompter<List<Topic>> {
 
     /**
      * Reads replies and writes topic lists. Fields a reply adds beyond the
@@ -86,12 +87,34 @@ public class TopicPrompter {
         return promptBySubject.get( subject ) ;
     }
 
+    /** The complete prompt for {@code task}'s subject. */
+    @Override
+    public String prompt( QTask task ) {
+        return prompt( task.getSubject() ) ;
+    }
+
+    /**
+     * The topics in a reply (see {@link #parseTopics}).
+     *
+     * @throws BadReply if the reply is not a topic list
+     */
+    @Override
+    public List<Topic> parse( String reply, QTask task ) throws BadReply {
+        try {
+            return parseTopics( reply, task ) ;
+        }
+        catch( JsonProcessingException e ) {
+            throw new BadReply( "the model's reply was not a topic list" ) ;
+        }
+    }
+
     /**
      * The question's image; a multi-part question's images are stacked into
      * one so the model sees the whole question.
      *
      * @throws IOException if an image cannot be read or stacked
      */
+    @Override
     public AIRequest.Image prepareImage( QTask task ) throws IOException {
 
         List<File> files = task.getImgFiles() ;

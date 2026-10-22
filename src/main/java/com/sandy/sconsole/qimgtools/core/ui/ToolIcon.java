@@ -1,4 +1,4 @@
-package com.sandy.sconsole.qimgtools.apps.topicreviewer.ui;
+package com.sandy.sconsole.qimgtools.core.ui;
 
 import javax.swing.Icon;
 import javax.swing.UIManager;
@@ -16,11 +16,11 @@ import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
 
 /**
- * The reviewer's toolbar and menu icons, drawn rather than loaded. Each is
- * painted grey on a disabled component, since Swing only greys out image
- * icons by itself.
+ * The reviewer's and the tagger's toolbar and menu icons, drawn rather than
+ * loaded. Each is painted grey on a disabled component, since Swing only
+ * greys out image icons by itself.
  */
-enum ToolIcon implements Icon {
+public enum ToolIcon implements Icon {
 
     CRITERIA( new Color( 0x455A64 ) ),
     LOAD    ( new Color( 0x1565C0 ) ),
@@ -34,7 +34,7 @@ enum ToolIcon implements Icon {
     CLEAR   ( new Color( 0x455A64 ) ) ;
 
     /** Width and height of the icons in pixels. */
-    static final int SIZE = 16 ;
+    public static final int SIZE = 16 ;
 
     private static final Color DISABLED = new Color( 0xB0B0B0 ) ;
 

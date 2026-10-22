@@ -15,14 +15,14 @@ import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewDecision;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewItem;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewResult;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewOpinions;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ServerQuestion;
+import com.sandy.sconsole.qimgtools.core.server.ServerQuestion;
 import com.sandy.sconsole.qimgtools.core.model.Subject;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 import com.sandy.sconsole.qimgtools.core.model.TopicRepo;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.review.QuestionLocator;
+import com.sandy.sconsole.qimgtools.core.review.QuestionLocator;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.review.ReviewListener;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.review.ReviewOutcomes;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.server.PendingResult;
+import com.sandy.sconsole.qimgtools.core.server.PendingResult;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.server.SConsoleServerClient;
 import com.sandy.sconsole.qimgtools.core.sequence.TopicSequenceGenerator;
 import com.sandy.sconsole.qimgtools.core.server.SConsoleServer;
@@ -89,7 +89,7 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
     private final ReviewAuditLog       audit ;
     private final QuestionLocator      locator ;
     private final ReviewOutcomes       outcomes ;
-    private final TaskScheduler        scheduler ;
+    private final TaskScheduler<List<Topic>> scheduler ;
     private final ReviewListener       listener ;
 
     /** True while a batch thread is alive. */
@@ -135,7 +135,7 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
                 frame, pending, audit,
                 new TranscriptStore( config.getWorkspaceDir() ),
                 new UsageLog( config.getUsageLogFile() ), topicRepo ) ;
-        this.scheduler = new TaskScheduler(
+        this.scheduler = new TaskScheduler<>(
                 hub, new TopicPrompter( topicRepo, PROMPT_DIR ), outcomes ) ;
     }
 
@@ -259,7 +259,8 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
                           SConsoleServerClient.MAX_LIMIT ) ) ;
 
         List<ReviewItem> items = r.getQuestions().stream()
-                                  .map( locator::locate ).toList() ;
+                                  .map( locator::locate )
+                                  .map( ReviewItem::of ).toList() ;
         long located = items.stream().filter( ReviewItem::hasImages ).count() ;
 
         log.info( "Loaded {} questions ({} with local images); {} await " +

@@ -14,15 +14,12 @@ import com.sandy.sconsole.ai.JobListener;
 import com.sandy.sconsole.ai.Priority;
 import com.sandy.sconsole.ai.ReplyCheck;
 import com.sandy.sconsole.ai.config.ModelInfo;
-import com.sandy.sconsole.qimgtools.core.ai.TopicPrompter;
 import com.sandy.sconsole.qimgtools.core.model.AIAgent;
 import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
 import com.sandy.sconsole.qimgtools.core.model.AttemptTranscript;
 import com.sandy.sconsole.qimgtools.core.model.QTask;
 import com.sandy.sconsole.qimgtools.core.model.RateLimitNotice;
-import com.sandy.sconsole.qimgtools.core.model.Topic;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashMap;
@@ -33,28 +30,31 @@ import java.util.function.BooleanSupplier;
 /**
  * Sends questions to the app's AI models through the {@link AIHub}: each
  * question becomes a hub job on the roots {@link TaskOutcomes#roots} names,
- * asking the {@link TopicPrompter}'s question with the question's image. The
+ * asking the {@link TaskPrompter}'s question with the question's image. The
  * hub binds each job to a model when one of the model's slots is free, as
  * the app's routing policy decides, and handles retries, guarded fallbacks
- * and rate limits (see {@code AIHub}). A reply is read as a topic list; one
- * that isn't fails the attempt as a bad reply. A topic list the outcomes
- * want a second opinion on is escalated to the root they name.
+ * and rate limits (see {@code AIHub}). A reply is read by the prompter (a
+ * topic list for the classifier and the reviewer); one it can't read fails
+ * the attempt as a bad reply. A reply the outcomes want a second opinion on
+ * is escalated to the root they name.
  * <p>
  * Batches are counted here, so the app can wait for one to finish. Every
  * question carries a {@code keepGoing} check: once it turns false, a
  * question that has not started is dropped, and a started one ends with
  * what it has (a reply awaiting a second opinion, else its last failure).
  * Thread-safe.
+ *
+ * @param <R> what a reply is read as
  */
 @Slf4j
-public class TaskScheduler {
+public class TaskScheduler<R> {
 
     /** Longest single wait in {@link #awaitBatch}. */
     private static final long MAX_WAIT_MS = 1000 ;
 
-    private final AIHub         hub ;
-    private final TopicPrompter prompter ;
-    private final TaskOutcomes  outcomes ;
+    private final AIHub           hub ;
+    private final TaskPrompter<R> prompter ;
+    private final TaskOutcomes<R> outcomes ;
 
     /** Guards {@link #active}, {@link #held} and the batch count. */
     private final Object lock = new Object() ;
@@ -110,8 +110,8 @@ public class TaskScheduler {
         public String toString() { return task.getQuestionId() ; }
     }
 
-    public TaskScheduler( AIHub hub, TopicPrompter prompter,
-                          TaskOutcomes outcomes ) {
+    public TaskScheduler( AIHub hub, TaskPrompter<R> prompter,
+                          TaskOutcomes<R> outcomes ) {
         this.hub      = hub ;
         this.prompter = prompter ;
         this.outcomes = outcomes ;
@@ -274,7 +274,7 @@ public class TaskScheduler {
      * policy; null for any other job.
      */
     public static QTask taskOf( JobContext<?> job ) {
-        return job.payload() instanceof Entry e ? e.task : null ;
+        return job.payload() instanceof TaskScheduler<?>.Entry e ? e.task : null ;
     }
 
     /** Stop the hub, interrupting requests in flight. */
@@ -287,7 +287,7 @@ public class TaskScheduler {
     /** Under lock: hand {@code e} to the hub. */
     private void submit( Entry e, Priority priority ) {
 
-        AIJob<Entry,List<Topic>> job = new AIJob<>(
+        AIJob<Entry,R> job = new AIJob<>(
                 e, outcomes.roots( e.task ), model -> request( e ),
                 e.keepGoing, new Listener() ) ;
         e.handle = hub.submit( job, priority ) ;
@@ -297,8 +297,7 @@ public class TaskScheduler {
     private AIRequest request( Entry e ) throws Exception {
 
         if( e.image == null ) e.image = prompter.prepareImage( e.task ) ;
-        return new AIRequest( prompter.prompt( e.task.getSubject() ),
-                              List.of( e.image ) ) ;
+        return new AIRequest( prompter.prompt( e.task ), List.of( e.image ) ) ;
     }
 
     /** The job's end: off the active tasks and the batch count. */
@@ -319,7 +318,7 @@ public class TaskScheduler {
     }
 
     /** Follows one question through the hub. */
-    private final class Listener implements JobListener<Entry,List<Topic>> {
+    private final class Listener implements JobListener<Entry,R> {
 
         @Override
         public void started( JobContext<Entry> job ) {
@@ -338,33 +337,33 @@ public class TaskScheduler {
                                        attempt.number() ) ;
             e.request = new AttemptRequest(
                     e.task, agent, attempt.model().id(), attempt.number(),
-                    mime, attempt.startedAt(), attempt.request().prompt() ) ;
+                    mime, attempt.startedAt(), attempt.request().prompt(),
+                    outcomes.attemptContext( e.task ) ) ;
             e.attempts.requestSent( e.request ) ;
         }
 
         @Override
-        public ReplyCheck<List<Topic>> check( JobContext<Entry> job,
-                                              Attempt attempt, AIReply reply ) {
+        public ReplyCheck<R> check( JobContext<Entry> job, Attempt attempt,
+                                    AIReply reply ) {
 
-            QTask       task = job.payload().task ;
-            List<Topic> topics ;
+            QTask task = job.payload().task ;
+            R     value ;
             try {
-                topics = prompter.parseTopics( reply.text(), task ) ;
+                value = prompter.parse( reply.text(), task ) ;
             }
-            catch( JsonProcessingException ex ) {
-                log.error( "[{}] Error parsing the reply of {} (attempt {}): {}",
-                           task, attempt.model().tag(), attempt.number(),
-                           reply.text(), ex ) ;
-                return ReplyCheck.reject( "the model's reply was not a topic " +
-                                          "list" ) ;
+            catch( TaskPrompter.BadReply ex ) {
+                log.error( "[{}] Error parsing the reply of {} (attempt {}): " +
+                           "{}: {}", task, attempt.model().tag(),
+                           attempt.number(), ex.getMessage(), reply.text() ) ;
+                return ReplyCheck.reject( ex.getMessage() ) ;
             }
 
             String root = outcomes.secondOpinionRoot(
-                    task, topics, agentOf( attempt.model() ),
+                    task, value, agentOf( attempt.model() ),
                     attempt.model().id() ) ;
             return root == null
-                   ? ReplyCheck.accept( topics )
-                   : ReplyCheck.escalate( topics, root,
+                   ? ReplyCheck.accept( value )
+                   : ReplyCheck.escalate( value, root,
                                           outcomes.secondOpinionReason() ) ;
         }
 
@@ -386,12 +385,12 @@ public class TaskScheduler {
         }
 
         @Override
-        public void succeeded( JobContext<Entry> job, List<Topic> topics,
+        public void succeeded( JobContext<Entry> job, R value,
                                ModelInfo model, boolean provisional ) {
 
             Entry e = job.payload() ;
             try {
-                outcomes.succeeded( e.task, topics, agentOf( model ), model.id(),
+                outcomes.succeeded( e.task, value, agentOf( model ), model.id(),
                                     job.attempts() ) ;
             }
             finally {
@@ -405,7 +404,7 @@ public class TaskScheduler {
 
             Entry e = job.payload() ;
             try {
-                outcomes.failed( e.task, job.attempts(), reason ) ;
+                outcomes.failed( e.task, job.attempts(), reason, kind ) ;
             }
             finally {
                 ended( e ) ;

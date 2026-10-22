@@ -29,7 +29,26 @@ public class SConsoleServer {
 
     /** A request the server refused, or could not be asked. */
     public static class ServerException extends Exception {
-        public ServerException( String message ) { super( message ) ; }
+
+        /** The envelope's {@code data} of a refusal, if it had one. */
+        private final transient JsonNode data ;
+
+        public ServerException( String message ) {
+            this( message, null ) ;
+        }
+
+        public ServerException( String message, JsonNode data ) {
+            super( message ) ;
+            this.data = data ;
+        }
+
+        /**
+         * The {@code data} the server sent with its refusal (e.g. an
+         * import's errors); null if none.
+         */
+        public JsonNode data() {
+            return data ;
+        }
     }
 
     /** Server field names are camelCase; fields not modelled are ignored. */
@@ -127,8 +146,11 @@ public class SConsoleServer {
             String message = result != null && result.hasNonNull( "message" )
                            ? result.get( "message" ).asText()
                            : abbreviate( response.body() ) ;
+            JsonNode data = root == null ? null : root.get( "data" ) ;
             log.warn( "{} - HTTP {}: {}", what, response.statusCode(), message ) ;
-            throw new ServerException( message ) ;
+            throw new ServerException( message,
+                                       data == null || data.isNull() ? null
+                                                                     : data ) ;
         }
         try {
             return mapper.convertValue( root.get( "data" ), type ) ;

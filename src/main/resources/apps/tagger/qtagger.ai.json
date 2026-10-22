@@ -1,0 +1,71 @@
+// The tagger's AI models. Override with -Dai.app.config=<file>. See the
+// classifier's qimgclassifier.ai.json for what each setting means.
+//
+// Every question goes to the "tier1" root, strictly in table order, and is
+// solved blind (the model never sees the key). A tier 1 answer that misses
+// the key sends the question on to the "tier2" root, a stronger model that
+// solves it again, also blind. Both roots need a usable model, else the
+// tagger refuses to start.
+//
+// Solving needs reasoning, so every model reasons (its default effort where
+// none is given). A reply that can't be read, or names a tag that isn't
+// offered, is sent once more (retries: 1). A reply cut off at the length limit
+// (maxOutputTokens) goes by the "truncated" guard.
+{
+  "parent" : "classpath:/common/ai-model-config.json",
+
+  "roots" : {
+    "tier1" : [ "nvidia/nemotron-3.5-super-vl:free" ],
+    "tier2" : [ "z-ai/glm-5.3-flash" ]
+  },
+
+  "models" : {
+    "nvidia/nemotron-3.5-super-vl:free" : {
+      "enabled"               : true,
+      "maxParallel"           : 4,
+      "requestTimeoutSeconds" : 180,
+      "retries"               : 1,
+      "reasoning"             : true,
+      "maxOutputTokens"       : 12000,
+      "promptCaching"         : true,
+      "fallback"              : {
+        "rateLimitedRPD" : [ "nvidia/nemotron-3.5-super-vl" ],
+        "serverError"    : [ "nvidia/nemotron-3.5-super-vl" ],
+        "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ]
+      }
+    },
+    "nvidia/nemotron-3.5-super-vl" : {
+      "enabled"               : true,
+      "maxParallel"           : 3,
+      "requestTimeoutSeconds" : 180,
+      "retries"               : 1,
+      "reasoning"             : true,
+      "maxOutputTokens"       : 12000,
+      "promptCaching"         : true
+    },
+    "z-ai/glm-5.3-flash" : {
+      "enabled"               : true,
+      "maxParallel"           : 6,
+      "requestTimeoutSeconds" : 300,
+      "retries"               : 1,
+      "reasoning"             : true,
+      "reasoningEffort"       : "medium",
+      "maxOutputTokens"       : 16000,
+      "promptCaching"         : true,
+      "fallback"              : {
+        "timeout"   : [ "anthropic/claude-haiku-5.5" ],
+        "truncated" : [ "anthropic/claude-haiku-5.5" ]
+      }
+    },
+    "anthropic/claude-haiku-5.5" : {
+      "enabled"               : true,
+      "maxParallel"           : 3,
+      "requestTimeoutSeconds" : 300,
+      "retries"               : 0,
+      "reasoning"             : true,
+      "reasoningMaxTokens"    : 8000,
+      "maxOutputTokens"       : 16000,
+      "promptCaching"         : true
+    }
+  }
+}

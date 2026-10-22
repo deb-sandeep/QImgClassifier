@@ -14,6 +14,12 @@
 //   retries               attempts a question gets on the model after a
 //                         failed one, before following its fallback
 //   reasoning             let the model reason first (costs output tokens)
+//   reasoningEffort       (optional, with reasoning) low, medium or high;
+//                         absent: the model's default (openrouter models)
+//   reasoningMaxTokens    (optional, with reasoning, not with
+//                         reasoningEffort) the most tokens it may reason with
+//   maxOutputTokens       (optional) the most tokens a reply may have; a
+//                         reply cut off there fails as "truncated"
 //   promptCaching         mark the prompt cacheable where the model supports
 //                         it (openrouter models)
 //   rateLimit             (optional) the app's own { rpm, rpd } on the model,
@@ -21,8 +27,10 @@
 //   fallback              (optional) where a question goes once the model
 //                         has failed it for good, by why it failed:
 //                         rateLimitedRPM, rateLimitedRPD, serverError,
-//                         timeout, unreachable, badReply, default (for the
-//                         rest). Each list is in order of preference: a later
+//                         timeout, unreachable, badReply, truncated (a
+//                         reply cut off at the length limit; without it,
+//                         badReply's), default (for the rest). Each list is
+//                         in order of preference: a later
 //                         model takes the question only while every earlier
 //                         one is held back (rate limit, daily limit,
 //                         unreachable), never just because it is busy. While

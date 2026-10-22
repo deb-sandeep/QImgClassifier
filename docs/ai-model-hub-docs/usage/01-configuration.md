@@ -182,8 +182,11 @@ Models that are only in the global file are invisible to the app.
 | `retries` | yes | Further attempts a job gets on this model after a failed one, before following its fallback. |
 | `reasoning` | yes | Let the model reason before answering. Ollama gets `think`; OpenRouter gets `reasoning: {enabled: false}` when off. |
 | `promptCaching` | `openrouter` models | Mark the prompt cacheable on models whose OpenRouter catalogue entry supports it. |
+| `reasoningEffort` | no | With `reasoning` on: `low`, `medium` or `high`, sent to OpenRouter as `reasoning: {effort}`. Absent: the model's default. |
+| `reasoningMaxTokens` | no | With `reasoning` on, and not with `reasoningEffort`: the most tokens the model may reason with, sent as `reasoning: {max_tokens}`. |
+| `maxOutputTokens` | no | The most tokens a reply may have: OpenRouter `max_tokens`, Ollama `num_predict`. Absent: no limit is sent. A reply cut off at the limit fails as `TRUNCATED`. |
 | `rateLimit` | no | The app's own `{ "rpm", "rpd" }` on this model, counted in this app only: its share of the provider's limit. Both apply: for each of rpm and rpd, the smaller non-zero value wins. |
-| `fallback` | no | Guards: `rateLimitedRPM`, `rateLimitedRPD`, `serverError`, `timeout`, `unreachable`, `badReply`, `passthrough`, `default`. See [Retries and fallbacks](04-retries-and-fallbacks.md). |
+| `fallback` | no | Guards: `rateLimitedRPM`, `rateLimitedRPD`, `serverError`, `timeout`, `unreachable`, `badReply`, `truncated`, `passthrough`, `default`. See [Retries and fallbacks](04-retries-and-fallbacks.md). |
 
 ## Loading
 

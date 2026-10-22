@@ -22,6 +22,14 @@ import java.time.Duration;
  * @param reasoning         let it reason before answering
  * @param promptCaching     mark the prompt cacheable where the model
  *                          supports it
+ * @param reasoningEffort   how hard a reasoning model reasons ({@code low},
+ *                          {@code medium} or {@code high}); null for its
+ *                          default
+ * @param reasoningMaxTokens the most tokens a reasoning model may reason
+ *                          with; null for its default
+ * @param maxOutputTokens   the most tokens a reply may have (reasoning
+ *                          included where the provider counts it); null for
+ *                          no limit
  * @param fallback          where a job goes after it fails the job for good
  * @param reachable         a job can get to it: it is in one of the app's
  *                          roots, or in the fallback of a usable model the
@@ -33,7 +41,9 @@ public record ModelInfo( String id, GatewayInfo gateway, String displayName,
                          RateLimit appRateLimit, int maxParallel,
                          Duration requestTimeout, int retries,
                          boolean reasoning, boolean promptCaching,
-                         FallbackInfo fallback, boolean reachable ) {
+                         String reasoningEffort, Integer reasoningMaxTokens,
+                         Integer maxOutputTokens, FallbackInfo fallback,
+                         boolean reachable ) {
 
     /**
      * True if the model can be sent requests: it is switched on in the app
@@ -47,8 +57,9 @@ public record ModelInfo( String id, GatewayInfo gateway, String displayName,
         return new ModelInfo( id, gateway, displayName, enabledGlobally,
                               enabledInApp, contextTokens, providerRateLimit,
                               appRateLimit, maxParallel, requestTimeout,
-                              retries, reasoning, promptCaching, fallback,
-                              false ) ;
+                              retries, reasoning, promptCaching,
+                              reasoningEffort, reasoningMaxTokens,
+                              maxOutputTokens, fallback, false ) ;
     }
 
     /** Why the model is not {@link #usable()}; null if it is. */
@@ -89,7 +100,14 @@ public record ModelInfo( String id, GatewayInfo gateway, String displayName,
                "model limit: " + rateLimit() + ", timeout " +
                requestTimeout.toSeconds() + "s, " + retries +
                ( retries == 1 ? " retry" : " retries" ) +
-               ", reasoning " + ( reasoning ? "on" : "off" ) +
+               ", reasoning " + ( !reasoning ? "off"
+                                : reasoningEffort != null
+                                ? "on (" + reasoningEffort + ")"
+                                : reasoningMaxTokens != null
+                                ? "on (" + reasoningMaxTokens + " tokens)"
+                                : "on" ) +
+               ( maxOutputTokens != null
+                 ? ", max output " + maxOutputTokens + " tokens" : "" ) +
                ( promptCaching ? ", prompt caching" : "" ) +
                ", fallback " + fallback + ")" ;
     }

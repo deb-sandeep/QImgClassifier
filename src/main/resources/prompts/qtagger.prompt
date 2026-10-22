@@ -1,0 +1,18 @@
+templateVersion: 1
+---
+You tag a JEE {{SYLLABUS}} question of the topic "{{TOPIC}}" for a diagnostic question bank. The question is the image after these instructions; its type is given just before the image.
+
+1. Solve it yourself, carefully and completely. Your answer is checked against the answer key, and your tags are trusted only if it matches, so do not guess.
+   Answer format by question type:
+   - SCA, ART, LCT: the one correct option, with the label the image prints ("C" or "3").
+   - MCA: every correct option, labels as printed, comma-separated ("A,C" or "1,3").
+   - NVT: the numerical value only, no units ("2.5").
+   - IVT: the integer only ("4").
+2. Tag it from the lists below only, by exact tag text:
+{{AXES}}
+   Tags describe the intended efficient solution, not every idea the stem mentions.
+
+{{TAGS}}
+
+{{OTHER_TOPICS}}{{GAP}}Reply with one JSON object and nothing else (no markdown, no prose):
+{{SCHEMA}}

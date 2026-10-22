@@ -37,6 +37,13 @@ public enum FailureKind {
     BAD_REPLY( "badReply" ),
 
     /**
+     * The reply was cut off at the length limit (the model's
+     * {@code maxOutputTokens}, or the provider's). Falls back by its own
+     * guard, else by {@code badReply}'s.
+     */
+    TRUNCATED( "truncated" ),
+
+    /**
      * Never an attempt's failure: the app has set the model to pass its
      * jobs through ({@code AIHub.setPassthrough}). It takes no jobs, and
      * those that would go to it go by this guard instead.
@@ -62,6 +69,14 @@ public enum FailureKind {
     public boolean isHandedBack() {
         return this == RATE_LIMITED_RPM || this == RATE_LIMITED_RPD
                || this == UNREACHABLE ;
+    }
+
+    /**
+     * The kind whose guard a failure of this kind follows when the model
+     * has no guard of its own for it; null to follow {@code default}.
+     */
+    public FailureKind parent() {
+        return this == TRUNCATED ? BAD_REPLY : null ;
     }
 
     /** The kind whose guard name is {@code guard}; null if there is none. */

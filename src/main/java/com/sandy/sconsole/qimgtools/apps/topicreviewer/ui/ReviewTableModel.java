@@ -5,12 +5,14 @@ import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewItem;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewOpinions;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewStatus;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewVerdict;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ServerQuestion;
+import com.sandy.sconsole.qimgtools.core.server.ServerQuestion;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
+import com.sandy.sconsole.qimgtools.core.ui.HeaderFilterController;
 import com.sandy.sconsole.qimgtools.core.util.ModelNames;
 
 import javax.swing.table.AbstractTableModel;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,7 +25,8 @@ import java.util.function.Predicate;
  * All state lives here and is touched on the EDT only.
  */
 @SuppressWarnings( "serial" )
-final class ReviewTableModel extends AbstractTableModel {
+final class ReviewTableModel extends AbstractTableModel
+        implements HeaderFilterController.Columns<ReviewTableModel.Row> {
 
     static final int COL_ID          = 0 ;
     static final int COL_SOURCE      = 1 ;
@@ -243,8 +246,35 @@ final class ReviewTableModel extends AbstractTableModel {
         return byId.containsKey( id ) ;
     }
 
-    List<Row> rows() {
+    @Override
+    public List<Row> rows() {
         return rows ;
+    }
+
+    /** Status filters by its plain label, without the attempt number. */
+    @Override
+    public String cellText( Row row, int col ) {
+
+        if( col == COL_STATUS ) return row.status.getLabel() ;
+        Object value = getValueAt( indexOf( row ), col ) ;
+        return value == null ? "" : value.toString() ;
+    }
+
+    @Override
+    public boolean filterable( int col ) {
+        return col != COL_SAVED ;
+    }
+
+    @Override
+    public boolean enumerable( int col ) {
+        return col == COL_SOURCE || col == COL_STATUS ;
+    }
+
+    @Override
+    public List<String> values( int col ) {
+        return col != COL_STATUS ? null
+               : Arrays.stream( ReviewStatus.values() )
+                       .map( ReviewStatus::getLabel ).toList() ;
     }
 
     Row getRow( int modelIndex ) {

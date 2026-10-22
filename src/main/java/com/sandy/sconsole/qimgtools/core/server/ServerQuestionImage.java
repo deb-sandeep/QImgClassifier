@@ -1,4 +1,4 @@
-package com.sandy.sconsole.qimgtools.apps.topicreviewer.model;
+package com.sandy.sconsole.qimgtools.core.server;
 
 import lombok.Data;
 

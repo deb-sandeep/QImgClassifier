@@ -1,4 +1,4 @@
-package com.sandy.sconsole.qimgtools.apps.topicreviewer.ui;
+package com.sandy.sconsole.qimgtools.core.ui;
 
 import javax.swing.AbstractButton;
 import javax.swing.Icon;
@@ -18,9 +18,9 @@ import java.util.Set;
  * shared timer that repaints the components showing it. {@link #busy} and
  * {@link #idle} put it on a button and take it off again. EDT only.
  */
-final class Spinner implements Icon {
+public final class Spinner implements Icon {
 
-    static final Spinner ICON = new Spinner( 14 ) ;
+    public static final Spinner ICON = new Spinner( 14 ) ;
 
     private static final int    SPOKES     = 8 ;
     private static final int    FRAME_MS   = 100 ;
@@ -38,11 +38,11 @@ final class Spinner implements Icon {
     }
 
     /** Keep repainting {@code c} until {@link #halt}. */
-    static void spin( JComponent c ) {
+    public static void spin( JComponent c ) {
         if( spinning.add( c ) ) timer.start() ;
     }
 
-    static void halt( JComponent c ) {
+    public static void halt( JComponent c ) {
         spinning.remove( c ) ;
         if( spinning.isEmpty() ) timer.stop() ;
     }
@@ -51,7 +51,7 @@ final class Spinner implements Icon {
      * Show the spinner on {@code b}, enabled or not, until {@link #idle}.
      * Calling it on a button already busy does nothing.
      */
-    static void busy( AbstractButton b ) {
+    public static void busy( AbstractButton b ) {
 
         if( b.getClientProperty( IDLE_ICON ) != null ) return ;
         b.putClientProperty( IDLE_ICON,  new Object[]{ b.getIcon() } ) ;
@@ -62,7 +62,7 @@ final class Spinner implements Icon {
     }
 
     /** Take the spinner off {@code b}, restoring its icons. */
-    static void idle( AbstractButton b ) {
+    public static void idle( AbstractButton b ) {
 
         Object[] icon  = (Object[]) b.getClientProperty( IDLE_ICON ) ;
         Object[] dicon = (Object[]) b.getClientProperty( IDLE_DICON ) ;

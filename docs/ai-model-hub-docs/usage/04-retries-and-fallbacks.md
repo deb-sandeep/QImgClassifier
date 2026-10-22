@@ -17,10 +17,12 @@ names the guard used:
 | `UNREACHABLE` | `unreachable` | connection refused, connect timeout | **no**: handed back |
 | `SERVER_ERROR` | `serverError` | 5xx, upstream provider error | yes |
 | `TIMEOUT` | `timeout` | no complete reply within `requestTimeoutSeconds`, or the request was aborted (`AIHub.abortRequest`) | yes |
-| `BAD_REPLY` | `badReply` | empty or cut-off reply, refusal, or your `check` rejected it | yes |
+| `BAD_REPLY` | `badReply` | empty reply, refusal, or your `check` rejected it | yes |
+| `TRUNCATED` | `truncated` | the reply was cut off at the length limit (`maxOutputTokens`, or the provider's) | yes |
 | `OTHER` | (`default` only) | e.g. the gateway refused the request (4xx) | yes |
 
-A kind without its own guard uses `default`. One more guard,
+A kind without its own guard uses `default`, except `TRUNCATED`, which uses
+`badReply` when the model has that guard and no `truncated` one. One more guard,
 `passthrough` (`FailureKind.PASSTHROUGH`), is never an attempt's failure:
 see [Passing a model's jobs through](#passing-a-models-jobs-through).
 

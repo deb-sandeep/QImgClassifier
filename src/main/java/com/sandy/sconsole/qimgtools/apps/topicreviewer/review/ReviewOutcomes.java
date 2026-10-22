@@ -36,7 +36,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * decision. Thread-safe.
  */
 @Slf4j
-public class ReviewOutcomes implements TaskOutcomes {
+public class ReviewOutcomes implements TaskOutcomes<List<Topic>> {
 
     /** The root of the reviewer's AI config the questions go to. */
     public static final String ROOT = "review" ;

@@ -26,4 +26,10 @@ public class AttemptRequest {
     long startedAt ;
 
     String prompt ;
+
+    /**
+     * What the app notes about the attempt beside the model (e.g. the tier
+     * asked); null if nothing.
+     */
+    String context ;
 }

@@ -2,7 +2,7 @@ package com.sandy.sconsole.qimgtools.apps.topicreviewer.workspace;
 
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewOpinions;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewVerdict;
-import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ServerQuestion;
+import com.sandy.sconsole.qimgtools.core.server.ServerQuestion;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 import com.sandy.sconsole.qimgtools.core.workspace.JsonFiles;
 

@@ -3,7 +3,9 @@ package com.sandy.sconsole.qimgtools.apps.topicreviewer.server;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewDecision;
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.model.ReviewResult;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
+import com.sandy.sconsole.qimgtools.core.server.PendingResult;
 import com.sandy.sconsole.qimgtools.core.server.SConsoleServer;
+import com.sandy.sconsole.qimgtools.core.server.ServerTopic;
 import com.sandy.sconsole.qimgtools.core.server.SConsoleServer.ServerException;
 
 import com.fasterxml.jackson.core.type.TypeReference;

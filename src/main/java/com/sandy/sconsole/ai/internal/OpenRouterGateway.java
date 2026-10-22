@@ -52,8 +52,11 @@ final class OpenRouterGateway extends Gateway {
     /**
      * One user message carrying the prompt and then the images as data
      * URLs, at temperature 0, with reasoning disabled unless the model's
-     * {@code reasoning} is on. Provider errors OpenRouter reports inside a
-     * 200 response are failures too.
+     * {@code reasoning} is on (then with its {@code reasoningEffort} or
+     * {@code reasoningMaxTokens}, if set), and its {@code maxOutputTokens}
+     * as {@code max_tokens}, if set. Provider errors OpenRouter reports
+     * inside a 200 response are failures too, as is a reply cut off at the
+     * length limit.
      */
     @Override
     AIReply complete( ModelInfo model, AIRequest request, Call call )
@@ -69,6 +72,17 @@ final class OpenRouterGateway extends Gateway {
             // output tokens and time.
             if( !model.reasoning() ) {
                 payload.putObject( "reasoning" ).put( "enabled", false ) ;
+            }
+            else if( model.reasoningEffort() != null ) {
+                payload.putObject( "reasoning" )
+                       .put( "effort", model.reasoningEffort() ) ;
+            }
+            else if( model.reasoningMaxTokens() != null ) {
+                payload.putObject( "reasoning" )
+                       .put( "max_tokens", model.reasoningMaxTokens() ) ;
+            }
+            if( model.maxOutputTokens() != null ) {
+                payload.put( "max_tokens", model.maxOutputTokens() ) ;
             }
 
             // The prompt goes first, so a prompt shared by many requests is
@@ -138,6 +152,12 @@ final class OpenRouterGateway extends Gateway {
                 Failure f = noAnswer( choice, body ) ;
                 throw new GatewayException( f.kind(), f.reason(),
                                             response.body(), usage ) ;
+            }
+            if( "length".equals( choice.path( "finish_reason" ).asText() ) ) {
+                log.error( "{} reply was cut off: {}", id, response.body() ) ;
+                throw new GatewayException( FailureKind.TRUNCATED,
+                        "the reply was cut off at the length limit",
+                        response.body(), usage ) ;
             }
             return new AIReply( reply.asText(),
                                 reasoning( choice.path( "message" ) ),
@@ -301,7 +321,7 @@ final class OpenRouterGateway extends Gateway {
             case "error"          -> new Failure( FailureKind.SERVER_ERROR,
                     "upstream model error - the reply broke off" +
                     ( provider != null ? " (" + provider + ")" : "" ) ) ;
-            case "length"         -> new Failure( FailureKind.BAD_REPLY,
+            case "length"         -> new Failure( FailureKind.TRUNCATED,
                     "the reply hit the length limit before the answer" ) ;
             case "content_filter" -> new Failure( FailureKind.BAD_REPLY,
                     "the reply was blocked by a content filter" ) ;

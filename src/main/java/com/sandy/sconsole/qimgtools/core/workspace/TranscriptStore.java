@@ -121,6 +121,8 @@ public final class TranscriptStore {
              + header( "Agent",    t.getAgent().getLabel() )
              + header( "Model",    t.getAiModel() )
              + header( "Attempt",  String.valueOf( t.getAttempt() ) )
+             + ( t.getContext() != null ? header( "Context", t.getContext() )
+                                        : "" )
              + header( "Images",   images + " (" + t.getMimeType() + ")" )
              + RULE + "\n"
              + JsonText.format( t.getPrompt() ) + "\n" ;
