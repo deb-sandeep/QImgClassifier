@@ -297,7 +297,8 @@ public class TaskScheduler<R> {
     private AIRequest request( Entry e ) throws Exception {
 
         if( e.image == null ) e.image = prompter.prepareImage( e.task ) ;
-        return new AIRequest( prompter.prompt( e.task ), List.of( e.image ) ) ;
+        return new AIRequest( prompter.prompt( e.task ), List.of( e.image ),
+                              prompter.responseSchema( e.task ) ) ;
     }
 
     /** The job's end: off the active tasks and the batch count. */

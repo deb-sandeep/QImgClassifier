@@ -1,10 +1,10 @@
 topicId: 104
-status: draft
-promptVersion: 0
-catalogueFingerprint: 
-contentHash: 
+status: approved
+promptVersion: 1
+catalogueFingerprint: 8d666f62889fe8be
+contentHash: e3d7763f75d40264
 generatedAt: 2026-10-22T18:29:32Z
-approvedAt: 
+approvedAt: 2026-10-23T08:28:04Z
 ---
 ## Setup tags
 
@@ -62,3 +62,10 @@ Math-technique tag: apply only when the technique is the crux of the intended so
 - m.quadratic: Apply when a quadratic drives the solution: solving for two times or positions, nature of roots or discriminant conditions (whether an event happens), the extremum of a quadratic expression. Do not apply to a quadratic that factorises trivially as an incidental step.
 - m.graphical-analysis: Apply when reading a graph is the crux: slope, area or intercepts of F-t, p-t, v-t, a-t or a-x graphs, or matching a situation to the correct graph. Do not apply when a graph merely illustrates data that are also given numerically.
 
+## Dependencies
+
+Dependency: list another topic only when it is critical to solving the problem, at most two. These uses are routine in Laws of Motion problems and never make a dependency on their own:
+
+- Kinematics (103): the constant-acceleration equations used to finish once the acceleration is found (distance, time or speed after the dynamics is solved). It is a dependency only when the motion analysis itself is the crux, such as relative motion between two accelerating bodies or a projectile after a body leaves a surface.
+- Work, Energy and Power (105): energy conservation used alongside a vertical circle to get the speed at a point (c.circular.vert covers it), or a work-energy step that only finishes a force problem. It is a dependency only when work, energy or power is the intended path, such as the work done by friction along a path or the power a force delivers.
+- Rotational Motion (106): a pulley or wheel taken as massless and ideal, which is not rotational dynamics at all. It is a dependency only when moment of inertia, torque or rolling is part of the solution.

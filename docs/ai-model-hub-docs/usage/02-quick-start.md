@@ -112,6 +112,27 @@ many requests is therefore a stable prefix, which prompt caching can reuse
 
 If the factory throws, the job fails.
 
+### Structured output
+
+A request can carry the JSON schema its reply must follow:
+
+```java
+JsonNode schema = mapper.readTree( SCHEMA_JSON ) ; // strict: all required,
+                                                  // additionalProperties false
+AIJob.RequestFactory factory = model -> new AIRequest(
+        PROMPT, List.of( image ),
+        new AIRequest.ResponseSchema( "tag_reply", schema ) ) ;
+```
+
+The OpenRouter gateway sends it as a strict `json_schema` `response_format`
+only to models whose catalogue entry lists `structured_outputs`; other models,
+and the Ollama gateway, get the request without it. It doesn't set
+`provider.require_parameters`, so a provider that can't follow the schema
+still answers. Describe the reply in the prompt as well, and keep the reply
+check lenient (fences, text around the JSON): the schema cuts repairs, it
+doesn't guarantee them away. See
+[`AIRequest.ResponseSchema`](../javadocs/com/sandy/sconsole/ai/AIRequest.ResponseSchema.html).
+
 ## Threading rules
 
 - Listener calls arrive on the hub's worker threads. Calls for one job come

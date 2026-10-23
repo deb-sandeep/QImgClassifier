@@ -3,6 +3,7 @@ package com.sandy.sconsole.qimgtools.apps.tagger.ui;
 import com.sandy.sconsole.ai.HubStatus;
 import com.sandy.sconsole.ai.ui.ModelsPanel;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.CatalogueTag;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.HandOffReason;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.NewTag;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.Scope;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagDecision;
@@ -165,8 +166,8 @@ public class TaggerFrame extends JFrame
         /** Topic {@code id}; null if there is none. */
         Topic topic( int id ) ;
 
-        /** Where {@code topic}'s prompt stands, from its files. */
-        PromptStore.State promptState( Topic topic ) ;
+        /** {@code topic}'s prompt at a glance, from its files. */
+        PromptStore.Summary promptSummary( Topic topic ) ;
 
         /** The folder of {@code topic}'s prompt files. */
         File promptDir( Topic topic ) ;
@@ -175,7 +176,7 @@ public class TaggerFrame extends JFrame
          * Write {@code topic}'s base prompt from its catalogue. Blocking;
          * called off the EDT.
          *
-         * @return true if it was also copied to {@code topic.prompt}
+         * @return true if it was also copied to {@code tags.reviewed.prompt}
          */
         boolean generatePrompt( Topic topic ) throws Exception ;
 
@@ -1107,7 +1108,7 @@ public class TaggerFrame extends JFrame
         Scope chosen = ScopeDialog.ask( this, controller.scope(), problem,
                                         controller.syllabusNames(),
                                         controller::topics,
-                                        controller::promptState ) ;
+                                        controller::promptSummary ) ;
         if( chosen == null ) return ;
         setScope( chosen ) ;
     }
@@ -1147,10 +1148,10 @@ public class TaggerFrame extends JFrame
             File dir = controller.promptDir( topic ) ;
             JOptionPane.showMessageDialog( this, "Wrote " +
                     PromptStore.GENERATED + " in\n" + dir + "\n\n" +
-                    ( created ? "It was copied to " + PromptStore.TOPIC +
+                    ( created ? "It was copied to " + PromptStore.REVIEWED +
                                 " as a draft: tune it, then review and " +
                                 "approve it (Prompts > Review topic prompt)."
-                              : PromptStore.TOPIC + " is unchanged; compare " +
+                              : PromptStore.REVIEWED + " is unchanged; compare " +
                                 "the two files to see what the server's " +
                                 "tags changed." ),
                     "Generate topic prompt", JOptionPane.INFORMATION_MESSAGE ) ;
@@ -1187,7 +1188,7 @@ public class TaggerFrame extends JFrame
                 setScope( s ) ;
             }
             JOptionPane.showMessageDialog( this, "Approved the prompt of " +
-                    topic.getTopicName() + ". Commit " + PromptStore.TOPIC +
+                    topic.getTopicName() + ". Commit " + PromptStore.REVIEWED +
                     " in\n" + controller.promptDir( topic ),
                     "Review topic prompt", JOptionPane.INFORMATION_MESSAGE ) ;
         }, e -> {
@@ -1202,7 +1203,7 @@ public class TaggerFrame extends JFrame
         if( controller == null ) return null ;
         Scope s = controller.scope() ;
         return PromptDialogs.pickTopic( this, title, controller.syllabusNames(),
-                controller::topics, controller::promptState,
+                controller::topics, controller::promptSummary,
                 s == null ? null : controller.topic( s.topicId() ) ) ;
     }
 
@@ -2244,7 +2245,9 @@ public class TaggerFrame extends JFrame
     /**
      * Settle {@code row}'s gap: with {@code tag} (accepted or mapped) the
      * question takes it on top of tier {@code t}'s tags, decided; without
-     * (rejected) it is judged again on its replies, the gap set aside.
+     * (rejected) it is judged again on its replies, the gap set aside. A
+     * reply left with no concept tag either way (its concept gap rejected,
+     * or settled on a setup tag) is handed to the user undecided.
      */
     private void settleGap( Row row, TierReply t, String tag,
                             GapDialog.Fate fate ) {
@@ -2262,10 +2265,15 @@ public class TaggerFrame extends JFrame
 
         controller.gapSettled( row.item, now, t.model(), t.reply().gap(),
                                fate.label, tag ) ;
+        TagJudgement j = TagJudgement.of( row.item, now, a.mode(),
+                                          a.offered(), true ) ;
         row.opinions = now ;
-        judge( row, TagJudgement.of( row.item, now, a.mode(), a.offered(),
-                                     true ) ) ;
-        if( tag != null ) decide( row, TagDecision.of( updated, true ) ) ;
+        judge( row, j ) ;
+        // Still no concept tag (the gap settled on a setup tag): no decision
+        // to stage, the user chooses one.
+        if( tag != null && j.reason() != HandOffReason.NO_CONCEPT ) {
+            decide( row, TagDecision.of( updated, true ) ) ;
+        }
 
         gapOpen = false ;
         rowChanged( row ) ;

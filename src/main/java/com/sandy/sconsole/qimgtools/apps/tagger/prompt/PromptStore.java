@@ -18,12 +18,13 @@ import java.util.Map;
  * The topic prompts, in the source tree ({@code prompts.dir}):
  * <pre>
  * qtagger.prompt                   the shared template
+ * axes.prompt                      the axis rules, one section per variant
  * &lt;syllabus&gt;/&lt;id&gt;-&lt;topic name&gt;/
- *   generated.prompt               the mechanical base, rewritten by Generate
- *   topic.prompt                   tuned by hand, approved; the one runs use
+ *   tags.generated.prompt          the mechanical base, rewritten by Generate
+ *   tags.reviewed.prompt           tuned by hand, approved; the one runs use
  * </pre>
- * {@code topic.prompt}'s header says whether it is approved, for which
- * catalogue and text: {@code topicId}, {@code status} ({@code draft} /
+ * {@code tags.reviewed.prompt}'s header says whether it is approved, for
+ * which catalogue and text: {@code topicId}, {@code status} ({@code draft} /
  * {@code approved}), {@code promptVersion}, {@code catalogueFingerprint},
  * {@code contentHash}, {@code generatedAt}, {@code approvedAt}. Files are
  * read afresh on every call, so an edit takes effect without a restart.
@@ -33,8 +34,9 @@ import java.util.Map;
 public final class PromptStore {
 
     public static final String TEMPLATE  = "qtagger.prompt" ;
-    public static final String GENERATED = "generated.prompt" ;
-    public static final String TOPIC     = "topic.prompt" ;
+    public static final String AXES      = "axes.prompt" ;
+    public static final String GENERATED = "tags.generated.prompt" ;
+    public static final String REVIEWED  = "tags.reviewed.prompt" ;
 
     public static final String DRAFT    = "draft" ;
     public static final String APPROVED = "approved" ;
@@ -85,13 +87,23 @@ public final class PromptStore {
         return read( new File( root, TEMPLATE ) ) ;
     }
 
-    /** The topic's {@code topic.prompt}; null if it has none. */
+    /**
+     * The template's {@code {{axes.prompt}}} text: an {@code ## Own} and a
+     * {@code ## Dependent} section.
+     *
+     * @throws IOException if it is missing or unreadable
+     */
+    public PromptFile axes() throws IOException {
+        return read( new File( root, AXES ) ) ;
+    }
+
+    /** The topic's {@code tags.reviewed.prompt}; null if it has none. */
     public PromptFile topicPrompt( Topic topic ) throws IOException {
-        File f = new File( dir( topic ), TOPIC ) ;
+        File f = new File( dir( topic ), REVIEWED ) ;
         return f.isFile() ? read( f ) : null ;
     }
 
-    /** The topic's {@code generated.prompt}; null if it has none. */
+    /** The topic's {@code tags.generated.prompt}; null if it has none. */
     public PromptFile generated( Topic topic ) throws IOException {
         File f = new File( dir( topic ), GENERATED ) ;
         return f.isFile() ? read( f ) : null ;
@@ -113,6 +125,55 @@ public final class PromptStore {
         return state( p, catalogue ) ;
     }
 
+    /**
+     * A topic's prompt at a glance, from its files alone (an approved prompt
+     * is taken as current: whether its catalogue changed needs the server).
+     *
+     * @param state       where it stands
+     * @param version     its {@code promptVersion}; 0 if it has no
+     *                    {@code tags.reviewed.prompt}
+     * @param approvedAt  when it was last approved; null if never
+     * @param generatedAt when its base was last generated; null if never
+     */
+    public record Summary( State state, int version, Instant approvedAt,
+                           Instant generatedAt ) {
+
+        /** A topic with no prompt files. */
+        public static final Summary NONE =
+                new Summary( State.NONE, 0, null, null ) ;
+    }
+
+    /** The topic's prompt at a glance. */
+    public Summary summary( Topic topic ) throws IOException {
+
+        PromptFile reviewed  = topicPrompt( topic ) ;
+        PromptFile generated = generated( topic ) ;
+
+        if( reviewed == null ) {
+            return generated == null ? Summary.NONE
+                   : new Summary( State.BASE_ONLY, 0, null,
+                                  instant( generated.get( "generatedAt" ) ) ) ;
+        }
+        return new Summary( state( reviewed, null ),
+                            reviewed.getInt( "promptVersion", 0 ),
+                            instant( reviewed.get( "approvedAt" ) ),
+                            instant( generated != null
+                                     ? generated.get( "generatedAt" )
+                                     : reviewed.get( "generatedAt" ) ) ) ;
+    }
+
+    /** {@code s} as an instant; null if blank or unreadable. */
+    private static Instant instant( String s ) {
+
+        if( s == null || s.isBlank() ) return null ;
+        try {
+            return Instant.parse( s.trim() ) ;
+        }
+        catch( RuntimeException e ) {
+            return null ;
+        }
+    }
+
     /** Where topic prompt {@code p} stands against {@code catalogue}. */
     public static State state( PromptFile p, TagCatalogue catalogue ) {
 
@@ -128,11 +189,11 @@ public final class PromptStore {
     }
 
     /**
-     * Write the topic's base prompt {@code body} to {@code generated.prompt},
-     * and, if the topic has no {@code topic.prompt} yet, copy it there as a
-     * draft.
+     * Write the topic's base prompt {@code body} to
+     * {@code tags.generated.prompt}, and, if the topic has no
+     * {@code tags.reviewed.prompt} yet, copy it there as a draft.
      *
-     * @return true if {@code topic.prompt} was created
+     * @return true if {@code tags.reviewed.prompt} was created
      */
     public synchronized boolean writeGenerated( Topic topic, String body,
                                                 TagCatalogue catalogue )
@@ -157,12 +218,12 @@ public final class PromptStore {
                 .with( "contentHash", "" )
                 .with( "generatedAt", now )
                 .with( "approvedAt", "" ) ;
-        write( new File( dir( topic ), TOPIC ), draft ) ;
+        write( new File( dir( topic ), REVIEWED ), draft ) ;
         return true ;
     }
 
     /**
-     * Approve the topic's {@code topic.prompt} as it stands, for
+     * Approve the topic's {@code tags.reviewed.prompt} as it stands, for
      * {@code catalogue}: status approved, the next prompt version, the
      * catalogue's fingerprint and the text's hash.
      *
@@ -175,7 +236,7 @@ public final class PromptStore {
         PromptFile p = topicPrompt( topic ) ;
         if( p == null ) {
             throw new IOException( "topic " + topic.getId() +
-                                   " has no " + TOPIC ) ;
+                                   " has no " + REVIEWED ) ;
         }
         return stamp( topic, p, catalogue ) ;
     }
@@ -195,7 +256,7 @@ public final class PromptStore {
         PromptFile p = topicPrompt( topic ) ;
         if( p == null ) {
             throw new IOException( "topic " + topic.getId() +
-                                   " has no " + TOPIC ) ;
+                                   " has no " + REVIEWED ) ;
         }
         String body = PromptText.appendToSection( p.body(), section, line ) ;
         return stamp( topic, new PromptFile( p.header(), body ), catalogue ) ;
@@ -212,7 +273,7 @@ public final class PromptStore {
                 .with( "contentHash", p.contentHash() )
                 .with( "approvedAt", now() ) ;
 
-        write( new File( dir( topic ), TOPIC ), approved ) ;
+        write( new File( dir( topic ), REVIEWED ), approved ) ;
         log.info( "Approved the prompt of topic {}, version {}", topic.getId(),
                   approved.get( "promptVersion" ) ) ;
         return approved ;

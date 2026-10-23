@@ -9,7 +9,8 @@ import java.util.List;
  * Where the tiers' replies leave a question: the key decides. A tier whose
  * answer matches the key has its tags accepted, unless it proposes a new
  * tag (in {@link TagMode#REVIEW_GAPS}; the run then pauses for the user) or
- * the question already carries different hand tags. Otherwise the question
+ * it drops a hand tag the question already carries (adding to them is
+ * fine). Otherwise the question
  * goes to the user: both tiers gave the same wrong answer (the key is
  * suspect), or neither answered right.
  *
@@ -52,9 +53,14 @@ public record TagJudgement( TaggerStatus status, HandOffReason reason,
             return new TagJudgement( TaggerStatus.GAP_PROPOSED, null, ok ) ;
         }
 
+        // Only a concept gap lets a reply give no concept tag; once the gap
+        // is settled without one, the user must choose.
+        if( !item.dependent() && ok.reply().concept().isEmpty() ) {
+            return handOff( HandOffReason.NO_CONCEPT, ok ) ;
+        }
+
         List<String> existing = item.existing( offered ) ;
-        if( !existing.isEmpty() && !sameTags( existing, ok, offered,
-                                              item.dependent() ) ) {
+        if( !keepsAll( existing, ok ) ) {
             return handOff( HandOffReason.EXISTING_DIFFERS, ok ) ;
         }
         return new TagJudgement( ok.tier() == 1 ? TaggerStatus.ACCEPTED_T1
@@ -73,17 +79,12 @@ public record TagJudgement( TaggerStatus status, HandOffReason reason,
     }
 
     /**
-     * True if {@code reply}'s tags that the run may replace are exactly
-     * {@code existing}.
+     * True if {@code reply} keeps every hand tag in {@code existing} (the
+     * explicit tags the run may replace): it may add to them, as when the
+     * hand tagging was partial, but dropping one is a disagreement for the
+     * user. True when there are no hand tags.
      */
-    private static boolean sameTags( List<String> existing, TierReply reply,
-                                     OfferedSet offered, boolean dependent ) {
-
-        List<String> replaceable = offered.replaceable( dependent ).stream()
-                                          .map( CatalogueTag::tagText )
-                                          .toList() ;
-        return new HashSet<>( existing ).equals( new HashSet<>(
-                reply.reply().tags().stream()
-                     .filter( replaceable::contains ).toList() ) ) ;
+    private static boolean keepsAll( List<String> existing, TierReply reply ) {
+        return new HashSet<>( reply.reply().tags() ).containsAll( existing ) ;
     }
 }

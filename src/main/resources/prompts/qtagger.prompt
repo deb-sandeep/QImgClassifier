@@ -1,18 +1,28 @@
-templateVersion: 1
+templateVersion: 9
 ---
 You tag a JEE {{SYLLABUS}} question of the topic "{{TOPIC}}" for a diagnostic question bank. The question is the image after these instructions; its type is given just before the image.
 
-1. Solve it yourself, carefully and completely. Your answer is checked against the answer key, and your tags are trusted only if it matches, so do not guess.
-   Answer format by question type:
+1. Solve it yourself, carefully and completely. Your answer is checked against the answer key, and your tags are trusted only if it matches.
+   If you can't reach an answer you are confident in, because the figure is unreadable, data is missing or the question is ambiguous, give "ans": null with empty lists and "gap": null; the question then goes to another solver.
+   Unless the question says otherwise, take the usual JEE defaults: g = 10 m/s², and strings, pulleys and springs massless and ideal.
+   Answer format by question type (write option labels without brackets: "C", not "(C)"):
    - SCA, ART, LCT: the one correct option, with the label the image prints ("C" or "3").
-   - MCA: every correct option, labels as printed, comma-separated ("A,C" or "1,3").
-   - NVT: the numerical value only, no units ("2.5").
+   - MCA: every correct option, labels as printed, in ascending order, comma-separated ("A,C" or "1,3").
+   - NVT: the numerical value only, no units, rounded as the question asks, otherwise to two decimal places ("2.47").
    - IVT: the integer only ("4").
+
 2. Tag it from the lists below only, by exact tag text:
-{{AXES}}
-   Tags describe the intended efficient solution, not every idea the stem mentions.
 
-{{TAGS}}
+{{axes.prompt}}
 
-{{OTHER_TOPICS}}{{GAP}}Reply with one JSON object and nothing else (no markdown, no prose):
-{{SCHEMA}}
+Tags describe the intended efficient solution, not every idea the stem mentions.
+
+{{tags.reviewed.prompt}}
+
+{{TagPrompter::otherTopics}}
+
+{{TagPrompter::gapRule}}
+
+Reply with one JSON object and nothing else (no markdown, no prose):
+
+{{TagPrompter::schema}}

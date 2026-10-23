@@ -130,9 +130,13 @@ final class TagTableModel extends AbstractTableModel
             return status.isDecidable() ;
         }
 
-        /** True if it may take tier {@code tier}'s tags. */
+        /**
+         * True if it may take tier {@code tier}'s tags: the tier answered
+         * (one that declined has none).
+         */
         boolean canUse( int tier ) {
-            return isOpen() && tier( tier ) != null ;
+            TierReply t = tier( tier ) ;
+            return isOpen() && t != null && !t.reply().isAbstained() ;
         }
 
         /** True if it has hand tags to keep. */
@@ -377,7 +381,8 @@ final class TagTableModel extends AbstractTableModel
             return tier == 2 && row.opinions != null
                    && row.opinions.tier2Failure() != null ? "-" : "" ;
         }
-        return ( row.correct( tier ) ? "✓ " : "✗ " ) + t.answer() + "   " +
+        return ( row.correct( tier ) ? "✓ " : "✗ " ) +
+               t.reply().answerText() + "   " +
                String.join( ", ", t.reply().tags() ) ;
     }
 

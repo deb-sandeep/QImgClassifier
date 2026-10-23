@@ -9,7 +9,8 @@ import java.util.List;
  * tag it proposes (only in {@link TagMode#REVIEW_GAPS}).
  *
  * @param answer  the answer, in the labels the image prints (e.g. "C",
- *                "1,3", "2.5")
+ *                "1,3", "2.5"); null if the model declined to answer, and
+ *                then it has no tags
  * @param setup   setup tags, in reply order
  * @param concept concept tags, each with why it is dominant
  * @param math    math tags
@@ -42,6 +43,22 @@ public record TagReply( String answer, List<String> setup,
         math    = List.copyOf( math ) ;
         xdep    = List.copyOf( xdep ) ;
         fixes   = List.copyOf( fixes ) ;
+    }
+
+    /** The reply of a model that declined to answer: no answer, no tags. */
+    public static TagReply abstained() {
+        return new TagReply( null, List.of(), List.of(), List.of(), List.of(),
+                             null, List.of() ) ;
+    }
+
+    /** True if the model declined to answer. */
+    public boolean isAbstained() {
+        return answer == null ;
+    }
+
+    /** The answer as shown: "no answer" if the model declined. */
+    public String answerText() {
+        return answer == null ? "no answer" : answer ;
     }
 
     /** Every tag chosen: setup, concept, then math. */

@@ -1,6 +1,7 @@
 package com.sandy.sconsole.qimgtools.apps.tagger.check;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.Set;
@@ -12,7 +13,8 @@ import java.util.regex.Pattern;
  * evaluation rules ({@code SCAEvaluator}, {@code MCAEvaluator},
  * {@code NVTEvaluator}): SCA, ART and LCT by case-insensitive equality; MCA
  * by exact equality of the option sets (stricter than the exam's partial
- * credit); NVT within {@value #NVT_TOLERANCE}; IVT exactly. Option labels
+ * credit); NVT within {@value #NVT_TOLERANCE}, or rounding to the key at
+ * its decimal places; IVT exactly. Option labels
  * are compared as printed (letters or numbers), never mapped. Matrix match
  * (MMT) and keys that don't fit their type are not checked: such questions
  * are never sent. Stateless.
@@ -102,12 +104,21 @@ public final class AnswerChecker {
         return set ;
     }
 
+    /**
+     * True if {@code answer} is within the tolerance of {@code key}, or
+     * rounds to it at the key's own decimal places: the prompt asks for two
+     * places unless the question says otherwise, and a key given to one
+     * ({@code 3.3}) would otherwise miss a right answer ({@code 3.33}).
+     */
     private static boolean within( String key, String answer ) {
 
         BigDecimal k = number( key ) ;
         BigDecimal a = number( answer ) ;
-        return k != null && a != null
-               && k.subtract( a ).abs().compareTo( TOLERANCE ) <= 0 ;
+
+        if( k == null || a == null ) return false ;
+        if( k.subtract( a ).abs().compareTo( TOLERANCE ) <= 0 ) return true ;
+        return a.setScale( Math.max( k.scale(), 0 ), RoundingMode.HALF_UP )
+                .compareTo( k ) == 0 ;
     }
 
     private static boolean sameNumber( String key, String answer ) {

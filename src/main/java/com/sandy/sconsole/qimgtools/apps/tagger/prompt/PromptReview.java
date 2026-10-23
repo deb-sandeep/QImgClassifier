@@ -13,7 +13,7 @@ import java.util.Map;
  *
  * @param topic           the topic
  * @param catalogue       its catalogue now, which approval is stamped with
- * @param topicPrompt     its {@code topic.prompt} as read
+ * @param topicPrompt     its {@code tags.reviewed.prompt} as read
  * @param state           where it stands against {@code catalogue}
  * @param own             the assembled prompt for the topic's own questions
  * @param dependent       the assembled prompt for its dependents

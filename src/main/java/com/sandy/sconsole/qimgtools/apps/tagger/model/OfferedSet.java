@@ -20,6 +20,12 @@ import java.util.regex.Pattern;
  */
 public final class OfferedSet {
 
+    /**
+     * The heading of a topic prompt's notes on dependencies (the routine
+     * uses of other topics): not an axis, so its lines are never tags.
+     */
+    public static final String DEPENDENCIES = "Dependencies" ;
+
     /** A tag line: {@code - s.connector.pulley: ...} */
     private static final Pattern TAG_LINE =
             Pattern.compile( "^\\s*-\\s+([A-Za-z0-9.\\-]+)\\s*:" ) ;
@@ -43,6 +49,7 @@ public final class OfferedSet {
         List<String> problems = new ArrayList<>() ;
         OfferedSet   set      = new OfferedSet( problems ) ;
         Axis         section  = null ;
+        boolean      notes    = false ;
         int          lineNo   = 0 ;
 
         for( String line : text.split( "\\R" ) ) {
@@ -50,8 +57,11 @@ public final class OfferedSet {
             Matcher h = HEADING.matcher( line ) ;
             if( h.matches() ) {
                 section = axisOf( h.group( 1 ) ) ;
+                notes   = isDependencies( h.group( 1 ) ) ;
                 continue ;
             }
+            if( notes ) continue ;
+
             Matcher m = TAG_LINE.matcher( line ) ;
             if( !m.find() ) continue ;
 
@@ -78,6 +88,12 @@ public final class OfferedSet {
             problems.add( "no concept tag is offered" ) ;
         }
         return set ;
+    }
+
+    /** True if a section heading is the {@value #DEPENDENCIES} notes'. */
+    public static boolean isDependencies( String heading ) {
+        return heading.trim().toLowerCase( Locale.ROOT ).startsWith(
+                DEPENDENCIES.toLowerCase( Locale.ROOT ) ) ;
     }
 
     /** The axis a section heading names; null for any other section. */

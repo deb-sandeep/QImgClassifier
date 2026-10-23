@@ -30,11 +30,24 @@ import java.util.Set;
  * {@link TagReply#fixes()}: a tag's case or spacing, a missing axis prefix,
  * a tag given by its full name, a tag listed under another axis, a
  * duplicate, a dependency on a topic not offered (dropped), math tags or
- * dependencies from a dependent (dropped). Anything else - no answer, a tag
- * that isn't offered, the wrong number of tags on an axis - rejects the
- * reply as a {@link BadReply}, so the model is asked again. Stateless.
+ * dependencies from a dependent (dropped). Anything else - a missing or
+ * blank answer, a tag that isn't offered, the wrong number of tags on an
+ * axis - rejects the reply as a {@link BadReply}, so the model is asked
+ * again. The one exception to the counts: a reply proposing a concept tag
+ * as its gap may give no concept tag.
+ * <p>
+ * {@code "ans": null} is the model declining to answer (an unreadable
+ * figure, missing data, an ambiguous question): the reply is
+ * {@link TagReply#abstained()}, the rest of it ignored, so it never matches
+ * the key and the question goes on to tier 2. Stateless.
  */
 public final class ReplyValidator {
+
+    /**
+     * The most dependencies a reply keeps: the solution's focus stays on
+     * the scoped topic, and the first ones listed are the most important.
+     */
+    public static final int MAX_DEPENDENCIES = 2 ;
 
     private static final ObjectMapper MAPPER = new ObjectMapper() ;
 
@@ -65,7 +78,11 @@ public final class ReplyValidator {
             throw new BadReply( "the model's reply was not a JSON object" ) ;
         }
 
-        String answer = text( root.get( "ans" ) ) ;
+        JsonNode ans = root.get( "ans" ) ;
+        if( ans != null && ans.isNull() ) {
+            return TagReply.abstained() ;
+        }
+        String answer = text( ans ) ;
         if( answer == null || answer.isBlank() ) {
             throw new BadReply( "the model's reply has no answer" ) ;
         }
@@ -111,8 +128,11 @@ public final class ReplyValidator {
             }
         }
 
+        GapProposal gap = gap( root.get( "gap" ), ctx, fixes ) ;
+
         for( Axis a : Axis.values() ) {
             int n = byAxis.get( a ).size() ;
+            if( n == 0 && a == Axis.CONCEPT && isConcept( gap ) ) continue ;
             if( n < a.min( ctx.dependent() ) || n > a.max( ctx.dependent() ) ) {
                 throw new BadReply( n + " " + a.getWord() + " tags; " +
                                     a.countRule( ctx.dependent() ) +
@@ -126,7 +146,15 @@ public final class ReplyValidator {
         return new TagReply( answer.trim(), byAxis.get( Axis.SETUP ), concept,
                              byAxis.get( Axis.MATH ),
                              dependencies( root.get( "xdep" ), ctx, fixes ),
-                             gap( root.get( "gap" ), ctx, fixes ), fixes ) ;
+                             gap, fixes ) ;
+    }
+
+    /**
+     * True if {@code gap} proposes a concept tag: the dominant concept has
+     * none in the lists, so the reply may give no concept tag at all.
+     */
+    private static boolean isConcept( GapProposal gap ) {
+        return gap != null && gap.tag().startsWith( Axis.CONCEPT.getPrefix() ) ;
     }
 
     /**
@@ -187,6 +215,12 @@ public final class ReplyValidator {
                 ids.add( id ) ;
             }
         }
+        // Listed most important first, so the cut keeps the ones that count.
+        if( ids.size() > MAX_DEPENDENCIES ) {
+            fixes.add( "kept the first " + MAX_DEPENDENCIES + " of " +
+                       ids.size() + " dependencies " + ids ) ;
+            return new ArrayList<>( ids.subList( 0, MAX_DEPENDENCIES ) ) ;
+        }
         return ids ;
     }
 
@@ -201,7 +235,18 @@ public final class ReplyValidator {
         }
         String tag = text( gap.get( "tag" ) ) ;
         if( tag == null || tag.isBlank() ) return null ;
-        return new GapProposal( tag.trim(), text( gap.get( "hint" ) ),
+
+        // A schema-bound reply must give a gap object, and some models fill
+        // it with a stand-in ("none") instead of null: only a setup or
+        // concept tag is a proposal.
+        tag = tag.trim() ;
+        if( !tag.startsWith( Axis.SETUP.getPrefix() )
+            && !tag.startsWith( Axis.CONCEPT.getPrefix() ) ) {
+            fixes.add( "ignored a gap proposal that names no setup or " +
+                       "concept tag ('" + tag + "')" ) ;
+            return null ;
+        }
+        return new GapProposal( tag, text( gap.get( "hint" ) ),
                                 text( gap.get( "why" ) ) ) ;
     }
 

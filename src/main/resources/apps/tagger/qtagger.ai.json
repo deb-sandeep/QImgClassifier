@@ -7,10 +7,12 @@
 // solves it again, also blind. Both roots need a usable model, else the
 // tagger refuses to start.
 //
-// Solving needs reasoning, so every model reasons (its default effort where
-// none is given). A reply that can't be read, or names a tag that isn't
-// offered, is sent once more (retries: 1). A reply cut off at the length limit
-// (maxOutputTokens) goes by the "truncated" guard.
+// Solving needs reasoning, so every model reasons, its reasoning capped below
+// maxOutputTokens (reasoningMaxTokens, or GLM's medium effort) so the reply
+// still fits: on OpenRouter the limit covers both. A reply that can't be read,
+// or names a tag that isn't offered, is sent once more (retries: 1). A reply
+// cut off at the length limit goes by the "truncated" guard: Nemotron's to
+// GLM, GLM's to Haiku.
 {
   "parent" : "classpath:/common/ai-model-config.json",
 
@@ -24,14 +26,16 @@
       "enabled"               : true,
       "maxParallel"           : 4,
       "requestTimeoutSeconds" : 180,
-      "retries"               : 1,
+      "retries"               : 0,
       "reasoning"             : true,
+      "reasoningMaxTokens"    : 9000,
       "maxOutputTokens"       : 12000,
       "promptCaching"         : true,
       "fallback"              : {
         "rateLimitedRPD" : [ "nvidia/nemotron-3.5-super-vl" ],
         "serverError"    : [ "nvidia/nemotron-3.5-super-vl" ],
-        "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ]
+        "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ],
+        "truncated"      : [ "z-ai/glm-5.3-flash" ]
       }
     },
     "nvidia/nemotron-3.5-super-vl" : {
@@ -40,8 +44,12 @@
       "requestTimeoutSeconds" : 180,
       "retries"               : 1,
       "reasoning"             : true,
+      "reasoningMaxTokens"    : 9000,
       "maxOutputTokens"       : 12000,
-      "promptCaching"         : true
+      "promptCaching"         : true,
+      "fallback"              : {
+        "truncated" : [ "z-ai/glm-5.3-flash" ]
+      }
     },
     "z-ai/glm-5.3-flash" : {
       "enabled"               : true,

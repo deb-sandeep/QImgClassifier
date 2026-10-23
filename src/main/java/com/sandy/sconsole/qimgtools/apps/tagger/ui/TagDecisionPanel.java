@@ -261,7 +261,8 @@ final class TagDecisionPanel extends JPanel {
                 return ;
             }
             by.setText( title + ": " + names.of( t.model() ) +
-                        " - answer " + t.answer() ) ;
+                        ( t.reply().isAbstained() ? " - no answer"
+                                                  : " - answer " + t.answer() ) ) ;
             text.setText( describe( t.reply() ) ) ;
             text.setCaretPosition( 0 ) ;
         }

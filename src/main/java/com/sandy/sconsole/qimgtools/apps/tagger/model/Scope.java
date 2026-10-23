@@ -14,6 +14,11 @@ package com.sandy.sconsole.qimgtools.apps.tagger.model;
 public record Scope( int topicId, int batchSize, TagMode mode,
                      Integer ownAfterId, Integer depAfterId ) {
 
+    /** True if a Load has moved either cursor on from the start. */
+    public boolean hasCursors() {
+        return ownAfterId != null || depAfterId != null ;
+    }
+
     /** This scope with both cursors back at the start. */
     public Scope fromStart() {
         return new Scope( topicId, batchSize, mode, null, null ) ;

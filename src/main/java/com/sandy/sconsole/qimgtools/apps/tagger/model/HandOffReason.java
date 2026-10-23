@@ -17,8 +17,14 @@ public enum HandOffReason {
     /** Tier 1's replies could not be used, even after a resend. */
     INVALID_OUTPUT( "invalid output" ),
 
-    /** The accepted tags differ from the hand tags already on it. */
-    EXISTING_DIFFERS( "existing tags differ" ) ;
+    /** The accepted tags drop a hand tag already on it. */
+    EXISTING_DIFFERS( "existing tags differ" ),
+
+    /**
+     * The accepted tier gave no concept tag, its proposed concept gap
+     * having been rejected (or settled on a setup tag).
+     */
+    NO_CONCEPT( "no concept tag" ) ;
 
     private final String label ;
 

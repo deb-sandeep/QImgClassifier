@@ -1,0 +1,15 @@
+The {{axes.prompt}} text of qtagger.prompt: the section for the variant
+replaces it, indentation kept. It is part of the template, so bump
+qtagger.prompt's templateVersion when this file changes. Text above the
+first section is not sent.
+
+## Own
+
+   - setup: every setup tag whose component is present in the figure or stem (any number, possibly none);
+   - concept: the 1 or 2 concept tags that dominate the solution; if more seem to apply, keep those the solution depends on most, then those the distractors target;
+   - math: at most 2 math tags whose technique is the crux of the solution (usually none).
+
+## Dependent
+
+   - setup: every setup tag whose component is present in the figure or stem (any number, possibly none);
+   - concept: at most 2 concept tags of this topic that dominate the solution (possibly none: the question belongs to another topic and uses this one only in part).

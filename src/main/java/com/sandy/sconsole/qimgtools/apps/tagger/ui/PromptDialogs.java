@@ -7,15 +7,12 @@ import com.sandy.sconsole.qimgtools.apps.tagger.prompt.PromptStore;
 import com.sandy.sconsole.qimgtools.apps.tagger.prompt.TagPrompter;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 
-import javax.swing.DefaultListCellRenderer;
 import javax.swing.JComboBox;
-import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
 import javax.swing.JTextArea;
-import javax.swing.ListSelectionModel;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -37,8 +34,9 @@ final class PromptDialogs {
     private PromptDialogs() {}
 
     /**
-     * Ask for a topic of one of {@code syllabusNames}, each marked with
-     * where its prompt stands; Foundation Mathematics is left out.
+     * Ask for a topic of one of {@code syllabusNames}, as a
+     * {@link TopicTable} showing where each one's prompt stands;
+     * Foundation Mathematics is left out.
      *
      * @param initial the topic to start on; null for none
      * @return the topic picked; null if the user cancelled
@@ -46,48 +44,34 @@ final class PromptDialogs {
     static Topic pickTopic( Component parent, String title,
                             List<String> syllabusNames,
                             Function<String,List<Topic>> topicsOf,
-                            Function<Topic,PromptStore.State> stateOf,
+                            Function<Topic,PromptStore.Summary> summaryOf,
                             Topic initial ) {
 
         JComboBox<String> syllabus = new JComboBox<>(
                 syllabusNames.toArray( new String[0] ) ) ;
-        JList<Topic>      list     = new JList<>() ;
+        TopicTable        table    = new TopicTable( summaryOf, null, null ) ;
 
-        list.setSelectionMode( ListSelectionModel.SINGLE_SELECTION ) ;
-        list.setVisibleRowCount( 20 ) ;
-        list.setCellRenderer( new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent( JList<?> l,
-                    Object value, int index, boolean selected,
-                    boolean focus ) {
-                Topic t = (Topic) value ;
-                return super.getListCellRendererComponent( l,
-                        t.getId() + "  " + t.getTopicName() + "   [" +
-                        stateOf.apply( t ) + "]", index, selected, focus ) ;
-            }
-        } ) ;
-        syllabus.addActionListener( e -> list.setListData(
-                topics( topicsOf, (String) syllabus.getSelectedItem() ) ) ) ;
+        syllabus.addActionListener( e -> table.show(
+                topics( topicsOf, (String) syllabus.getSelectedItem() ),
+                null ) ) ;
         if( initial != null ) syllabus.setSelectedItem( initial.getSyllabusName() ) ;
-        list.setListData( topics( topicsOf,
-                                  (String) syllabus.getSelectedItem() ) ) ;
-        if( initial != null ) list.setSelectedValue( initial, true ) ;
+        table.show( topics( topicsOf, (String) syllabus.getSelectedItem() ),
+                    initial != null ? initial.getId() : null ) ;
 
         JPanel panel = new JPanel( new BorderLayout( 0, 6 ) ) ;
         panel.add( syllabus, BorderLayout.NORTH ) ;
-        panel.add( new JScrollPane( list ), BorderLayout.CENTER ) ;
+        panel.add( table.component(), BorderLayout.CENTER ) ;
 
         int answer = JOptionPane.showConfirmDialog( parent, panel, title,
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE ) ;
-        return answer == JOptionPane.OK_OPTION ? list.getSelectedValue()
-                                               : null ;
+        return answer == JOptionPane.OK_OPTION ? table.selected() : null ;
     }
 
-    private static Topic[] topics( Function<String,List<Topic>> topicsOf,
-                                   String syllabus ) {
+    private static List<Topic> topics( Function<String,List<Topic>> topicsOf,
+                                       String syllabus ) {
         return topicsOf.apply( syllabus ).stream()
                        .filter( t -> t.getId() != TagCatalogue.FOUNDATION_MATHS )
-                       .toArray( Topic[]::new ) ;
+                       .toList() ;
     }
 
     /**

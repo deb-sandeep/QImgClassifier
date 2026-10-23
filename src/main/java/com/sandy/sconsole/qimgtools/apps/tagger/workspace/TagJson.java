@@ -79,7 +79,7 @@ final class TagJson {
 
     static TierReply readTier( JsonNode n ) {
 
-        if( n == null || !n.isObject() || !n.hasNonNull( "ans" ) ) return null ;
+        if( n == null || !n.isObject() || !n.has( "ans" ) ) return null ;
 
         List<ConceptPick> concept = new ArrayList<>() ;
         for( JsonNode c : n.path( "concept" ) ) {
@@ -95,7 +95,7 @@ final class TagJson {
                                            text( g.get( "hint" ) ),
                                            text( g.get( "why" ) ) ) ;
         TagReply reply = new TagReply(
-                n.get( "ans" ).asText(), strings( n.path( "setup" ) ), concept,
+                text( n.get( "ans" ) ), strings( n.path( "setup" ) ), concept,
                 strings( n.path( "math" ) ), xdep, gap,
                 strings( n.path( "fixes" ) ) ) ;
         return new TierReply( n.path( "tier" ).asInt( 1 ),

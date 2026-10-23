@@ -22,6 +22,12 @@ public final class TagCatalogue {
     /** Foundation Mathematics: its tags are every topic's math axis. */
     public static final int FOUNDATION_MATHS = 124 ;
 
+    /**
+     * Foundation Vectors: mathematics, which the math axis covers
+     * ({@code m.vectors}), so never a dependency.
+     */
+    public static final int FOUNDATION_VECTORS = 125 ;
+
     private final int                       topicId ;
     private final List<CatalogueTag>        tags ;
     private final Map<String,CatalogueTag>  byText     = new LinkedHashMap<>() ;

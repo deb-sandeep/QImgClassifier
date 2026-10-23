@@ -46,7 +46,7 @@ database.
 |---|---|---|
 | F1 | The server owns the queue: a question is pending when `autoTaggingNeeded && !topicReviewNeeded` (`GET /Master/Question/AutoTagging/Pending`, same contract as `TopicReview/Pending`, first N by id). The flag is cleared only by `POST /Master/TagAssociation/Refresh`; nothing sets it back. Kinematics (103) starts cleared. | The tagger fetches by flag. A hand-off stays pending until its decision is saved. Questions saved before a new tag existed are not revisited unless re-queued by SQL. |
 | F2 | `Refresh` replaces an item's **whole explicit tag set**. Tag reads give `TagVO.explicit`. | Before saving, the tagger reads the batch's current tags (`POST /Master/TagAssociation/QUESTION/Tags`) and sends the explicit tags outside the offered set unchanged, plus the decided ones. It never drops a tag it didn't offer (legacy tags, other topics' tags). |
-| F3 | Answer evaluation is server Java (`SCAEvaluator`, `MCAEvaluator`, `NVTEvaluator`); no tolerance or range is stored per question. | A client `AnswerChecker` with the same rules: SCA, ART and LCT case-insensitive equality; MCA exact option-set equality (stricter than the exam's partial credit); NVT `\|key − answer\| ≤ 0.01` (`BigDecimal`); IVT exact. |
+| F3 | Answer evaluation is server Java (`SCAEvaluator`, `MCAEvaluator`, `NVTEvaluator`); no tolerance or range is stored per question. | A client `AnswerChecker` with the same rules: SCA, ART and LCT case-insensitive equality; MCA exact option-set equality (stricter than the exam's partial credit); NVT `\|key − answer\| ≤ 0.01` (`BigDecimal`), or the answer rounding to the key at the key's decimal places (55 of 194 keys have one place, while the prompt asks for two unless the question says otherwise); IVT exact. |
 | F4 | `question` (23,858 rows): every question has an answer. Types SCA, MCA, NVT, IVT, ART, LCT (its own type, 827) and MMT (6, matrix-match `Ap,q#Bt…`). Choice keys use the labels the image prints: letters, or option numbers (`1`–`4`: 2,831 SCA, 9 ART, 8 MCA, 2 LCT). | The model is told to answer with the labels the image shows, and answers are compared as they are. MMT and any key the checker can't parse are *Unsupported*, never sent. All keys are taken as correct; key correction waits for a server API (§12). |
 | F5 | The importer logs `tagSetVersion` but doesn't store it; `tag_question_map` holds only `explicit`. | Provenance lives in the tagger's audit log: catalogue fingerprint, template and prompt versions, model, tier, human or not (§10). |
 | F6 | Every imported hint begins with its axis' rule ("Setup tag: apply on presence of the component…"), the same sentence in every hint of the axis. | The prompt states each axis rule once; the generated base strips the repeated sentence (§6.2). |
@@ -78,14 +78,14 @@ as approved.
 
 1. **Prompts > Generate topic prompt…** — pick a topic; the list marks each
    *none* / *base only* / *draft* / *approved* / *stale*. The tagger fetches
-   the topic's and topic 124's hinted tags and writes `generated.prompt` in
+   the topic's and topic 124's hinted tags and writes `tags.generated.prompt` in
    the topic's folder: the axis sections with each rule once, a line per tag
    with its hint less the axis sentence, every 124 tag in the math section.
    Mechanical only, no rewording. The first time, it also copies it to
-   `topic.prompt`; after that it rewrites only `generated.prompt`, so tuning
+   `tags.reviewed.prompt`; after that it rewrites only `tags.generated.prompt`, so tuning
    is never lost, and a diff of the two shows what the tuning changed (or,
    after a catalogue change, what is new on the server).
-2. **The user tunes `topic.prompt`** outside the app: shortens hints, prunes
+2. **The user tunes `tags.reviewed.prompt`** outside the app: shortens hints, prunes
    the math tags that can't occur in the topic, adds topic notes, reorders.
    Tag lines keep the `- <tagText>:` form (§6.3).
 3. **System review** of the tuned files with Claude: the offered set, reply
@@ -153,7 +153,10 @@ answer = key?
   ├─ yes ─► gap proposed (Review gaps mode)? ── yes ─► Gap proposed: the run pauses (§3.9)
   │            │ no
   │            ▼
-  │         hand tags present and different?   ── yes ─► Needs human (EXISTING_DIFFERS)
+  │         no concept tag (own question)?     ── yes ─► Needs human (NO_CONCEPT)
+  │            │ no
+  │            ▼
+  │         drops a hand tag already on it?    ── yes ─► Needs human (EXISTING_DIFFERS)
   │            │ no
   │            ▼
   │         Accepted T1  (tags + dependencies staged)
@@ -233,7 +236,7 @@ topic's tags of that axis. The user:
 
 - **accepts** it, editing tag text, full name, description, hint and colour
   as needed. The tagger creates the tag with a one-tag import (dry run, then
-  real; F7), appends its line to `topic.prompt` and re-stamps the approval
+  real; F7), appends its line to `tags.reviewed.prompt` and re-stamps the approval
   (`promptVersion` + 1, new fingerprint and hash: accepting the tag approves
   that line), rebuilds the prompt for the questions still to be sent, and
   adds the tag to the question's proposal (*Decided*);
@@ -252,9 +255,17 @@ existed don't get it (F1); the audit log can list them for a re-queue.
 Other topics' tags are not sent (too costly, and untuned). Instead:
 
 - **Every run** lists the syllabus' other topics (id and name, about 250
-  tokens in the cached prefix), and the reply carries `xdep`: the topics of
-  the same syllabus whose moves the solution needs. Maths dependence is the
-  `m.` axis' job.
+  tokens in the cached prefix; Foundation Mathematics 124 and Foundation
+  Vectors 125 left out), and the reply carries `xdep`: the topics of the
+  same syllabus *critical* to solving the problem, at most two, most
+  important first (`ReplyValidator.MAX_DEPENDENCIES`; extra ones are cut,
+  noted in the reply's fixes). Most problems touch other topics somewhere;
+  as in topic classification, the focus stays on the dominant topic, and a
+  dependency is the exception. A routine step never makes one (Laws of Motion's problems all end
+  on the constant-acceleration equations, its vertical circles use energy
+  conservation): each topic names its routine cases in a `## Dependencies`
+  section of `tags.reviewed.prompt`, which the offered set skips and a
+  dependent is not sent. Maths dependence is the `m.` axis' job.
 - A dependency counts only on a correct answer, can be edited in the
   decision panel, and is saved with the question's tags as an **open**
   dependency on the server.
@@ -280,7 +291,7 @@ Other topics' tags are not sent (too costly, and untuned). Instead:
 | Running T1 / T2 | Request in flight to that tier (its cell framed in red) |
 | Accepted T1 / T2 | Answer matched; tags staged for saving |
 | Gap proposed | Review gaps: a new tag proposed; the run is paused |
-| Needs human (reason) | `KEY_SUSPECT`, `UNSOLVED`, `INVALID_OUTPUT`, `EXISTING_DIFFERS` |
+| Needs human (reason) | `KEY_SUSPECT`, `UNSOLVED`, `INVALID_OUTPUT`, `EXISTING_DIFFERS`, `NO_CONCEPT` (a reply may give no concept tag only while proposing a concept gap; once that gap is rejected, or settled on a setup tag, the user chooses one) |
 | Decided | A human decision (or an accepted gap), not yet saved |
 | Deferred | Noted for later; stays pending |
 | Saving / Saved | Refresh in flight / applied |
@@ -320,10 +331,11 @@ Git-tracked in this repo; the path is the `prompts.dir` property.
 ```
 src/main/resources/prompts/
   qtagger.prompt                shared template, all topics
+  axes.prompt                   axis rules: ## Own, ## Dependent
   IIT Physics/
     104-Laws of Motion/
-      generated.prompt          base; rewritten by Generate
-      topic.prompt              tuned and approved; the one runs use
+      tags.generated.prompt     base; rewritten by Generate
+      tags.reviewed.prompt      tuned and approved; the one runs use
   IIT Chemistry/
   IIT Maths/
 ```
@@ -341,15 +353,15 @@ it for the whole run; the question is the second.
 
 | Order | Piece | Source |
 |---|---|---|
-| 1 | Role, rules (solve it yourself; tags only from the lists; answer with the labels the image prints; reply with the schema only), reply schema for the mode | `qtagger.prompt` |
-| 2 | Setup, concept and math sections — each rule once, then `- <tagText>: <hint>` lines — and topic notes | `topic.prompt` |
+| 1 | Role, rules (solve it yourself; tags only from the lists; answer with the labels the image prints; reply with the schema only), reply schema for the mode; the per-axis counts | `qtagger.prompt`, `axes.prompt` |
+| 2 | Setup, concept and math sections — each rule once, then `- <tagText>: <hint>` lines — and topic notes | `tags.reviewed.prompt` |
 | 3 | The syllabus' other topics, `<id>: <name>`, for `xdep` | built from the topic list |
 | 4 | *(second block)* `Question type: <type>`, then the image (LCT context stacked on top, as now) | per question |
 
 For a dependent, the math section is left out and the schema allows 0–2
 concept tags and no `xdep`; it is a second cached variant of the prefix.
 
-### 6.3 `topic.prompt` format
+### 6.3 `tags.reviewed.prompt` format
 
 A header of `key: value` lines — `topicId`, `status` (`draft` /
 `approved`), `promptVersion`, `catalogueFingerprint` (hash of the hinted
@@ -357,7 +369,8 @@ tags' ids, texts and hints at approval), `contentHash`, `generatedAt`,
 `approvedAt` — then a `---` line and free text. The text is sent as written;
 its `- <tagText>:` lines are how the tagger knows the offered set, and
 replies are validated against it. `qtagger.prompt` carries a
-`templateVersion`. Both versions go into every transcript and audit entry.
+`templateVersion`, which also covers `axes.prompt`. Both versions go into
+every transcript and audit entry.
 
 ### 6.4 Reply
 
@@ -371,11 +384,20 @@ replies are validated against it. `qtagger.prompt` carries a
 ```
 
 - `ans`: the labels the image prints (`"C"` or `"3"`; MCA `"A,C"` or
-  `"1,3"`); NVT and IVT a number, as a string.
+  `"1,3"`); NVT and IVT a number, as a string (NVT rounded as the question
+  asks, else to two decimal places). `null` when the model can't answer
+  reliably (an unreadable figure, missing data, an ambiguous question):
+  the rest of the reply is ignored, and the question goes to tier 2 as a
+  miss would, so an abstention never has its tags accepted.
 - `why`: at most 12 words. `xdep`: topic ids from the list in the prompt
   (unknown ids are dropped with a warning). `gap`: present only in *Review
   gaps*, null or `{"tag": …, "hint": …, "why": …}`.
-- Parsed leniently, as `TopicPrompter.parseTopics` (fences, extra fields).
+- Sent as a strict JSON schema (OpenRouter `response_format`, `json_schema`)
+  to models whose catalogue entry lists `structured_outputs`: the tag lists
+  are `enum`s of the offered tags, `xdep` of the topics offered; the counts
+  are still checked locally. A provider may ignore it, so the reply is
+  still parsed leniently, as `TopicPrompter.parseTopics` (fences, extra
+  fields), and a stand-in `gap` (`"none"`) is ignored.
 
 ### 6.5 Image preparation
 
@@ -584,7 +606,7 @@ the class map), with these differences:
 
 **Checked against the dev server (localhost:8080):** topics, the catalogue of
 Laws of Motion (41 hinted tags with topic 124's), generating its base prompt
-(`IIT Physics/104-Laws of Motion/`, a draft `topic.prompt`, not approved),
+(`IIT Physics/104-Laws of Motion/`, a draft `tags.reviewed.prompt`, not approved),
 assembly (no problems; about 3,900 input tokens per own question, 3,000 per
 dependent), Load with the cursor (562 own pending, 0 dependents), the bulk
 tag read and hand tags, image location, and the app's startup.
@@ -607,7 +629,7 @@ tag read and hand tags, image location, and the app's startup.
 | D7 | The base offers every Foundation Mathematics tag; the user prunes per topic. |
 | D8 | Tag mode per scope; in *Review gaps* a proposal pauses the whole run; an accepted tag is created by import and joins the approved prompt. |
 | D9 | Cross-topic needs become dependencies (topic ids), always asked, stored on the server, processed when that topic runs, after its own questions. |
-| D10 | Hand tags from the offered set: run and compare; equal → accept, different → hand off. |
+| D10 | Hand tags from the offered set: run and compare; the tier's tags keep every hand tag (equal, or adding to a partial hand tagging) → accept, a hand tag dropped → hand off. |
 | D11 | `afterId` cursor; Load and Load from start. |
 | D12 | Topic 124 is not a scope. |
 | D13 | No pilot, dry run or report in the app. |

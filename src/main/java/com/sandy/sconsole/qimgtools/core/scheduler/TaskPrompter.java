@@ -31,6 +31,15 @@ public interface TaskPrompter<R> {
     AIRequest.Image prepareImage( QTask task ) throws IOException ;
 
     /**
+     * The JSON schema the reply to {@code task} must follow, applied where
+     * the model supports structured output; null (the default) for free
+     * text. {@link #parse} must still read a reply that ignores it.
+     */
+    default AIRequest.ResponseSchema responseSchema( QTask task ) {
+        return null ;
+    }
+
+    /**
      * {@code reply} read as the answer for {@code task}.
      *
      * @throws BadReply with a short readable reason if it can't be read

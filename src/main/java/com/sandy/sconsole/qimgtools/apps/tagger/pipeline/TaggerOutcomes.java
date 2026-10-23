@@ -139,14 +139,19 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
         TierReply t1 = new TierReply( 1, model, reply ) ;
         escalations.put( task, new Escalation( t1 ) ) ;
         listener.tier1Missed( item, t1 ) ;
-        log.info( "[{}] {} answered {}, the key is {} - asking tier 2", task,
-                  model, reply.answer(), item.key() ) ;
+        if( reply.isAbstained() ) {
+            log.info( "[{}] {} gave no answer - asking tier 2", task, model ) ;
+        }
+        else {
+            log.info( "[{}] {} answered {}, the key is {} - asking tier 2",
+                      task, model, reply.answer(), item.key() ) ;
+        }
         return TIER2 ;
     }
 
     @Override
     public String secondOpinionReason() {
-        return "tier 1's answer misses the key" ;
+        return "tier 1's answer misses the key, or it gave none" ;
     }
 
     /**

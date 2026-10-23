@@ -311,7 +311,7 @@ public class QTagger implements TaggerFrame.Controller {
 
         if( topicPrompt == null ) {
             throw new IllegalStateException( topic.getTopicName() + " has no " +
-                    PromptStore.TOPIC + " - generate one first" ) ;
+                    PromptStore.REVIEWED + " - generate one first" ) ;
         }
         PromptStore.State state = PromptStore.state( topicPrompt, catalogue ) ;
         if( state != PromptStore.State.APPROVED ) {
@@ -320,9 +320,9 @@ public class QTagger implements TaggerFrame.Controller {
                     " - review and approve it" ) ;
         }
 
-        Assembly a = TagPrompter.assemble( topic, prompts.template(),
-                                           topicPrompt, catalogue, s.mode(),
-                                           topics.get( topic.getSyllabusName() ) ) ;
+        Assembly a = TagPrompter.assemble(
+                topic, prompts.template(), prompts.axes(), topicPrompt,
+                catalogue, s.mode(), topics.get( topic.getSyllabusName() ) ) ;
         if( !a.offered().problems().isEmpty() ) {
             throw new IllegalStateException( "the prompt of " +
                     topic.getTopicName() + " has problems: " +
@@ -373,18 +373,18 @@ public class QTagger implements TaggerFrame.Controller {
     // ---- prompts -------------------------------------------------------
 
     /**
-     * Where {@code topic}'s prompt stands, from its files alone: an approved
+     * {@code topic}'s prompt at a glance, from its files alone: an approved
      * prompt is taken as current (staleness needs the catalogue).
      */
     @Override
-    public PromptStore.State promptState( Topic topic ) {
+    public PromptStore.Summary promptSummary( Topic topic ) {
         try {
-            return prompts.state( topic, null ) ;
+            return prompts.summary( topic ) ;
         }
         catch( IOException e ) {
             log.warn( "Could not read the prompt of topic {}: {}",
                       topic.getId(), e.getMessage() ) ;
-            return PromptStore.State.NONE ;
+            return PromptStore.Summary.NONE ;
         }
     }
 
@@ -396,7 +396,7 @@ public class QTagger implements TaggerFrame.Controller {
     /**
      * Write {@code topic}'s base prompt from its catalogue now.
      *
-     * @return true if it was also copied to {@code topic.prompt}, the
+     * @return true if it was also copied to {@code tags.reviewed.prompt}, the
      *         topic having none
      */
     @Override
@@ -424,15 +424,15 @@ public class QTagger implements TaggerFrame.Controller {
 
         if( topicPrompt == null ) {
             throw new IllegalStateException( topic.getTopicName() + " has no " +
-                    PromptStore.TOPIC + " - generate one first" ) ;
+                    PromptStore.REVIEWED + " - generate one first" ) ;
         }
 
         Scope    s    = scope ;
         TagMode  mode = s != null && s.topicId() == topic.getId()
                         ? s.mode() : TagMode.EXISTING_ONLY ;
         Assembly a    = TagPrompter.assemble(
-                topic, prompts.template(), topicPrompt, catalogue, mode,
-                topics.get( topic.getSyllabusName() ) ) ;
+                topic, prompts.template(), prompts.axes(), topicPrompt,
+                catalogue, mode, topics.get( topic.getSyllabusName() ) ) ;
         int      tokens = TagPrompter.estimateTokens( a.own() ) ;
 
         Map<String,Double> costs = new LinkedHashMap<>() ;
@@ -463,7 +463,7 @@ public class QTagger implements TaggerFrame.Controller {
         PromptFile now = prompts.topicPrompt( review.topic() ) ;
         if( now == null || !now.contentHash().equals(
                 review.topicPrompt().contentHash() ) ) {
-            throw new IllegalStateException( PromptStore.TOPIC + " changed " +
+            throw new IllegalStateException( PromptStore.REVIEWED + " changed " +
                     "since it was reviewed - review it again" ) ;
         }
         prompts.approve( review.topic(), review.catalogue() ) ;
@@ -827,8 +827,8 @@ public class QTagger implements TaggerFrame.Controller {
                 "- " + created.tagText() + ": " + catalogue.ownHint( created ),
                 catalogue ) ;
         prompter.use( TagPrompter.assemble(
-                topic, prompts.template(), approved, catalogue, a.mode(),
-                topics.get( topic.getSyllabusName() ) ) ) ;
+                topic, prompts.template(), prompts.axes(), approved,
+                catalogue, a.mode(), topics.get( topic.getSyllabusName() ) ) ) ;
         return created ;
     }
 
