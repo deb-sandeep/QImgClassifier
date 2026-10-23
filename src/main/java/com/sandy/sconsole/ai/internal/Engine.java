@@ -60,7 +60,9 @@ import java.util.Set;
  * In a fallback list a later model takes the job only while every earlier
  * one is unavailable (held back, not merely busy or pacing); models the job
  * has used up are skipped. A job fails when, after a failure, no retry or
- * usable fallback is left.
+ * usable fallback is left. A job pinned to a model ({@code AIJob.model})
+ * runs only on it until it is escalated: its retries there, no fallback or
+ * stand-in.
  * <p>
  * The app may set a model to pass its jobs through ({@link #setPassthrough}):
  * it is then held back, taking no jobs, and its jobs go by its
@@ -176,7 +178,8 @@ public final class Engine {
 
     /**
      * Add {@code job} to the waiting jobs. A job whose roots have no usable
-     * model fails at once, before this returns.
+     * model, or whose pinned model can't be used, fails at once, before
+     * this returns.
      *
      * @throws IllegalArgumentException if a root is not in the config
      */
@@ -194,7 +197,8 @@ public final class Engine {
 
         synchronized( lock ) {
             j      = new JobImpl<>( this, nextId++, job ) ;
-            usable = job.roots().stream().anyMatch( config::isRootUsable ) ;
+            usable = job.model() != null ? usable( job.model() )
+                   : job.roots().stream().anyMatch( config::isRootUsable ) ;
             if( usable ) {
                 place( j, priority, System.currentTimeMillis() ) ;
                 waiting.add( j ) ;
@@ -205,16 +209,25 @@ public final class Engine {
             }
         }
         if( usable ) {
-            log.debug( "[{}] submitted: roots {}, {}", j, job.roots(),
+            log.debug( "[{}] submitted: roots {}{}, {}", j, job.roots(),
+                       job.model() != null ? ", pinned to " + job.model() : "",
                        priority ) ;
         }
         else {
-            String reason = "no usable model in " + job.roots() ;
+            String reason = job.model() != null
+                            ? job.model() + " can't be used"
+                            : "no usable model in " + job.roots() ;
             log.warn( "[{}] failed at once: {}", j, reason ) ;
             safely( j, "failed", () -> job.listener().failed(
                     j, reason, FailureKind.OTHER ) ) ;
         }
         return j ;
+    }
+
+    /** True if model {@code id} is in the config and usable. */
+    private boolean usable( String id ) {
+        ModelState m = models.get( id ) ;
+        return m != null && m.info.usable() ;
     }
 
     /** Stop the workers, interrupting requests in flight. */
@@ -671,7 +684,8 @@ public final class Engine {
             windUp( j ) ;
             return ;
         }
-        List<String> guard = m.info.fallback().candidates( result.kind() ) ;
+        List<String> guard = pinned( j ) != null ? List.of()
+                           : m.info.fallback().candidates( result.kind() ) ;
         log.info( "[{}] [{}] handed back ({}) - next on {}{}", j, m.info.tag(),
                   result.failure(), m.id(),
                   guard.isEmpty() ? " when it may send again"
@@ -700,8 +714,9 @@ public final class Engine {
             requeue( j ) ;
             return ;
         }
-        List<String> options = options( j, m.info.fallback()
-                                              .candidates( result.kind() ) ) ;
+        List<String> options = pinned( j ) != null ? List.<String>of()
+                             : options( j, m.info.fallback()
+                                                 .candidates( result.kind() ) ) ;
         String guard = m.info.fallback().guardFor( result.kind() ) ;
 
         if( !options.isEmpty() ) {
@@ -837,6 +852,14 @@ public final class Engine {
             return null ;
         }
 
+        String pin = pinned( j ) ;
+        if( pin != null ) {
+            if( !id.equals( pin ) ) return null ;
+            if( j.lastModel == null ) return usedUp( j, m ) ? null : Via.ROOT ;
+            if( j.lastKind.isHandedBack() ) return Via.HANDED_BACK ;
+            return usedUp( j, m ) ? null : Via.RETRY ;
+        }
+
         if( j.lastModel == null ) {
             if( usedUp( j, m ) ) return null ;
 
@@ -866,6 +889,11 @@ public final class Engine {
         }
         List<String> guard = last.info.fallback().candidates( j.lastKind ) ;
         return firstAvailable( j, guard, id, now ) ? Via.FALLBACK : null ;
+    }
+
+    /** The model {@code j} is pinned to until escalated; null if none. */
+    private static String pinned( JobImpl<?,?> j ) {
+        return j.escalationRoot == null ? j.job.model() : null ;
     }
 
     /**

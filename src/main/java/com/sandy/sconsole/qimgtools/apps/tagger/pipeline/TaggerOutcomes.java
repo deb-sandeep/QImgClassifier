@@ -94,8 +94,19 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
 
     /** Remember which item {@code item.task()} belongs to; call on submit. */
     public void track( TagItem item ) {
+        track( item, null ) ;
+    }
+
+    /**
+     * {@link #track(TagItem)}, the item sent straight to tier 2 when
+     * {@code tier1} is not null: it keeps {@code tier1} as tier 1's reply,
+     * and its reply is tier 2's.
+     */
+    public void track( TagItem item, TierReply tier1 ) {
+
         items.put( item.task(), item ) ;
-        escalations.remove( item.task() ) ;
+        if( tier1 == null ) escalations.remove( item.task() ) ;
+        else escalations.put( item.task(), new Escalation( tier1 ) ) ;
     }
 
     /** The item {@code task} was submitted for; null if none. */
@@ -169,8 +180,7 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
     public boolean succeeded( QTask task, TagReply reply, AIAgent agent,
                               String model, int attempts ) {
 
-        TagItem     item = items.get( task ) ;
-        Escalation  esc  = escalations.remove( task ) ;
+        Escalation  esc = escalations.remove( task ) ;
         TagOpinions opinions ;
 
         if( esc != null ) {
@@ -182,11 +192,19 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
         else {
             opinions = TagOpinions.of( new TierReply( 1, model, reply ) ) ;
         }
+        judge( task, opinions ) ;
+        return true ;
+    }
 
-        Assembly     a = prompter.assembly() ;
-        TagJudgement j = TagJudgement.of( item, opinions, a.mode(),
-                                          a.offered(), false ) ;
+    /** Judge {@code opinions} of {@code task}, store and report them. */
+    private void judge( QTask task, TagOpinions opinions ) {
+
+        TagItem      item  = items.get( task ) ;
+        Assembly     a     = prompter.assembly() ;
+        TagJudgement j     = TagJudgement.of( item, opinions, a.mode(),
+                                              a.offered(), false ) ;
         int          scope = a.topic().getId() ;
+
         try {
             pending.save( item.question(), scope, item.dependent(), opinions ) ;
         }
@@ -204,7 +222,6 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
         log.info( "[{}] {}{}", task, j.status().getLabel(),
                   j.reason() != null ? " (" + j.reason() + ")" : "" ) ;
         listener.judged( item, opinions, j ) ;
-        return true ;
     }
 
     @Override
@@ -215,13 +232,18 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
     /**
      * Tier 1 failed for good: a reply that could not be used (bad, cut
      * off) hands the question to the user; anything else is a failure to
-     * re-queue.
+     * re-queue. A question sent straight to tier 2 keeps tier 1's reply,
+     * judged with tier 2's failure, as after an escalation.
      */
     @Override
     public void failed( QTask task, int attempts, String reason,
                         FailureKind kind ) {
 
-        escalations.remove( task ) ;
+        Escalation esc = escalations.remove( task ) ;
+        if( esc != null ) {
+            judge( task, new TagOpinions( esc.tier1, null, reason ) ) ;
+            return ;
+        }
         TagItem item = items.get( task ) ;
         if( kind == FailureKind.BAD_REPLY || kind == FailureKind.TRUNCATED ) {
             listener.invalidOutput( item, attempts, reason ) ;

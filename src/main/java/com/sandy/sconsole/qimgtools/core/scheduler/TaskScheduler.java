@@ -84,6 +84,7 @@ public class TaskScheduler<R> {
         final QTask           task ;
         final BooleanSupplier keepGoing ;
         final boolean         batch ;
+        final Route           route ;
         final AttemptListener attempts ;
 
         /** Set once submitted; callbacks may come before it is. */
@@ -98,10 +99,13 @@ public class TaskScheduler<R> {
         /** The request of the attempt in flight, for its transcript. */
         AttemptRequest request ;
 
-        Entry( QTask task, BooleanSupplier keepGoing, boolean batch ) {
+        Entry( QTask task, BooleanSupplier keepGoing, boolean batch,
+               Route route ) {
+
             this.task      = task ;
             this.keepGoing = keepGoing ;
             this.batch     = batch ;
+            this.route     = route ;
             this.attempts  = outcomes.attemptListener( task ) ;
         }
 
@@ -109,6 +113,13 @@ public class TaskScheduler<R> {
         @Override
         public String toString() { return task.getQuestionId() ; }
     }
+
+    /**
+     * Where a question starts, in place of {@link TaskOutcomes#roots}: on
+     * {@code root}, and only on {@code model} until it is escalated (see
+     * {@code AIJob.model}; it retries there and never falls back).
+     */
+    public record Route( String root, String model ) {}
 
     public TaskScheduler( AIHub hub, TaskPrompter<R> prompter,
                           TaskOutcomes<R> outcomes ) {
@@ -123,12 +134,21 @@ public class TaskScheduler<R> {
      * released.
      */
     public void submitBatch( List<QTask> tasks, BooleanSupplier keepGoing ) {
+        submitBatch( tasks, null, keepGoing ) ;
+    }
+
+    /**
+     * {@link #submitBatch(List, BooleanSupplier)}, the tasks starting by
+     * {@code route}; null for the outcomes' roots.
+     */
+    public void submitBatch( List<QTask> tasks, Route route,
+                             BooleanSupplier keepGoing ) {
 
         synchronized( lock ) {
             for( QTask task : tasks ) {
                 if( active.containsKey( task ) ) continue ;
 
-                Entry e = new Entry( task, keepGoing, true ) ;
+                Entry e = new Entry( task, keepGoing, true, route ) ;
                 if( held.containsKey( task ) ) {
                     held.put( task, e ) ;
                     continue ;
@@ -152,7 +172,7 @@ public class TaskScheduler<R> {
                            task ) ;
                 return ;
             }
-            Entry e = new Entry( task, keepGoing, false ) ;
+            Entry e = new Entry( task, keepGoing, false, null ) ;
             active.put( task, e ) ;
             submit( e, Priority.FRONT ) ;
         }
@@ -287,9 +307,11 @@ public class TaskScheduler<R> {
     /** Under lock: hand {@code e} to the hub. */
     private void submit( Entry e, Priority priority ) {
 
-        AIJob<Entry,R> job = new AIJob<>(
-                e, outcomes.roots( e.task ), model -> request( e ),
-                e.keepGoing, new Listener() ) ;
+        List<String>   roots = e.route == null ? outcomes.roots( e.task )
+                                               : List.of( e.route.root() ) ;
+        AIJob<Entry,R> job   = new AIJob<>(
+                e, roots, model -> request( e ), e.keepGoing, new Listener(),
+                e.route == null ? null : e.route.model() ) ;
         e.handle = hub.submit( job, priority ) ;
     }
 

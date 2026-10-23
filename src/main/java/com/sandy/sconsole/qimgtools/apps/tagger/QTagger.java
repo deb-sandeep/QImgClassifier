@@ -21,6 +21,7 @@ import com.sandy.sconsole.qimgtools.apps.tagger.model.TagMode;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagOpinions;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply.GapProposal;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TierReply;
 import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.PausingRouting;
 import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerListener;
 import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerOutcomes;
@@ -170,7 +171,7 @@ public class QTagger implements TaggerFrame.Controller {
         this.prompter  = new TagPrompter( t -> ref[0].item( t ), prep ) ;
         this.outcomes  = new TaggerOutcomes(
                 frame, pending, audit,
-                new TranscriptStore( config.getWorkspaceDir() ),
+                new TranscriptStore( config.getPassDir() ),
                 new UsageLog( config.getUsageLogFile() ), prompter ) ;
         ref[0]         = outcomes ;
         this.scheduler = new TaskScheduler<>( hub, prompter, outcomes ) ;
@@ -234,7 +235,7 @@ public class QTagger implements TaggerFrame.Controller {
             SwingUtilities.invokeAndWait( () -> {
                 frame[0] = new TaggerFrame(
                         tagClass,
-                        new TranscriptStore( config.getWorkspaceDir() ),
+                        new TranscriptStore( config.getPassDir() ),
                         ModelNames.of( config.getAi() ),
                         firstUsable( config.getAi(), TaggerOutcomes.TIER1 ),
                         tagClass.solves()
@@ -650,23 +651,55 @@ public class QTagger implements TaggerFrame.Controller {
      */
     @Override
     public synchronized void start( List<TagItem> items ) {
+        start( items, 1, null, Map.of() ) ;
+    }
+
+    /**
+     * Send {@code items} to {@code model} alone, as tier {@code tier}
+     * (tier 2 only in the concept pass): it retries there and never falls
+     * back. As tier 1 a miss still goes on to the tier 2 root; as tier 2
+     * each item keeps its reply in {@code tier1}. Otherwise as
+     * {@link #start(List)}.
+     */
+    @Override
+    public synchronized void start( List<TagItem> items, int tier,
+                                    String model,
+                                    Map<TagItem,TierReply> tier1 ) {
 
         if( stopRequested ) return ;
         List<QTask> tasks = new ArrayList<>() ;
 
         for( TagItem item : items ) {
-            outcomes.track( item ) ;
+            outcomes.track( item, tier == 2 ? tier1.get( item ) : null ) ;
             tasks.add( item.task() ) ;
         }
-        log.info( "Sending {} questions to tier 1", tasks.size() ) ;
+
+        String root = tier == 2 ? TaggerOutcomes.TIER2 : TaggerOutcomes.TIER1 ;
+        TaskScheduler.Route route = model == null ? null
+                                  : new TaskScheduler.Route( root, model ) ;
+
+        log.info( "Sending {} questions to tier {}{}", tasks.size(), tier,
+                  model == null ? "" : " on " + model + " alone" ) ;
         if( processing.get() ) {
-            scheduler.submitBatch( tasks, this::isProcessing ) ;
+            scheduler.submitBatch( tasks, route, this::isProcessing ) ;
             return ;
         }
         processing.set( true ) ;
         listener.processingStateChanged( ProcessingState.RUNNING ) ;
-        scheduler.submitBatch( tasks, this::isProcessing ) ;
+        scheduler.submitBatch( tasks, route, this::isProcessing ) ;
         new Thread( this::runBatch, "qtagger-batch" ).start() ;
+    }
+
+    /**
+     * The models a question may be sent to by hand: every usable one, in
+     * the AI file's order.
+     */
+    @Override
+    public List<String> models() {
+        return scheduler.hubStatus().models().stream()
+                        .filter( HubStatus.ModelStatus::usable )
+                        .map( HubStatus.ModelStatus::id )
+                        .toList() ;
     }
 
     /**

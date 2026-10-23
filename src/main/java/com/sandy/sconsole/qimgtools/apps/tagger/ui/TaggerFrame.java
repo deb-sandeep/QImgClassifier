@@ -109,6 +109,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -215,6 +216,18 @@ public class TaggerFrame extends JFrame
          * to the one going. Ignored while a run is stopping.
          */
         void start( List<TagItem> items ) ;
+
+        /**
+         * Send {@code items} to {@code model} alone, as tier {@code tier}:
+         * no other model is tried. As tier 2 (the concept pass) each item
+         * keeps {@code tier1}'s reply for it as tier 1's; as tier 1 a miss
+         * still goes on to tier 2. Otherwise as {@link #start(List)}.
+         */
+        void start( List<TagItem> items, int tier, String model,
+                    Map<TagItem,TierReply> tier1 ) ;
+
+        /** The models a question may be sent to by hand, in config order. */
+        List<String> models() ;
 
         /** Wind the run down: no new requests, running ones finish. */
         void stop() ;
@@ -991,22 +1004,25 @@ public class TaggerFrame extends JFrame
 
     /**
      * Right-click on the table, for the selected rows, or the clicked row if
-     * it isn't one of them: send them to the model, the decisions of the
-     * decision panel, review a gap, and save or clear their decisions.
+     * it isn't one of them: send them to the model, or to a model of the
+     * user's choice, the decisions of the decision panel, review a gap, and
+     * save or clear their decisions.
      */
     private void addRowMenu() {
 
-        JPopupMenu menu  = new JPopupMenu() ;
-        JMenuItem  send  = new JMenuItem() ;
-        JMenuItem  gap   = new JMenuItem( "Review gap proposal…" ) ;
-        JMenuItem  save  = new JMenuItem() ;
-        JMenuItem  clear = new JMenuItem() ;
+        JPopupMenu menu   = new JPopupMenu() ;
+        JMenuItem  send   = new JMenuItem() ;
+        JMenu      sendTo = new JMenu( "Send to model" ) ;
+        JMenuItem  gap    = new JMenuItem( "Review gap proposal…" ) ;
+        JMenuItem  save   = new JMenuItem() ;
+        JMenuItem  clear  = new JMenuItem() ;
 
         send.addActionListener( e -> sendSelected() ) ;
         gap.addActionListener( e -> reviewGap( selectedRow() ) ) ;
         save.addActionListener( e -> save( selectedRows(), null, () -> {} ) ) ;
         clear.addActionListener( e -> clear( selectedRows() ) ) ;
         menu.add( send ) ;
+        menu.add( sendTo ) ;
         menu.addSeparator() ;
         for( int i = 0 ; i < 5 ; i++ ) menu.add( decideActions[i] ) ;
         menu.add( gap ) ;
@@ -1037,6 +1053,7 @@ public class TaggerFrame extends JFrame
                 send.setText( "Send " + plural( n, "question" ) +
                               " to the model" ) ;
                 send.setEnabled( n > 0 && canSend() ) ;
+                fillSendTo( sendTo ) ;
                 updateSelectionActions() ;
                 gap.setEnabled( one != null && !gapOpen
                                 && one.status == TaggerStatus.GAP_PROPOSED ) ;
@@ -1047,6 +1064,49 @@ public class TaggerFrame extends JFrame
                 menu.show( table, e.getX(), e.getY() ) ;
             }
         } ) ;
+    }
+
+    /**
+     * The "Send to model" submenu: every usable model, for the sendable
+     * selection; in the concept pass under "As tier 1" (a miss still goes
+     * on to tier 2) and "As tier 2" (the rows with a tier 1 reply, which
+     * they keep).
+     */
+    private void fillSendTo( JMenu sendTo ) {
+
+        sendTo.removeAll() ;
+        List<String> models = controller == null ? List.of()
+                                                 : controller.models() ;
+        int n1 = sendableSelection().size() ;
+        int n2 = sendableForTier2().size() ;
+
+        if( !pass.solves() ) {
+            addModels( sendTo, models, 1 ) ;
+        }
+        else {
+            JMenu t1 = new JMenu( "As tier 1 (" + plural( n1, "question" ) +
+                                  ")" ) ;
+            JMenu t2 = new JMenu( "As tier 2 (" + plural( n2, "question" ) +
+                                  ", tier 1's reply kept)" ) ;
+            addModels( t1, models, 1 ) ;
+            addModels( t2, models, 2 ) ;
+            t1.setEnabled( n1 > 0 ) ;
+            t2.setEnabled( n2 > 0 ) ;
+            sendTo.add( t1 ) ;
+            sendTo.add( t2 ) ;
+        }
+        sendTo.setEnabled( n1 > 0 && canSend() && !models.isEmpty() ) ;
+    }
+
+    /** An item per model in {@code menu}, sending as tier {@code tier}. */
+    private void addModels( JMenu menu, List<String> models, int tier ) {
+
+        for( String id : models ) {
+            JMenuItem item = new JMenuItem( names.of( id ) ) ;
+            item.setToolTipText( id + " alone: its retries, no fallback" ) ;
+            item.addActionListener( e -> sendSelected( tier, id ) ) ;
+            menu.add( item ) ;
+        }
     }
 
     private static int count( List<Row> rows, Predicate<Row> test ) {
@@ -1099,6 +1159,17 @@ public class TaggerFrame extends JFrame
                              .filter( r -> r.item.isSendable()
                                            && r.status.isRunnable() )
                              .toList() ;
+    }
+
+    /**
+     * The selected rows that may be sent straight to tier 2: sendable, with
+     * a tier 1 reply to keep.
+     */
+    private List<Row> sendableForTier2() {
+        return sendableSelection().stream()
+                                  .filter( r -> r.opinions != null
+                                                && r.opinions.tier1() != null )
+                                  .toList() ;
     }
 
     /**
@@ -1457,17 +1528,34 @@ public class TaggerFrame extends JFrame
     }
 
     /**
-     * Queue {@code rows} for tier 1 in the order the table shows them (rows
-     * filtered out last, in load order), so they are taken top down; their
-     * replies stay till new ones come, an unsaved decision or a deferral is
-     * dropped.
+     * Send the selected rows that may go as tier {@code tier} to
+     * {@code model} alone.
      */
+    private void sendSelected( int tier, String model ) {
+        send( tier == 2 ? sendableForTier2() : sendableSelection(), tier,
+              model ) ;
+    }
+
     private void send( List<Row> rows ) {
+        send( rows, 1, null ) ;
+    }
+
+    /**
+     * Queue {@code rows} for tier {@code tier} in the order the table shows
+     * them (rows filtered out last, in load order), so they are taken top
+     * down; on {@code modelId} alone if not null, else on the tier's root.
+     * Their replies stay till new ones come (sent as tier 2, tier 1's is
+     * kept); an unsaved decision or a deferral is dropped.
+     */
+    private void send( List<Row> rows, int tier, String modelId ) {
 
         if( !canSend() || rows.isEmpty() ) return ;
         rows = rows.stream().sorted( Comparator.comparingInt( this::viewOrder ) )
                    .toList() ;
+
+        Map<TagItem,TierReply> tier1 = new HashMap<>() ;
         for( Row row : rows ) {
+            if( tier == 2 ) tier1.put( row.item, row.opinions.tier1() ) ;
             if( row.status == TaggerStatus.DEFERRED ) {
                 controller.undefer( row.item ) ;
             }
@@ -1479,7 +1567,10 @@ public class TaggerFrame extends JFrame
         }
         model.changedAll() ;
         decisionPanel.show( selectedRows() ) ;
-        controller.start( rows.stream().map( r -> r.item ).toList() ) ;
+
+        List<TagItem> items = rows.stream().map( r -> r.item ).toList() ;
+        if( modelId == null ) controller.start( items ) ;
+        else controller.start( items, tier, modelId, tier1 ) ;
         nextGap() ;
     }
 

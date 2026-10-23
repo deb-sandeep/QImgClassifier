@@ -46,10 +46,13 @@ public final class TaggerConfig {
     /** The topic prompts and the shared template, in the source tree. */
     private final File promptsDir ;
 
-    /** Root of the tagger's files and per-question transcripts. */
+    /** Root of the tagger's files: the passes' folders and the history. */
     private final File workspaceDir ;
 
-    /** The pass' folder in the workspace, holding its own files. */
+    /**
+     * The pass' folder in the workspace, holding its own files and its
+     * per-question transcripts.
+     */
     private final File passDir ;
 
     /** The scope last chosen, with its load cursors. */

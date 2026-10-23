@@ -16,15 +16,26 @@ import java.util.function.BooleanSupplier;
  *                  not started is dropped, and a started one ends with what
  *                  it has (a provisional result, else its last failure)
  * @param listener  told about the job's progress
+ * @param model     the one model the job runs on until it is escalated, in
+ *                  place of its roots' models: it retries there and never
+ *                  falls back or has a stand-in, waiting out any hold; null
+ *                  for any model of its roots. After an escalation the job
+ *                  goes to the escalation root's models as usual
  * @param <P>       the payload type
  * @param <R>       the result type
  */
 public record AIJob<P,R>( P payload, List<String> roots,
                           RequestFactory request, BooleanSupplier keepGoing,
-                          JobListener<P,R> listener ) {
+                          JobListener<P,R> listener, String model ) {
 
     public AIJob {
         roots = List.copyOf( roots ) ;
+    }
+
+    /** A job on any model of its {@code roots}. */
+    public AIJob( P payload, List<String> roots, RequestFactory request,
+                  BooleanSupplier keepGoing, JobListener<P,R> listener ) {
+        this( payload, roots, request, keepGoing, listener, null ) ;
     }
 
     /** Builds a job's request for one attempt. */

@@ -5,7 +5,7 @@
 | App | `QTagger` (`apps.tagger`) |
 | Builds on | `2026-10-22/auto-tagging/feature-design.md` (the single-pass tagger, rev 17) |
 | Server | SConsoleNxt `2026-10-23/bi-modal-auto-tagging` (rev 1, implemented) |
-| Status | Rev 2, 2026-10-23: implemented |
+| Status | Rev 3, 2026-10-23: implemented |
 
 The single-pass tagger solves every question with a model strong enough to
 get it right, because concept tags come from the solution. Over the ~40k
@@ -246,7 +246,7 @@ never read each other's:
 | `<pass>/tag-audit.jsonl` (with `tagClass` in each entry) | yes |
 | `<pass>/tagger-notes.jsonl` | yes |
 | `<pass>/token-usage.csv`, so each pass's cost reads on its own | yes |
-| Transcripts `<source>/<questionId>/…` | no; the `Context` header names the pass |
+| `<pass>/<source>/<questionId>/…` transcripts, so each pass's Transcripts tab shows only its own (the `Context` header names the pass too) | yes |
 | `request.history.json` | no |
 
 `qtagger.properties` keeps its keys; the per-pass ones are resolved under
@@ -299,3 +299,4 @@ CLAUDE.md's *Tagger* section is updated with the change.
 |---|---|---|
 | 1 | 2026-10-23 | Initial version |
 | 2 | 2026-10-23 | Implemented: the setup root is `tier1`; migration as done (§7.4, §9) |
+| 3 | 2026-10-23 | Transcripts per pass (§9); those already saved split by their `Context` header (the old single-pass ones to `concept/`) |

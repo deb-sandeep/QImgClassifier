@@ -1,4 +1,4 @@
-# 7. Job control: batches, stop, hold, cancel, re-queue
+# 7. Job control: batches, one model, stop, hold, cancel, re-queue
 
 ## Submitting at the front
 
@@ -45,6 +45,27 @@ for( Question q : batch ) {
 }
 done.await() ;
 ```
+
+## Sending a job to one model
+
+To run a job on a model the user picked, pin it with the sixth `AIJob`
+argument, `model` (the model's id). Until the job is escalated it runs on
+that model alone, whatever its roots say: it uses that model's `retries`,
+never falls back by a guard and never gets a stand-in, and while the model
+is held back (a rate limit, an unreachable gateway, a passthrough) it waits.
+When the retries are used up the job fails. A reply the listener escalates
+goes to the escalation root's models as usual; the pin no longer applies.
+
+```java
+hub.submit( new AIJob<>( q, List.of( "main" ), factory( q ),
+                         running::get, listener,
+                         "anthropic/claude-haiku-5.5" ) ) ;
+```
+
+The roots still have to exist in the app file, and the model has to be
+usable (it has slots: switched on, its gateway's key present, reachable from
+a root); otherwise the job fails at once with "<model> can't be used". The
+five-argument constructor leaves `model` null: any model of the roots.
 
 ## Stopping: `keepGoing`
 

@@ -36,7 +36,7 @@ a ready-made Swing view of the hub's status).
 | 4 | [Retries and fallbacks](04-retries-and-fallbacks.md) | survive failures and rate limits without overspending |
 | 5 | [Routing policies](05-routing-policies.md) | decide which model takes which job (several roots, load spreading) |
 | 6 | [Escalation](06-escalation.md) | get a second opinion when an answer isn't good enough |
-| 7 | [Job control](07-job-control.md) | run batches, stop, hold, cancel and re-queue jobs |
+| 7 | [Job control](07-job-control.md) | run batches, send a job to one model, stop, hold, cancel and re-queue jobs |
 | 8 | [Monitoring](08-monitoring.md) | show progress, limits and token costs (or drop in the Swing models panel), and read the logs |
 
 ## Concepts in one page

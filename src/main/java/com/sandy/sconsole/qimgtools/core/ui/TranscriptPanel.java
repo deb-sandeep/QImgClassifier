@@ -9,14 +9,24 @@ import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeCellRenderer;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
+import java.awt.BasicStroke;
 import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Component;
 import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.geom.Ellipse2D;
+import java.awt.geom.Line2D;
+import java.awt.geom.Path2D;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -40,6 +50,10 @@ import java.util.Objects;
  *       Response
  *       Request
  * </pre>
+ * Each attempt's icon gives its outcome at a glance ({@link Result}): a
+ * green tick for OK, a red cross for FAILED, an amber pause for RATE
+ * LIMITED / UNREACHABLE (handed back, not the model's fault), a grey clock
+ * while waiting.
  * The text area shows the selected node: a file for a leaf, and for a parent
  * the text of all its children, one after another. The prompt inside a
  * request is hidden unless "Show prompt" is ticked.
@@ -139,6 +153,7 @@ public final class TranscriptPanel extends JPanel {
 
         tree.setRootVisible( false ) ;   // until a question is shown
         tree.setShowsRootHandles( true ) ;
+        tree.setCellRenderer( new ResultRenderer() ) ;
         tree.getSelectionModel()
             .setSelectionMode( TreeSelectionModel.SINGLE_TREE_SELECTION ) ;
         tree.addTreeSelectionListener( e -> {
@@ -277,10 +292,121 @@ public final class TranscriptPanel extends JPanel {
 
     /**
      * A tree node's content: {@code key} identifies it across rebuilds,
-     * {@code body} is a leaf's file text (null for parents).
+     * {@code body} is a leaf's file text (null for parents), {@code result}
+     * an attempt's outcome (null for any other node).
      */
-    private record Entry( Kind kind, String key, String label, String body ) {
+    private record Entry( Kind kind, String key, String label, String body,
+                          Result result ) {
+
+        Entry( Kind kind, String key, String label, String body ) {
+            this( kind, key, label, body, null ) ;
+        }
+
         @Override public String toString() { return label ; }
+    }
+
+    /** An attempt's outcome, drawn as its node's icon. */
+    private enum Result implements Icon {
+
+        OK     ( new Color( 0x2E7D32 ) ),
+        FAILED ( new Color( 0xC62828 ) ),
+
+        /** Rate limited or unreachable: handed back, no retry used. */
+        HELD   ( new Color( 0xEF8F00 ) ),
+        WAITING( new Color( 0x757575 ) ),
+
+        /** No response file. */
+        NONE   ( new Color( 0xB0B0B0 ) ) ;
+
+        private static final int SIZE = 14 ;
+
+        private final Color color ;
+
+        Result( Color color ) {
+            this.color = color ;
+        }
+
+        /** From a response's {@code Outcome} header (its part before ':'). */
+        static Result of( String outcome ) {
+            if( outcome == null ) return NONE ;
+            return switch( outcome.trim() ) {
+                case "OK"                         -> OK ;
+                case "RATE LIMITED", "UNREACHABLE" -> HELD ;
+                default                           -> FAILED ;
+            } ;
+        }
+
+        @Override public int getIconWidth()  { return SIZE ; }
+        @Override public int getIconHeight() { return SIZE ; }
+
+        /** A filled disc with a white glyph; the clock and NONE are rings. */
+        @Override
+        public void paintIcon( Component c, Graphics g, int x, int y ) {
+
+            Graphics2D g2 = (Graphics2D) g.create() ;
+            try {
+                g2.setRenderingHint( RenderingHints.KEY_ANTIALIASING,
+                                     RenderingHints.VALUE_ANTIALIAS_ON ) ;
+                g2.translate( x, y ) ;
+                g2.setColor( color ) ;
+
+                Ellipse2D disc = new Ellipse2D.Double( 0.5, 0.5, SIZE - 1,
+                                                       SIZE - 1 ) ;
+                if( this == WAITING || this == NONE ) {
+                    g2.setStroke( new BasicStroke( 1.5f ) ) ;
+                    g2.draw( disc ) ;
+                    if( this == WAITING ) {
+                        g2.draw( new Line2D.Double( 7, 7, 7, 3.5 ) ) ;
+                        g2.draw( new Line2D.Double( 7, 7, 9.5, 8.5 ) ) ;
+                    }
+                    return ;
+                }
+                g2.fill( disc ) ;
+                g2.setColor( Color.WHITE ) ;
+                g2.setStroke( new BasicStroke( 2f, BasicStroke.CAP_ROUND,
+                                               BasicStroke.JOIN_ROUND ) ) ;
+                switch( this ) {
+                    case OK -> {
+                        Path2D tick = new Path2D.Double() ;
+                        tick.moveTo( 3.8, 7.2 ) ;
+                        tick.lineTo( 6, 9.5 ) ;
+                        tick.lineTo( 10.2, 4.6 ) ;
+                        g2.draw( tick ) ;
+                    }
+                    case FAILED -> {
+                        g2.draw( new Line2D.Double( 4.5, 4.5, 9.5, 9.5 ) ) ;
+                        g2.draw( new Line2D.Double( 9.5, 4.5, 4.5, 9.5 ) ) ;
+                    }
+                    default -> {
+                        g2.draw( new Line2D.Double( 5.5, 4.5, 5.5, 9.5 ) ) ;
+                        g2.draw( new Line2D.Double( 8.5, 4.5, 8.5, 9.5 ) ) ;
+                    }
+                }
+            }
+            finally {
+                g2.dispose() ;
+            }
+        }
+    }
+
+    /** The default renderer, with an attempt's {@link Result} as its icon. */
+    private static final class ResultRenderer extends DefaultTreeCellRenderer {
+
+        @Override
+        public Component getTreeCellRendererComponent(
+                JTree tree, Object value, boolean selected, boolean expanded,
+                boolean leaf, int row, boolean hasFocus ) {
+
+            super.getTreeCellRendererComponent( tree, value, selected,
+                                                expanded, leaf, row,
+                                                hasFocus ) ;
+            if( value instanceof DefaultMutableTreeNode n
+                && n.getUserObject() instanceof Entry e
+                && e.result() != null ) {
+                setIcon( e.result() ) ;
+            }
+            return this ;
+        }
     }
 
     /**
@@ -334,7 +460,8 @@ public final class TranscriptPanel extends JPanel {
 
         for( Attempt a : shown.attempts() ) {
             if( a.stem().equals( liveStem ) ) continue ;   // saved meanwhile
-            addAttempt( a.stem(), describe( a ), a.response(), a.request() ) ;
+            addAttempt( a.stem(), describe( a ), Result.of( outcome( a ) ),
+                        a.response(), a.request() ) ;
         }
         if( pending != null ) {
             String waiting = "(waiting for " + pending.getAgent().getLabel() + " "
@@ -342,8 +469,8 @@ public final class TranscriptPanel extends JPanel {
                              + new SimpleDateFormat( "HH:mm:ss" )
                                        .format( new Date( pending.getStartedAt() ) )
                              + ")\n" ;
-            addAttempt( liveStem, liveLabel( pending ), waiting,
-                        TranscriptStore.requestText( pending ) ) ;
+            addAttempt( liveStem, liveLabel( pending ), Result.WAITING,
+                        waiting, TranscriptStore.requestText( pending ) ) ;
         }
         model.reload() ;
 
@@ -354,8 +481,8 @@ public final class TranscriptPanel extends JPanel {
     }
 
     /** Add an attempt (with its response and request) under its day. */
-    private void addAttempt( String stem, String label, String response,
-                             String request ) {
+    private void addAttempt( String stem, String label, Result result,
+                             String response, String request ) {
 
         String day = stem.length() >= 8
                    ? stem.substring( 0, 4 ) + "-" + stem.substring( 4, 6 ) + "-"
@@ -374,7 +501,7 @@ public final class TranscriptPanel extends JPanel {
         }
 
         DefaultMutableTreeNode attempt = new DefaultMutableTreeNode(
-                new Entry( Kind.ATTEMPT, stem, label, null ) ) ;
+                new Entry( Kind.ATTEMPT, stem, label, null, result ) ) ;
         attempt.add( new DefaultMutableTreeNode( new Entry(
                 Kind.RESPONSE, "response", "Response",
                 response != null ? response : "(not saved)\n" ) ) ) ;
@@ -391,17 +518,26 @@ public final class TranscriptPanel extends JPanel {
     private String describe( Attempt a ) {
 
         String model   = names.of( headerValue( a.request(), "Model" ) ) ;
-        String outcome = headerValue( a.response(), "Outcome" ) ;
+        String outcome = outcome( a ) ;
         String took    = took( headerValue( a.response(), "Elapsed" ) ) ;
 
-        if( outcome != null ) {
-            int colon = outcome.indexOf( ':' ) ;
-            if( colon > 0 ) outcome = outcome.substring( 0, colon ) ;
-        }
         return stemLabel( a.stem() )
                + ( model != null ? "  " + model : "" )
                + "  " + ( outcome != null ? outcome : "(no response)" )
                + ( took != null ? "  (" + took + ")" : "" ) ;
+    }
+
+    /**
+     * An attempt's outcome, its {@code Outcome} header up to any ':' (OK,
+     * FAILED, RATE LIMITED, UNREACHABLE); null without a response.
+     */
+    private static String outcome( Attempt a ) {
+
+        String outcome = headerValue( a.response(), "Outcome" ) ;
+        if( outcome == null ) return null ;
+
+        int colon = outcome.indexOf( ':' ) ;
+        return colon > 0 ? outcome.substring( 0, colon ) : outcome ;
     }
 
     /** {@code 23.4 s} (the Elapsed header) -> {@code 23s}; null if unreadable. */
@@ -571,7 +707,7 @@ public final class TranscriptPanel extends JPanel {
         Entry e = entry( n ) ;
         if( !e.key().equals( TranscriptStore.stem( pending ) ) ) return ;
         n.setUserObject( new Entry( e.kind(), e.key(), liveLabel( pending ),
-                                    e.body() ) ) ;
+                                    e.body(), e.result() ) ) ;
         model.nodeChanged( n ) ;
     }
 

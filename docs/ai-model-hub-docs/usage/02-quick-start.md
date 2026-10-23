@@ -84,7 +84,7 @@ public class Ask {
 | Part | Notes |
 |---|---|
 | `AIHub.Options( historyFile, routing, appName )` | `historyFile` keeps today's request times so per-day limits survive a restart (`null` keeps them in memory only). `routing` defaults to [`RoutingPolicy.inOrder()`](../javadocs/com/sandy/sconsole/ai/RoutingPolicy.html) when null. `appName` is sent to gateways that attribute traffic to an app (OpenRouter's `X-Title`). See [`AIHub.Options`](../javadocs/com/sandy/sconsole/ai/AIHub.Options.html). |
-| `new AIJob<>( payload, roots, request, keepGoing, listener )` | `payload` is your own object, handed back in every callback as `job.payload()`. `roots` are the roots it may start on. `request` builds the request for each attempt (see below). `keepGoing` is checked before each attempt: return `false` to stop the job ([Job control](07-job-control.md)). |
+| `new AIJob<>( payload, roots, request, keepGoing, listener )` | `payload` is your own object, handed back in every callback as `job.payload()`. `roots` are the roots it may start on. `request` builds the request for each attempt (see below). `keepGoing` is checked before each attempt: return `false` to stop the job ([Job control](07-job-control.md)). An optional sixth argument, `model`, pins the job to one model ([Job control](07-job-control.md#sending-a-job-to-one-model)). |
 | `check(…)` | **Required.** Decides what a reply means. Here every reply is accepted; see [Checking replies](03-checking-replies.md). |
 | `succeeded` / `failed` / `dropped` | Exactly one of them ends every job. |
 
