@@ -2,6 +2,7 @@ package com.sandy.sconsole.qimgtools.apps.tagger.ui;
 
 import com.sandy.sconsole.ai.HubStatus;
 import com.sandy.sconsole.ai.ui.ModelsPanel;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.Axis;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.CatalogueTag;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.HandOffReason;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.NewTag;
@@ -19,6 +20,7 @@ import com.sandy.sconsole.qimgtools.apps.tagger.prompt.PromptReview;
 import com.sandy.sconsole.qimgtools.apps.tagger.prompt.PromptStore;
 import com.sandy.sconsole.qimgtools.apps.tagger.prompt.TagPrompter.Assembly;
 import com.sandy.sconsole.qimgtools.apps.tagger.server.RefreshResult;
+import com.sandy.sconsole.qimgtools.apps.tagger.ui.TagBadge.Payload;
 import com.sandy.sconsole.qimgtools.apps.tagger.ui.TagTableModel.Row;
 import com.sandy.sconsole.qimgtools.apps.tagger.workspace.PendingTagging;
 import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
@@ -26,6 +28,7 @@ import com.sandy.sconsole.qimgtools.core.model.ProcessingState;
 import com.sandy.sconsole.qimgtools.core.model.RateLimitNotice;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
+import com.sandy.sconsole.qimgtools.core.server.TopicDependency;
 import com.sandy.sconsole.qimgtools.core.ui.HeaderFilterController;
 import com.sandy.sconsole.qimgtools.core.ui.ImagePreview;
 import com.sandy.sconsole.qimgtools.core.ui.RateLimitStrip;
@@ -85,6 +88,7 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
@@ -111,6 +115,7 @@ import java.util.Deque;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -130,7 +135,11 @@ import java.util.function.Predicate;
  * Start sends those not yet judged to tier 1, and Stop winds that down. A
  * setup reply, or a concept tier whose answer matches the key, has its tags
  * accepted, to be saved; the rest are handed to the user, who decides on
- * them with keys 1-6, the {@link TagDecisionPanel} or the row menu. A gap
+ * them with keys 1-5, the {@link AnswerStrip} or the row menu. Each row has
+ * a chosen set, the tags it is to be saved with: a choice sets it whole (a
+ * tier's tags, the hand tags), and the {@link ChosenTagsBar} edits it a tag
+ * or topic at a time, dragged from the strip or the {@link TopicTagsPanel}
+ * and taken out with a ×, for every selected row at once. A gap
  * proposed in Review gaps mode pauses the run until the {@link GapDialog}
  * settles it. Decisions stay in the table until Save
  * sends them, with the accepted rows, to the server off the EDT. Every
@@ -143,7 +152,7 @@ import java.util.function.Predicate;
 @Slf4j
 @SuppressWarnings( "serial" )
 public class TaggerFrame extends JFrame
-        implements TaggerListener, TagDecisionPanel.Actions {
+        implements TaggerListener {
 
     /** What the frame needs from the tagger. */
     public interface Controller {
@@ -314,7 +323,7 @@ public class TaggerFrame extends JFrame
     private static final int    PREVIEW_PANEL_HEIGHT = 300 ;
     private static final int    PREVIEW_IMAGE_WIDTH  = 800 ;
     private static final int    ROW_HEIGHT           = 20 ;
-    private static final int    DETAIL_ROWS          = 2 ;
+    private static final int    DETAIL_ROWS          = 1 ;
 
     /** Seconds an unattended run waits between batches, to be stopped. */
     private static final int UNATTENDED_PAUSE_SECONDS = 5 ;
@@ -338,12 +347,29 @@ public class TaggerFrame extends JFrame
             110,    // Question
              40,    // Type
              50,    // Key
-            150,    // Existing
-            230,    // Tier 1
-            230,    // Tier 2
+            400,    // Tags
             150,    // Status
             SQUARE  // saved dot (untitled)
     } ;
+
+    /**
+     * The columns sized to their widest content, leaving the rest of the
+     * width to Tags.
+     */
+    private static final int[] FITTED_COLUMNS = {
+            TagTableModel.COL_ID,
+            TagTableModel.COL_SOURCE,
+            TagTableModel.COL_QUESTION,
+            TagTableModel.COL_TYPE,
+            TagTableModel.COL_KEY,
+            TagTableModel.COL_STATUS
+    } ;
+
+    /** Room around a fitted column's cell text: insets and borders. */
+    private static final int CELL_PADDING = 12 ;
+
+    /** Room around a fitted column's title: sort arrow and borders. */
+    private static final int HEADER_PADDING = 24 ;
 
     /** Row background per status; a status not listed keeps the table's. */
     private static final Map<TaggerStatus,Color> STATUS_BG =
@@ -364,8 +390,17 @@ public class TaggerFrame extends JFrame
                     Map.entry( TaggerStatus.NO_IMAGES,    new Color( 0xEEEEEE ) ),
                     Map.entry( TaggerStatus.UNSUPPORTED,  new Color( 0xEEEEEE ) ) ) ) ;
 
-    /** The cell of the tags decided on, and a Decided row's Status cell. */
+    /** The Tags cell of a chosen set, and a Decided row's Status cell. */
     private static final Color DECIDED_CELL_BG = new Color( 0xB9E4BB ) ;
+
+    /** The Tags cell of a chosen set that breaks the count rules. */
+    private static final Color COUNT_PROBLEM_BG = new Color( 0xF4C7C3 ) ;
+
+    /** How much darker every other row is, for a faint stripe. */
+    private static final double STRIPE_SHADE = 0.965 ;
+
+    /** The Tags cell's text while it shows a proposal, not a chosen set. */
+    private static final Color PROPOSAL_FG = new Color( 0x757575 ) ;
 
     /** The Status cell of a row handed to the user. */
     private static final Color HAND_OFF_CELL_BG = new Color( 0xD32F2F ) ;
@@ -436,7 +471,8 @@ public class TaggerFrame extends JFrame
             "Question", ( id, on ) -> setPassthrough( id, on ),
             this::abortRequest ) ;
     private final PromptPanel      promptPanel = new PromptPanel() ;
-    private final TagDecisionPanel decisionPanel ;
+    private final TopicTagsPanel   topicTags ;
+    private final ChosenTagsBar    chosenBar ;
     private final ImagePreview     preview =
             new ImagePreview( PREVIEW_PANEL_HEIGHT, PREVIEW_IMAGE_WIDTH ) ;
     private final RateLimitStrip   rateLimitStrip ;
@@ -500,20 +536,21 @@ public class TaggerFrame extends JFrame
             "questions, and repeat up to a given number of loads",
             this::toggleUnattended ) ;
 
-    /** The decision keys 1-6 as menu items; the keys are the table's. */
+    /** The decision keys 1-5 as menu items; the keys are the table's. */
     private final Action[] decideActions = {
             action( "1  Use tier 1's tags", null, null, null,
                     () -> pressKey( 1 ) ),
             action( "2  Use tier 2's tags", null, null, null,
                     () -> pressKey( 2 ) ),
-            action( "3  Edit tags…", null, null, null,
+            action( "3  Keep the existing tags", null, null, null,
                     () -> pressKey( 3 ) ),
-            action( "4  Keep the existing tags", null, null, null,
+            action( "4  Defer…", null, null, null,
                     () -> pressKey( 4 ) ),
-            action( "5  Defer…", null, null, null,
-                    () -> pressKey( 5 ) ),
-            action( "6  Skip to the next to decide", null, null, null,
-                    () -> pressKey( 6 ) ) } ;
+            action( "5  Skip to the next to decide", null, null, null,
+                    () -> pressKey( 5 ) ) } ;
+
+    /** The number of decision keys; the last one skips. */
+    private static final int DECISION_KEYS = 5 ;
 
     /** The toolbar's Load and Save buttons spin while their call runs. */
     private final JButton loadButton = toolButton( loadAction ) ;
@@ -547,6 +584,16 @@ public class TaggerFrame extends JFrame
 
     /** True while the gap dialog (or the tag it creates) is under way. */
     private boolean gapOpen ;
+
+    /** A {@link #fitColumns} is queued on the EDT. */
+    private boolean fitPending ;
+
+    /**
+     * The rows whose chosen set the user is editing: shown whatever the
+     * filters say, so a row doesn't vanish at its first edit, until the
+     * selection leaves them.
+     */
+    private final Set<Row> pinned = new HashSet<>() ;
 
     /** True while Run unattended loops: load, tag, save. */
     private boolean unattended ;
@@ -601,25 +648,25 @@ public class TaggerFrame extends JFrame
      * @param pass        the pass the tagger runs
      * @param transcripts source of the transcripts shown on the right
      * @param names       the names models are shown by
-     * @param tier1       tier 1's first model, named in its column
-     * @param tier2       tier 2's, likewise; null in the setup pass
      */
     public TaggerFrame( TagClass pass, TranscriptStore transcripts,
-                        ModelNames names, String tier1, String tier2 ) {
+                        ModelNames names ) {
 
         super( title( pass, null ) ) ;
         this.pass            = pass ;
         this.names           = names ;
-        this.model           = new TagTableModel( names, tier1, tier2 ) ;
+        this.model           = new TagTableModel( names ) ;
         this.table           = new JTable( model ) ;
         this.sorter          = new TableRowSorter<>( model ) ;
         this.headerFilters   = new HeaderFilterController<>( table, model,
                                                            this::applyFilter ) ;
         this.transcriptPanel = new TranscriptPanel( transcripts, names ) ;
-        this.decisionPanel   = new TagDecisionPanel( pass, this, names,
-                                                     this::topicName ) ;
+        this.topicTags       = new TopicTagsPanel( pass ) ;
+        this.chosenBar       = new ChosenTagsBar( this::topicName,
+                                                  p -> editChosen( p, true ),
+                                                  p -> editChosen( p, false ) ) ;
         this.rateLimitStrip  = new RateLimitStrip( names ) ;
-        this.answerStrip     = new AnswerStrip( pass, names,
+        this.answerStrip     = new AnswerStrip( pass, names, this::topicName,
                                                 this::decideByClick ) ;
 
         buildTable() ;
@@ -651,28 +698,30 @@ public class TaggerFrame extends JFrame
         showBox.setMaximumSize( showBox.getPreferredSize() ) ;
         toolbar.add( showBox ) ;
 
-        // Table and preview on the left; decision, tabs and the rate limit
-        // strip on the right.
+        // Table, preview, answer strip, topic tags and the chosen set on the
+        // left; the tabs and the rate limit strip on the right.
         JPanel left = new JPanel( new BorderLayout() ) ;
         left.add( new JScrollPane( table ), BorderLayout.CENTER ) ;
 
         detail.setEditable( false ) ;
-        detail.setLineWrap( true ) ;
-        detail.setWrapStyleWord( true ) ;
         detail.setFocusable( false ) ;
         detail.setBackground( left.getBackground() ) ;
         detail.setBorder( BorderFactory.createCompoundBorder(
                 BorderFactory.createMatteBorder( 1, 0, 1, 0, Color.GRAY ),
                 BorderFactory.createEmptyBorder( 4, 8, 4, 8 ) ) ) ;
 
+        JPanel question = new JPanel( new BorderLayout() ) ;
+        question.add( preview, BorderLayout.CENTER ) ;
+        question.add( answerStrip, BorderLayout.SOUTH ) ;
+
         JPanel below = new JPanel( new BorderLayout() ) ;
         below.add( detail, BorderLayout.NORTH ) ;
-        below.add( preview, BorderLayout.CENTER ) ;
-        below.add( answerStrip, BorderLayout.SOUTH ) ;
+        below.add( question, BorderLayout.CENTER ) ;
+        below.add( topicTags, BorderLayout.EAST ) ;
+        below.add( chosenBar, BorderLayout.SOUTH ) ;
         left.add( below, BorderLayout.SOUTH ) ;
 
         JPanel right = new JPanel( new BorderLayout() ) ;
-        right.add( decisionPanel, BorderLayout.NORTH ) ;
         right.add( tabs(), BorderLayout.CENTER ) ;
         right.add( rateLimitStrip, BorderLayout.SOUTH ) ;
 
@@ -762,6 +811,8 @@ public class TaggerFrame extends JFrame
     private void showScope() {
         setTitle( title( pass, controller.describe() ) ) ;
         promptPanel.show( controller.assembly() ) ;
+        topicTags.show( controller.assembly() ) ;
+        showChosen() ;
         updateControls() ;
     }
 
@@ -914,17 +965,28 @@ public class TaggerFrame extends JFrame
         } ) ;
     }
 
-    /**
-     * Enable the actions on the selected rows as the selection allows; the
-     * decisions as the decision panel's buttons are.
-     */
+    /** Enable the actions on the selected rows as the selection allows. */
     private void updateSelectionActions() {
 
         sendAction.setEnabled( canSend() && !sendableSelection().isEmpty() ) ;
-        for( int n = 1 ; n <= 5 ; n++ ) {
-            decideActions[n - 1].setEnabled( decisionPanel.canPress( n ) ) ;
+        for( int n = 1 ; n <= DECISION_KEYS ; n++ ) {
+            decideActions[n - 1].setEnabled( canPress( n ) ) ;
         }
-        decideActions[5].setEnabled( table.getRowCount() > 0 ) ;
+    }
+
+    /** True if decision key {@code n} applies to any selected row. */
+    private boolean canPress( int n ) {
+
+        List<Row> rows = selectedRows() ;
+        return switch( n ) {
+            case 1  -> rows.stream().anyMatch( r -> r.canUse( 1 ) ) ;
+            case 2  -> pass.solves()
+                       && rows.stream().anyMatch( r -> r.canUse( 2 ) ) ;
+            case 3  -> rows.stream().anyMatch( Row::canKeepExisting ) ;
+            case 4  -> rows.stream().anyMatch( Row::isOpen ) ;
+            case 5  -> table.getRowCount() > 0 ;
+            default -> false ;
+        } ;
     }
 
     /**
@@ -937,12 +999,21 @@ public class TaggerFrame extends JFrame
     }
 
     /**
-     * Decision key {@code n}: 1-5 press the decision panel's buttons, 6
-     * skips to the next question to decide.
+     * Decision key {@code n}, for the selected rows it applies to: 1 use
+     * tier 1's tags, 2 tier 2's, 3 keep the hand tags, 4 defer; 5 skips to
+     * the next question to decide.
      */
     private void pressKey( int n ) {
-        if( n == 6 ) select( nextToDecide( List.of() ) ) ;
-        else decisionPanel.press( n ) ;
+
+        if( !canPress( n ) ) return ;
+        List<Row> rows = selectedRows() ;
+        switch( n ) {
+            case 1, 2 -> useTier( rows, n ) ;
+            case 3    -> keepExisting( rows ) ;
+            case 4    -> defer( rows ) ;
+            case 5    -> select( nextToDecide( List.of() ) ) ;
+            default   -> { }
+        }
     }
 
     private void buildTable() {
@@ -966,11 +1037,10 @@ public class TaggerFrame extends JFrame
         table.setRowHeight( ROW_HEIGHT ) ;
 
         setColumnWidths() ;
-        // The setup pass has no key to check and no tier 2.
-        if( !pass.solves() ) {
-            hideColumn( TagTableModel.COL_KEY ) ;
-            hideColumn( TagTableModel.COL_TIER2 ) ;
-        }
+        // The setup pass has no key to check.
+        if( !pass.solves() ) hideColumn( TagTableModel.COL_KEY ) ;
+        fitColumns() ;
+        model.addTableModelListener( e -> fitColumnsLater() ) ;
         table.getSelectionModel().addListSelectionListener( e -> {
             if( !e.getValueIsAdjusting() ) showSelection() ;
         } ) ;
@@ -996,6 +1066,52 @@ public class TaggerFrame extends JFrame
         }
     }
 
+    /** Fit the columns once the current burst of model changes is over. */
+    private void fitColumnsLater() {
+
+        if( fitPending ) return ;
+        fitPending = true ;
+        SwingUtilities.invokeLater( () -> {
+            fitPending = false ;
+            fitColumns() ;
+        } ) ;
+    }
+
+    /**
+     * Fix each of {@link #FITTED_COLUMNS} shown to the width of its widest
+     * content (header or any row, filtered out or not), so the rest of the
+     * table's width goes to the Tags column.
+     */
+    private void fitColumns() {
+
+        FontMetrics fm  = table.getFontMetrics( table.getFont() ) ;
+        // A filtered header is bold, with a "*".
+        FontMetrics hfm = table.getFontMetrics(
+                table.getTableHeader().getFont().deriveFont( Font.BOLD ) ) ;
+
+        for( int col : FITTED_COLUMNS ) {
+            int view = table.convertColumnIndexToView( col ) ;
+            if( view < 0 ) continue ;      // hidden
+
+            int width = hfm.stringWidth( model.getColumnName( col ) + " *" )
+                        + HEADER_PADDING ;
+            for( int r = 0 ; r < model.getRowCount() ; r++ ) {
+                Object v = model.getValueAt( r, col ) ;
+                if( v != null ) {
+                    width = Math.max( width, fm.stringWidth( v.toString() )
+                                             + CELL_PADDING ) ;
+                }
+            }
+            if( col == TagTableModel.COL_STATUS ) {
+                width += Spinner.ICON.getIconWidth() + 4 ;
+            }
+            TableColumn column = table.getColumnModel().getColumn( view ) ;
+            column.setMinWidth( width ) ;
+            column.setMaxWidth( width ) ;
+            column.setPreferredWidth( width ) ;
+        }
+    }
+
     /** Take model column {@code col} out of the table's view. */
     private void hideColumn( int col ) {
         table.removeColumn( table.getColumnModel().getColumn(
@@ -1005,8 +1121,8 @@ public class TaggerFrame extends JFrame
     /**
      * Right-click on the table, for the selected rows, or the clicked row if
      * it isn't one of them: send them to the model, or to a model of the
-     * user's choice, the decisions of the decision panel, review a gap, and
-     * save or clear their decisions.
+     * user's choice, the decision keys, review a gap, and save or clear
+     * their decisions.
      */
     private void addRowMenu() {
 
@@ -1024,7 +1140,9 @@ public class TaggerFrame extends JFrame
         menu.add( send ) ;
         menu.add( sendTo ) ;
         menu.addSeparator() ;
-        for( int i = 0 ; i < 5 ; i++ ) menu.add( decideActions[i] ) ;
+        for( int i = 0 ; i < DECISION_KEYS - 1 ; i++ ) {
+            menu.add( decideActions[i] ) ;
+        }
         menu.add( gap ) ;
         menu.addSeparator() ;
         menu.add( save ) ;
@@ -1182,18 +1300,18 @@ public class TaggerFrame extends JFrame
     }
 
     /**
-     * Keys 1-6 on the table (main row or keypad), for every selected row: 1
-     * use tier 1's tags, 2 tier 2's, 3 edit, 4 keep the hand tags, 5 defer;
-     * 6 skips to the next question to decide. The Decisions menu's items
-     * show them; they aren't its accelerators, which would take the digits
-     * from the whole window.
+     * Keys 1-5 on the table (main row or keypad), for every selected row: 1
+     * use tier 1's tags, 2 tier 2's, 3 keep the hand tags, 4 defer; 5 skips
+     * to the next question to decide. The Decisions menu's items show them;
+     * they aren't its accelerators, which would take the digits from the
+     * whole window.
      */
     private void bindDecisionKeys() {
 
         InputMap  keys    = table.getInputMap( JComponent.WHEN_FOCUSED ) ;
         ActionMap actions = table.getActionMap() ;
 
-        for( int n = 1 ; n <= 6 ; n++ ) {
+        for( int n = 1 ; n <= DECISION_KEYS ; n++ ) {
             String name = "decision-" + n ;
             int    key  = n ;
 
@@ -1437,9 +1555,10 @@ public class TaggerFrame extends JFrame
 
         model.setRows( List.of() ) ;
         gaps.clear() ;
+        pinned.clear() ;
         if( controller != null ) controller.setPaused( false ) ;
-        decisionPanel.show( List.of() ) ;
         answerStrip.show( null ) ;
+        showChosen() ;
         showDetail( null ) ;
         preview.show( null ) ;
     }
@@ -1562,11 +1681,12 @@ public class TaggerFrame extends JFrame
             row.status    = TaggerStatus.QUEUED ;
             row.message   = null ;
             row.decision  = null ;
+            row.base      = null ;
             row.deferNote = null ;
             gaps.remove( row ) ;
         }
         model.changedAll() ;
-        decisionPanel.show( selectedRows() ) ;
+        showChosen() ;
 
         List<TagItem> items = rows.stream().map( r -> r.item ).toList() ;
         if( modelId == null ) controller.start( items ) ;
@@ -1591,7 +1711,8 @@ public class TaggerFrame extends JFrame
      * Save the decisions of {@code rows} on the server, then run
      * {@code after} (at once if there are none); {@code button}, if not
      * null, spins meanwhile. Each accepted row among them is first decided
-     * on its accepted tier's tags.
+     * on its accepted tier's tags. A set the user made or edited that
+     * breaks the count rules is held back, and says so.
      */
     private void save( List<Row> rows, JButton button, Runnable after ) {
 
@@ -1601,8 +1722,22 @@ public class TaggerFrame extends JFrame
             decide( row, TagDecision.of( row.judgement.accepted(), false ) ) ;
         }
 
+        List<Row> held = rows.stream()
+                             .filter( r -> r.isUnsaved() && breaksCounts( r ) )
+                             .toList() ;
+        for( Row row : held ) {
+            row.message = "Not saved, it breaks the count rules: " +
+                          row.countProblem( pass ) ;
+            rowChanged( row ) ;
+        }
+        if( !held.isEmpty() ) {
+            log.warn( "{} held back: their tags break the count rules",
+                      plural( held.size(), "question" ) ) ;
+        }
+
         List<SaveItem> items = rows.stream()
-                                   .filter( Row::isUnsaved )
+                                   .filter( r -> r.isUnsaved()
+                                                 && !held.contains( r ) )
                                    .map( r -> new SaveItem( r.item,
                                                             r.decision ) )
                                    .toList() ;
@@ -1646,11 +1781,12 @@ public class TaggerFrame extends JFrame
             row.status    = row.undecidedStatus ;
             row.message   = row.undecidedMessage ;
             row.decision  = null ;
+            row.base      = null ;
             row.deferNote = null ;
 
             model.changed( row ) ;
         }
-        decisionPanel.show( selectedRows() ) ;
+        showChosen() ;
         updateControls() ;
     }
 
@@ -2010,80 +2146,23 @@ public class TaggerFrame extends JFrame
 
     // ---- decisions -----------------------------------------------------
 
-    @Override
-    public void useTier( List<Row> rows, int tier ) {
+    /** Give the rows tier {@code tier}'s tags. */
+    private void useTier( List<Row> rows, int tier ) {
         decide( rows, r -> r.canUse( tier ),
                 r -> TagDecision.of( r.tier( tier ), true ) ) ;
     }
 
-    /**
-     * Let the user edit one tag set for all of the open rows, preset to the
-     * first one's tags; rows of the topic and dependents can't share one.
-     */
-    @Override
-    public void edit( List<Row> rows ) {
-
-        List<Row> open = rows.stream().filter( Row::isOpen ).toList() ;
-        if( open.isEmpty() ) return ;
-        Set<Boolean> kinds = new HashSet<>() ;
-        open.forEach( r -> kinds.add( r.item.dependent() ) ) ;
-        if( kinds.size() > 1 ) {
-            JOptionPane.showMessageDialog( this, "The selection mixes the " +
-                    "topic's own questions and dependents.\nEdit each kind " +
-                    "separately.", "Edit tags",
-                    JOptionPane.INFORMATION_MESSAGE ) ;
-            return ;
-        }
-
-        Row         first     = open.get( 0 ) ;
-        TierReply   proposal  = proposal( first ) ;
-        boolean     dependent = first.item.dependent() ;
-        Assembly    a         = controller.assembly() ;
-        TagDecision d         = first.decision ;
-        List<String>  tags    = d != null ? d.tags()
-                              : proposal != null ? proposal.reply().tags()
-                              : first.existing ;
-        List<Integer> deps    = d != null ? d.dependencies()
-                              : proposal != null ? proposal.reply().xdep()
-                              : List.of() ;
-
-        TagEditorDialog.Result r = TagEditorDialog.ask( this, "Tags for " +
-                        ( open.size() == 1 ? first.questionLabel()
-                                           : plural( open.size(), "question" ) ),
-                a.offered(), dependent, tags, a.otherTopics(), deps ) ;
-        if( r == null ) return ;
-
-        decide( open, x -> true, x -> new TagDecision( r.tags(),
-                dependent ? List.of() : r.dependencies(),
-                TagDecision.Source.EDITED, null, true, null ) ) ;
-    }
-
-    /**
-     * The tier reply an edit starts from: the accepted one, else tier 2's
-     * (tier 1 missed), else tier 1's.
-     */
-    private static TierReply proposal( Row row ) {
-
-        if( row.judgement != null && row.judgement.accepted() != null ) {
-            return row.judgement.accepted() ;
-        }
-        return row.tier( 2 ) != null ? row.tier( 2 ) : row.tier( 1 ) ;
-    }
-
-    @Override
-    public void keepExisting( List<Row> rows ) {
+    /** Keep the rows' hand tags, their dependencies as they are. */
+    private void keepExisting( List<Row> rows ) {
         decide( rows, Row::canKeepExisting,
-                r -> new TagDecision( r.existing, List.of(),
-                                      TagDecision.Source.EXISTING, null, true,
-                                      null ) ) ;
+                r -> TagDecision.existing( r.existing ) ) ;
     }
 
     /**
      * Defer the open rows with one note: they stay pending on the server,
      * and the note is kept to come back to.
      */
-    @Override
-    public void defer( List<Row> rows ) {
+    private void defer( List<Row> rows ) {
 
         List<Row> open = rows.stream().filter( Row::isOpen ).toList() ;
         if( open.isEmpty() ) return ;
@@ -2108,20 +2187,21 @@ public class TaggerFrame extends JFrame
             }
             row.status    = TaggerStatus.DEFERRED ;
             row.decision  = null ;
+            row.base      = null ;
             row.deferNote = note ;
             row.message   = "Deferred: " + note ;
             model.changed( row ) ;
         }
         select( next ) ;
-        decisionPanel.show( selectedRows() ) ;
+        showChosen() ;
         updateControls() ;
     }
 
     /**
      * Decide, for each of {@code rows} that {@code applies} to, on the
      * decision {@code decisionOf} gives it; the selection then moves on to
-     * the next row to decide. Every decision made with the keys, the
-     * decision panel or the row menu ends here.
+     * the next row to decide. Every choice made with the keys, the answer
+     * strip or the row menu ends here.
      */
     private void decide( List<Row> rows, Predicate<Row> applies,
                          Function<Row,TagDecision> decisionOf ) {
@@ -2139,20 +2219,27 @@ public class TaggerFrame extends JFrame
             decide( row, decisionOf.apply( row ) ) ;
         }
         select( next ) ;
-        decisionPanel.show( selectedRows() ) ;
+        showChosen() ;
         updateControls() ;
+    }
+
+    /** Choose {@code d} for {@code row}, as the set its edits start from. */
+    private void decide( Row row, TagDecision d ) {
+        stage( row, d, d ) ;
     }
 
     /**
      * Note decision {@code d} on {@code row}, unsaved, replacing any unsaved
-     * one; what the row was before it is kept for {@link #clear}.
+     * one, with {@code base} the set it started from; what the row was
+     * before it is kept for {@link #clear}.
      */
-    private void decide( Row row, TagDecision d ) {
+    private void stage( Row row, TagDecision base, TagDecision d ) {
 
         if( row.decision == null ) {
             row.undecidedStatus  = row.status ;
             row.undecidedMessage = row.message ;
         }
+        row.base     = base ;
         row.decision = d ;
         row.status   = TaggerStatus.DECIDED ;
         row.message  = "Decided: " + describe( d ) ;
@@ -2160,11 +2247,221 @@ public class TaggerFrame extends JFrame
         model.changed( row ) ;
     }
 
-    /** "[tier 1, Nemotron] s.a, c.b": the tags and where they come from. */
+    /**
+     * Add {@code p} (a tag or a topic depended on) to the chosen set of
+     * every open row selected, or ({@code add} false) take it out; a row it
+     * can't go on (another pass's axis, a dependent's setup or math tag or
+     * dependency), or that has it already, is left as it is. The edited
+     * rows are decided by the user, each part of the set still credited to
+     * its model while it is as the model gave it; they stay shown, and
+     * selected, until the selection moves on.
+     */
+    private void editChosen( Payload p, boolean add ) {
+
+        Assembly a = controller == null ? null : controller.assembly() ;
+        if( a == null ) return ;
+        int edited = 0 ;
+
+        for( Row row : editableSelection() ) {
+            TagDecision base = row.base != null    ? row.base
+                             : row.chosen() != null ? row.chosen()
+                             : TagDecision.empty() ;
+            TagDecision now  = row.chosen() != null ? row.chosen() : base ;
+            TagDecision next = p.isTag() ? withTag( row, now, p.tag(), add, a )
+                                         : withTopic( row, now, base,
+                                                      p.topicId(), add, a ) ;
+            if( next == null ) continue ;
+
+            stage( row, base, TagDecision.edited( base, next.tags(),
+                                                  next.dependencies() ) ) ;
+            pinned.add( row ) ;
+            edited++ ;
+        }
+        if( edited == 0 ) {
+            statusBar.setText( p.isTag()
+                    ? p.tag() + ( add ? " can't go on, or is already on, "
+                                      : " is not on " ) + "the selection"
+                    : "Dependencies " + ( add ? "can't be added to "
+                                              : "are not on " ) +
+                      "the selection" ) ;
+            return ;
+        }
+        showChosen() ;
+        answerStrip.refresh( selectedRow() ) ;
+        updateControls() ;
+    }
+
+    /**
+     * {@code now} with {@code tag} added (or taken out), in offered order;
+     * null if it can't be, or is so already.
+     */
+    private TagDecision withTag( Row row, TagDecision now, String tag,
+                                 boolean add, Assembly a ) {
+
+        Axis axis = Axis.of( tag ) ;
+        if( add && ( !a.offered().contains( tag ) || axis == null
+                     || !pass.tags( axis )
+                     || axis.max( row.item.dependent() ) == 0 ) ) return null ;
+        if( now.tags().contains( tag ) == add ) return null ;
+
+        Set<String> tags = new LinkedHashSet<>( now.tags() ) ;
+        if( add ) tags.add( tag ) ;
+        else tags.remove( tag ) ;
+
+        List<String> order = a.offered().all().stream()
+                              .map( CatalogueTag::tagText ).toList() ;
+        List<String> sorted = tags.stream()
+                                  .sorted( Comparator.comparingInt( t -> {
+                                      int i = order.indexOf( t ) ;
+                                      return i < 0 ? order.size() : i ;
+                                  } ) )
+                                  .toList() ;
+        return new TagDecision( sorted, now.dependencies(), now.source(),
+                                null, null, true, true, null ) ;
+    }
+
+    /**
+     * {@code now} with topic {@code id} added to its dependencies (or taken
+     * out); null if it can't be (the setup pass, a dependent, a topic not
+     * offered), or is so already. Dependencies left as they are on the
+     * server stay so while they come back to that.
+     */
+    private TagDecision withTopic( Row row, TagDecision now, TagDecision base,
+                                   int id, boolean add, Assembly a ) {
+
+        if( !pass.hasDependents() || row.item.dependent()
+            || add && !a.topicIds().contains( id ) ) return null ;
+
+        List<Integer> current = dependencies( row, now ) ;
+        if( current.contains( id ) == add ) return null ;
+
+        List<Integer> deps = new ArrayList<>( current ) ;
+        if( add ) deps.add( id ) ;
+        else deps.remove( Integer.valueOf( id ) ) ;
+
+        List<Integer> onServer = serverDependencies( row ) ;
+        boolean       asServer = base.dependencies() == null
+                                 && deps.size() == onServer.size()
+                                 && deps.containsAll( onServer ) ;
+        return new TagDecision( now.tags(), asServer ? null : deps,
+                                now.source(), null, null, true, true, null ) ;
+    }
+
+    /** The topics {@code row} is to depend on with {@code d}. */
+    private static List<Integer> dependencies( Row row, TagDecision d ) {
+        return d.dependencies() != null ? d.dependencies()
+                                        : serverDependencies( row ) ;
+    }
+
+    /** The topics {@code row}'s question depends on now, on the server. */
+    private static List<Integer> serverDependencies( Row row ) {
+
+        List<TopicDependency> deps = row.item.question().getTopicDependencies() ;
+        return deps == null ? List.of()
+                            : deps.stream().map( TopicDependency::topicId )
+                                  .toList() ;
+    }
+
+    /** The selected rows whose chosen set may be edited, in table order. */
+    private List<Row> editableSelection() {
+        return selectedRows().stream().filter( Row::isOpen ).toList() ;
+    }
+
+    /**
+     * True if {@code row}'s set is the user's own or edited, and breaks the
+     * count rules: Save holds it back. A tier's set, or the hand tags as
+     * they are, is saved as before.
+     */
+    private boolean breaksCounts( Row row ) {
+
+        TagDecision d = row.decision ;
+        return d != null && ( d.edited()
+                              || d.source() == TagDecision.Source.USER )
+               && row.countProblem( pass ) != null ;
+    }
+
+    /**
+     * Show the chosen set of the open rows selected in the chosen tags bar
+     * (for several, what they share) and fade its tags in the topic tags
+     * panel.
+     */
+    private void showChosen() {
+
+        List<Row> rows = editableSelection() ;
+        if( rows.isEmpty() ) {
+            chosenBar.show( null ) ;
+            topicTags.fade( Set.of(), Set.of() ) ;
+            return ;
+        }
+
+        List<String>  tags = null ;
+        List<Integer> deps = null ;
+        for( Row row : rows ) {
+            TagDecision   d = row.chosen() ;
+            List<String>  t = d == null ? List.of() : d.tags() ;
+            tags = tags == null ? t
+                                : tags.stream().filter( t::contains ).toList() ;
+            if( !pass.hasDependents() || row.item.dependent() ) continue ;
+            List<Integer> r = d == null ? serverDependencies( row )
+                                        : dependencies( row, d ) ;
+            deps = deps == null ? r
+                                : deps.stream().filter( r::contains ).toList() ;
+        }
+
+        Row    one     = rows.size() == 1 ? rows.get( 0 ) : null ;
+        long   broken  = rows.stream()
+                             .filter( r -> r.countProblem( pass ) != null )
+                             .count() ;
+        String problem = one != null ? one.countProblem( pass )
+                       : broken > 0 ? plural( (int) broken, "question" ) +
+                                      " break the count rules"
+                       : null ;
+        String from    = one != null ? provenance( one )
+                       : rows.size() + " questions: the tags they share" ;
+
+        chosenBar.show( new ChosenTagsBar.View( tags, deps, from, problem ) ) ;
+        topicTags.fade( new HashSet<>( tags ),
+                        deps == null ? Set.of() : new HashSet<>( deps ) ) ;
+    }
+
+    /**
+     * "tier 1 (Nemotron), edited · tags: user · dependencies: AI": where
+     * {@code row}'s chosen set came from and who each part is credited to.
+     */
+    private String provenance( Row row ) {
+
+        TagDecision d = row.chosen() ;
+        if( d == null ) return "Nothing chosen yet" ;
+
+        TagDecision base = row.base != null ? row.base : d ;
+        String      from = d.source() + ( base.model() != null
+                                          ? " (" + names.of( base.model() ) + ")"
+                                          : "" ) +
+                           ( d.edited() ? ", edited" : "" ) ;
+        String      tags = "tags: " + credit( d.model() ) ;
+
+        if( !pass.hasDependents() || row.item.dependent() ) {
+            return from + "  ·  " + tags ;
+        }
+        return from + "  ·  " + tags + "  ·  dependencies: " +
+               ( d.dependencies() == null ? "as on the server"
+                                          : credit( d.dependencyModel() ) ) ;
+    }
+
+    /** "AI (Nemotron)" for a model, else "user". */
+    private String credit( String model ) {
+        return model != null ? "AI (" + names.of( model ) + ")" : "user" ;
+    }
+
+    /**
+     * "[tier 1, Nemotron, edited] s.a, c.b": the tags and where they come
+     * from.
+     */
     private String describe( TagDecision d ) {
 
         String from = d.source() + ( d.model() != null
-                                     ? ", " + names.of( d.model() ) : "" ) ;
+                                     ? ", " + names.of( d.model() ) : "" ) +
+                      ( d.edited() ? ", edited" : "" ) ;
         return "[" + from + "] " + ( d.tags().isEmpty()
                                      ? "no tags" : String.join( ", ", d.tags() ) ) ;
     }
@@ -2351,8 +2648,7 @@ public class TaggerFrame extends JFrame
      * created first, off the EDT), mapped to an offered tag, or rejected;
      * "Later" leaves it waiting and the run paused.
      */
-    @Override
-    public void reviewGap( Row row ) {
+    private void reviewGap( Row row ) {
 
         if( row == null || gapOpen || row.status != TaggerStatus.GAP_PROPOSED
             || model.rowOf( row.item ) != row ) return ;
@@ -2445,8 +2741,7 @@ public class TaggerFrame extends JFrame
                                            : TaggerStatus.RUNNING_T2 ;
             row.model          = model ;
             row.attempts       = attempt ;
-            row.inFlightColumn = tier == 1 ? TagTableModel.COL_TIER1
-                                           : TagTableModel.COL_TIER2 ;
+            row.inFlight       = true ;
             row.message        = ( tier == 1 ? "Asking tier 1, "
                                              : "Tier 1 missed the key - " +
                                                "asking tier 2, " ) +
@@ -2470,14 +2765,14 @@ public class TaggerFrame extends JFrame
     public void attemptFinished( TagItem item ) {
         SwingUtilities.invokeLater(
                 () -> transcriptPanel.attemptFinished( item.task() ) ) ;
-        onRow( item, row -> row.inFlightColumn = -1 ) ;
+        onRow( item, row -> row.inFlight = false ) ;
     }
 
     @Override
     public void judged( TagItem item, TagOpinions opinions,
                         TagJudgement judgement ) {
         onRow( item, row -> {
-            row.inFlightColumn = -1 ;
+            row.inFlight       = false ;
             row.opinions       = opinions ;
             judge( row, judgement ) ;
             if( row.status == TaggerStatus.GAP_PROPOSED ) nextGap() ;
@@ -2488,7 +2783,7 @@ public class TaggerFrame extends JFrame
     @Override
     public void invalidOutput( TagItem item, int attempts, String reason ) {
         onRow( item, row -> {
-            row.inFlightColumn = -1 ;
+            row.inFlight       = false ;
             row.attempts       = attempts ;
             judge( row, TagJudgement.invalidOutput() ) ;
             row.message += ": " + reason ;
@@ -2500,7 +2795,7 @@ public class TaggerFrame extends JFrame
         onRow( item, row -> {
             row.status         = TaggerStatus.FAILED ;
             row.attempts       = attempts ;
-            row.inFlightColumn = -1 ;
+            row.inFlight       = false ;
             row.message        = "Failed after " +
                                  plural( attempts, "attempt" ) + ": " + reason ;
         } ) ;
@@ -2565,21 +2860,30 @@ public class TaggerFrame extends JFrame
     // ---- display -------------------------------------------------------
 
     private void rowChanged( Row row ) {
+
         model.changed( row ) ;
-        decisionPanel.refresh( row ) ;
         answerStrip.refresh( row ) ;
         if( table.getSelectedRowCount() == 1 && selectedRow() == row ) {
             showDetail( row ) ;
+        }
+        if( table.getSelectedRowCount() > 0 && selectedRows().contains( row ) ) {
+            showChosen() ;
         }
         updateControls() ;
     }
 
     private void showSelection() {
 
-        Row row = selectedRow() ;
-        Row one = table.getSelectedRowCount() == 1 ? row : null ;
+        Row       row = selectedRow() ;
+        Row       one = table.getSelectedRowCount() == 1 ? row : null ;
+        List<Row> sel = selectedRows() ;
 
-        decisionPanel.show( selectedRows() ) ;
+        // The rows edited stay shown only while selected.
+        if( !pinned.isEmpty() && !sel.containsAll( pinned ) ) {
+            pinned.clear() ;
+            SwingUtilities.invokeLater( sorter::allRowsChanged ) ;
+        }
+        showChosen() ;
         answerStrip.show( one ) ;
         showDetail( one ) ;
         preview.show( row != null && row.item.hasImages()
@@ -2590,18 +2894,21 @@ public class TaggerFrame extends JFrame
     }
 
     /**
-     * Show what is going on with {@code row} above the preview: its status,
-     * the attempt under way, or what failed; blank for null.
+     * Show what is going on with {@code row} above the preview, on one
+     * line: its status, the attempt under way, or what failed (the whole
+     * text in the tooltip, for a line cut short); blank for null.
      */
     private void showDetail( Row row ) {
 
         if( row == null ) {
             detail.setText( "" ) ;
+            detail.setToolTipText( null ) ;
             return ;
         }
         String text = row.questionLabel() + ": " + statusLabel( row ) ;
-        if( row.message != null ) text += "\n" + row.message ;
+        if( row.message != null ) text += "  ·  " + row.message ;
         detail.setText( text ) ;
+        detail.setToolTipText( text ) ;
         detail.setCaretPosition( 0 ) ;
     }
 
@@ -2626,7 +2933,8 @@ public class TaggerFrame extends JFrame
             public boolean include(
                     Entry<? extends TagTableModel,? extends Integer> e ) {
                 Row row = model.getRow( e.getIdentifier() ) ;
-                return show.test.test( row ) && headerFilters.accepts( row ) ;
+                return pinned.contains( row )
+                       || show.test.test( row ) && headerFilters.accepts( row ) ;
             }
         } ) ;
     }
@@ -2825,12 +3133,12 @@ public class TaggerFrame extends JFrame
     }
 
     /**
-     * Tints rows by status; the cell of the tags decided on (and a Decided
-     * row's Status cell) green; the Status cell of a hand-off red, of a gap
-     * waiting purple; frames in red the cell of the tier a request is in
-     * flight to; spins in the Status cell of a row being saved; and shows
-     * the last column as a dot: green once saved on the server, red until
-     * then.
+     * Tints rows by status; the Tags cell of a chosen set (and a Decided
+     * row's Status cell) green, red if the set breaks the count rules, and
+     * a proposal's text grey; the Status cell of a hand-off red, of a gap
+     * waiting purple; frames the Tags cell in red while a request is in
+     * flight; spins in the Status cell of a row being saved; and shows the
+     * last column as a dot: green once saved on the server, red until then.
      */
     private final class RowRenderer extends DefaultTableCellRenderer {
 
@@ -2853,7 +3161,8 @@ public class TaggerFrame extends JFrame
             boolean   spin = row.status == TaggerStatus.SAVING
                              && col == TagTableModel.COL_STATUS ;
 
-            if( col == row.inFlightColumn ) setBorder( IN_FLIGHT_BORDER ) ;
+            boolean tags = col == TagTableModel.COL_TAGS ;
+            if( tags && row.inFlight ) setBorder( IN_FLIGHT_BORDER ) ;
 
             setHorizontalAlignment( dot ? CENTER : LEADING ) ;
             if( dot ) {
@@ -2864,8 +3173,16 @@ public class TaggerFrame extends JFrame
             }
 
             boolean status = col == TagTableModel.COL_STATUS ;
-            if( status && row.status == TaggerStatus.DECIDED
-                || decidedColumn( row ) == col ) {
+            if( tags && TagTableModel.showsProposal( row ) ) {
+                c.setForeground( PROPOSAL_FG ) ;
+            }
+            if( tags && row.chosen() != null ) {
+                c.setBackground( row.countProblem( pass ) != null
+                                 ? COUNT_PROBLEM_BG : DECIDED_CELL_BG ) ;
+                c.setForeground( t.getForeground() ) ;
+                return c ;
+            }
+            if( status && row.status == TaggerStatus.DECIDED ) {
                 c.setBackground( DECIDED_CELL_BG ) ;
                 c.setForeground( t.getForeground() ) ;
                 return c ;
@@ -2878,33 +3195,19 @@ public class TaggerFrame extends JFrame
                 return c ;
             }
             if( selected ) return c ;
-            c.setBackground( STATUS_BG.getOrDefault( row.status,
-                                                     t.getBackground() ) ) ;
+            c.setBackground( stripe( STATUS_BG.getOrDefault( row.status,
+                                                             t.getBackground() ),
+                                     viewRow ) ) ;
             return c ;
         }
 
-        /**
-         * The column of the tags decided on (saved or not): a tier's, or
-         * the hand tags'; -1 for none or the user's own set.
-         */
-        private static int decidedColumn( Row row ) {
+        /** {@code bg}, a shade darker on every other row. */
+        private static Color stripe( Color bg, int viewRow ) {
 
-            TagDecision d = row.decision ;
-            if( d == null ) {
-                return row.status.isAccepted() && row.judgement != null
-                       ? tierColumn( row.judgement.accepted().tier() ) : -1 ;
-            }
-            return switch( d.source() ) {
-                case TIER1    -> TagTableModel.COL_TIER1 ;
-                case TIER2    -> TagTableModel.COL_TIER2 ;
-                case EXISTING -> TagTableModel.COL_EXISTING ;
-                default       -> -1 ;
-            } ;
-        }
-
-        private static int tierColumn( int tier ) {
-            return tier == 1 ? TagTableModel.COL_TIER1
-                             : TagTableModel.COL_TIER2 ;
+            if( viewRow % 2 == 0 ) return bg ;
+            return new Color( (int) ( bg.getRed() * STRIPE_SHADE ),
+                              (int) ( bg.getGreen() * STRIPE_SHADE ),
+                              (int) ( bg.getBlue() * STRIPE_SHADE ) ) ;
         }
     }
 

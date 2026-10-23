@@ -236,11 +236,7 @@ public class QTagger implements TaggerFrame.Controller {
                 frame[0] = new TaggerFrame(
                         tagClass,
                         new TranscriptStore( config.getPassDir() ),
-                        ModelNames.of( config.getAi() ),
-                        firstUsable( config.getAi(), TaggerOutcomes.TIER1 ),
-                        tagClass.solves()
-                        ? firstUsable( config.getAi(), TaggerOutcomes.TIER2 )
-                        : null ) ;
+                        ModelNames.of( config.getAi() ) ) ;
                 app[0] = new QTagger( config, server, topics, frame[0] ) ;
                 frame[0].setController( app[0] ) ;
             } ) ;
@@ -260,7 +256,8 @@ public class QTagger implements TaggerFrame.Controller {
 
     /**
      * The pass to run: the one {@code -Dtagger.pass} names, else the one the
-     * user picks; null if the user cancelled.
+     * user picks, setup by default (Enter takes it); null if the user
+     * cancelled.
      *
      * @throws IllegalArgumentException if the property names no pass
      */
@@ -277,7 +274,7 @@ public class QTagger implements TaggerFrame.Controller {
                 "and math axes and the dependencies of\nthe questions in an " +
                 "exam, solved and checked against the key.",
                 "QTagger", JOptionPane.DEFAULT_OPTION,
-                JOptionPane.QUESTION_MESSAGE, null, options, null ) ;
+                JOptionPane.QUESTION_MESSAGE, null, options, options[0] ) ;
         return switch( answer ) {
             case 0  -> TagClass.SETUP ;
             case 1  -> TagClass.CONCEPT ;
@@ -882,16 +879,15 @@ public class QTagger implements TaggerFrame.Controller {
             return new RefreshItem( item.id(), List.copyOf( ids ), null, null,
                                     null, a.topic().getId() ) ;
         }
-        // Keeping the hand tags says nothing of the dependencies, and the
-        // setup pass never touches them.
-        if( d.source() == TagDecision.Source.EXISTING
-            || !a.tagClass().hasDependents() ) {
+        // A set that leaves the dependencies as they are (the hand tags)
+        // says nothing of them, and the setup pass never touches them.
+        if( d.dependencies() == null || !a.tagClass().hasDependents() ) {
             return new RefreshItem( item.id(), List.copyOf( ids ), null, null,
                                     null, null ) ;
         }
         return new RefreshItem( item.id(), List.copyOf( ids ),
                                 d.dependencies(), d.dependencyActor(),
-                                d.model(), null ) ;
+                                d.dependencyModel(), null ) ;
     }
 
     // ---- deferrals and gaps --------------------------------------------

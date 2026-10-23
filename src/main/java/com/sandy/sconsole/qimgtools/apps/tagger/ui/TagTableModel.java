@@ -1,7 +1,9 @@
 package com.sandy.sconsole.qimgtools.apps.tagger.ui;
 
 import com.sandy.sconsole.qimgtools.apps.tagger.check.AnswerChecker;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.Axis;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.HandOffReason;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagClass;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagDecision;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagJudgement;
@@ -21,10 +23,10 @@ import java.util.Map;
 import java.util.function.Predicate;
 
 /**
- * The tagger's table: one row per question loaded, with its key, the hand
- * tags already on it, each tier's answer and tags (the setup pass: tier 1's
- * tags alone), and where it stands. All row state lives here and is touched
- * only on the EDT.
+ * The tagger's table: one row per question loaded, with its key, its tags
+ * (in the concept pass after each tier's answer marked against the key: the
+ * chosen set, else the tier's proposal) and where it stands. All row state
+ * lives here and is touched only on the EDT.
  */
 @SuppressWarnings( "serial" )
 final class TagTableModel extends AbstractTableModel
@@ -35,19 +37,16 @@ final class TagTableModel extends AbstractTableModel
     static final int COL_QUESTION = 2 ;
     static final int COL_TYPE     = 3 ;
     static final int COL_KEY      = 4 ;
-    static final int COL_EXISTING = 5 ;
-    static final int COL_TIER1    = 6 ;
-    static final int COL_TIER2    = 7 ;
-    static final int COL_STATUS   = 8 ;
-    static final int COL_SAVED    = 9 ;
+    static final int COL_TAGS     = 5 ;
+    static final int COL_STATUS   = 6 ;
+    static final int COL_SAVED    = 7 ;
 
-    /** The tiers' names: their columns' headers, also the panel's. */
+    /** The tiers' names, as the answer strip shows them. */
     static final String TIER1 = "Tier 1" ;
     static final String TIER2 = "Tier 2" ;
 
     private static final String[] COLUMNS = {
-            "Id", "Source", "Question", "Type", "Key", "Existing", TIER1,
-            TIER2, "Status", ""
+            "Id", "Source", "Question", "Type", "Key", "Tags", "Status", ""
     } ;
 
     /** One question and everything that has happened to it. */
@@ -79,12 +78,8 @@ final class TagTableModel extends AbstractTableModel
         String model ;
         int    attempts ;
 
-        /**
-         * The column of the tier a request is in flight to
-         * ({@link #COL_TIER1} or {@link #COL_TIER2}); -1 while none is. Its
-         * cell is framed in red.
-         */
-        int inFlightColumn = -1 ;
+        /** True while a request is in flight for it: its Tags cell is framed. */
+        boolean inFlight ;
 
         /**
          * What is going on or went wrong, for the detail area: the attempt
@@ -98,6 +93,13 @@ final class TagTableModel extends AbstractTableModel
          * null if none.
          */
         TagDecision decision ;
+
+        /**
+         * The set {@link #decision} started from, as chosen (a tier's tags,
+         * the hand tags, or none), before the user's edits; null with no
+         * decision.
+         */
+        TagDecision base ;
 
         /** The note it was deferred with; null unless deferred. */
         String deferNote ;
@@ -115,6 +117,41 @@ final class TagTableModel extends AbstractTableModel
                           :                              TaggerStatus.PENDING ;
             this.message  = item.problem() != null ? item.problem()
                                                    : item.unsupported() ;
+        }
+
+        /**
+         * The chosen set: the decision, else an accepted tier's tags; null
+         * if nothing is chosen.
+         */
+        TagDecision chosen() {
+
+            if( decision != null ) return decision ;
+            return status.isAccepted() && judgement != null
+                   && judgement.accepted() != null
+                   ? TagDecision.of( judgement.accepted(), false ) : null ;
+        }
+
+        /**
+         * What breaks the count rules of {@code pass}'s axes in the chosen
+         * set, e.g. "concept 1-2, not 0"; null if nothing does, or nothing
+         * is chosen.
+         */
+        String countProblem( TagClass pass ) {
+
+            TagDecision d = chosen() ;
+            if( d == null ) return null ;
+
+            List<String> problems = new ArrayList<>() ;
+            boolean      dep      = item.dependent() ;
+            for( Axis axis : pass.getAxes() ) {
+                long n = d.tags().stream()
+                          .filter( t -> Axis.of( t ) == axis ).count() ;
+                if( n < axis.min( dep ) || n > axis.max( dep ) ) {
+                    problems.add( axis.getWord() + " " +
+                                  axis.countRule( dep ) + ", not " + n ) ;
+                }
+            }
+            return problems.isEmpty() ? null : String.join( "; ", problems ) ;
         }
 
         /** Tier {@code tier}'s reply; null if it has given none. */
@@ -178,33 +215,8 @@ final class TagTableModel extends AbstractTableModel
     private final List<Row>        rows = new ArrayList<>() ;
     private final Map<Integer,Row> byId = new HashMap<>() ;
 
-    /** The column names, the tiers' with their models. */
-    private final String[] columns = COLUMNS.clone() ;
-
-    /**
-     * @param tier1 tier 1's first model, named in its column's title; null
-     *              for none
-     * @param tier2 tier 2's, likewise
-     */
-    TagTableModel( ModelNames names, String tier1, String tier2 ) {
-
+    TagTableModel( ModelNames names ) {
         this.names = names ;
-        columns[COL_TIER1] = title( COL_TIER1, tier1, names ) ;
-        columns[COL_TIER2] = title( COL_TIER2, tier2, names ) ;
-    }
-
-    /**
-     * "Tier 1 (Nemotron)": column {@code col}'s title with the first word
-     * of {@code model}'s display name; the plain title without a model.
-     */
-    private static String title( int col, String model, ModelNames names ) {
-
-        if( model == null ) return COLUMNS[col] ;
-        String name = names.of( model ).strip() ;
-        int    sp   = name.indexOf( ' ' ) ;
-
-        return COLUMNS[col] + " (" + ( sp < 0 ? name : name.substring( 0, sp ) )
-               + ")" ;
     }
 
     /** Replace the rows with {@code rows}. */
@@ -340,12 +352,12 @@ final class TagTableModel extends AbstractTableModel
 
     @Override
     public int getColumnCount() {
-        return columns.length ;
+        return COLUMNS.length ;
     }
 
     @Override
     public String getColumnName( int col ) {
-        return columns[col] ;
+        return COLUMNS[col] ;
     }
 
     @Override
@@ -370,9 +382,7 @@ final class TagTableModel extends AbstractTableModel
                                  ( item.dependent() ? "  (dep)" : "" ) ;
             case COL_TYPE     -> item.type() ;
             case COL_KEY      -> item.key() ;
-            case COL_EXISTING -> String.join( ", ", row.existing ) ;
-            case COL_TIER1    -> tierText( row, 1 ) ;
-            case COL_TIER2    -> tierText( row, 2 ) ;
+            case COL_TAGS     -> tagsText( row ) ;
             case COL_STATUS   -> statusText( row ) ;
             case COL_SAVED    -> row.status == TaggerStatus.SAVED ;
             default           -> null ;
@@ -380,24 +390,63 @@ final class TagTableModel extends AbstractTableModel
     }
 
     /**
-     * "✓ C   s.x, c.y": tier {@code tier}'s answer marked against the key,
-     * and its tags (the setup pass: its tags alone); tier 2's failure if
-     * asked and it gave none.
+     * "✗✓  [T2] c.x, m.y": in the concept pass each tier's answer marked
+     * against the key (✓ right, ✗ wrong, - no answer); then the chosen set,
+     * marked with where it started from ({@link #sourceMark}), else, in
+     * parentheses, the proposal of the last tier that replied.
      */
-    private static String tierText( Row row, int tier ) {
+    private static String tagsText( Row row ) {
+
+        StringBuilder sb = new StringBuilder() ;
+        if( row.solved && row.opinions != null ) {
+            sb.append( mark( row, 1 ) ) ;
+            if( row.tier( 2 ) != null || row.opinions.tier2Failure() != null ) {
+                sb.append( mark( row, 2 ) ) ;
+            }
+            sb.append( "  " ) ;
+        }
+
+        TagDecision d = row.chosen() ;
+        TierReply   p = row.tier( 2 ) != null ? row.tier( 2 ) : row.tier( 1 ) ;
+        if( d != null ) {
+            sb.append( '[' ).append( sourceMark( d ) ).append( "] " )
+              .append( d.tags().isEmpty() ? "no tags"
+                                          : String.join( ", ", d.tags() ) ) ;
+        }
+        else if( p != null && !( row.solved && p.reply().isAbstained() ) ) {
+            sb.append( "(T" ).append( p.tier() ).append( ") " )
+              .append( String.join( ", ", p.reply().tags() ) ) ;
+        }
+        return sb.toString().strip() ;
+    }
+
+    /** ✓, ✗, or - for no answer: tier {@code tier}'s answer. */
+    private static String mark( Row row, int tier ) {
 
         TierReply t = row.tier( tier ) ;
-        if( t == null ) {
-            return tier == 2 && row.opinions != null
-                   && row.opinions.tier2Failure() != null ? "-" : "" ;
-        }
-        if( !row.solved ) {
-            return t.reply().tags().isEmpty()
-                   ? "no tags" : String.join( ", ", t.reply().tags() ) ;
-        }
-        return ( row.correct( tier ) ? "✓ " : "✗ " ) +
-               t.reply().answerText() + "   " +
-               String.join( ", ", t.reply().tags() ) ;
+        if( t == null || t.reply().isAbstained() ) return "-" ;
+        return row.correct( tier ) ? "✓" : "✗" ;
+    }
+
+    /**
+     * "T1", "T2", "E" (the hand tags) or "U" (the user's own set), with a
+     * "*" once edited.
+     */
+    static String sourceMark( TagDecision d ) {
+
+        String s = switch( d.source() ) {
+            case TIER1    -> "T1" ;
+            case TIER2    -> "T2" ;
+            case EXISTING -> "E" ;
+            default       -> "U" ;
+        } ;
+        return d.edited() && d.source() != TagDecision.Source.USER ? s + "*"
+                                                                    : s ;
+    }
+
+    /** True if {@code row}'s Tags cell shows a proposal, not a chosen set. */
+    static boolean showsProposal( Row row ) {
+        return row.chosen() == null && row.opinions != null ;
     }
 
     /** The status, with the hand-off reason. */

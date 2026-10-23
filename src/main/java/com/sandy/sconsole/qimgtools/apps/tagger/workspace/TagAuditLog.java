@@ -26,8 +26,8 @@ import java.io.IOException;
  *   "status", "reason", "acceptedTier" }
  * { "time", "event" : "decision", "serverId", "questionId", "sourceId",
  *   "tagClass", "scopeTopicId", "dependent", "prompt" : { ... },
- *   "decision" : { "tags", "dependencies", "source", "model", "human",
- *                  "tier" },
+ *   "decision" : { "tags", "dependencies", "source", "model",
+ *                  "dependencyModel", "edited", "human", "tier" },
  *   "sent" : { "tagIds", "dependencyTopicIds", "dependencyActor",
  *              "forDependencyOf" },
  *   "status", "message", "autoSetupTaggingNeeded",
@@ -86,9 +86,13 @@ public final class TagAuditLog {
 
         ObjectNode dn = line.putObject( "decision" ) ;
         TagJson.strings( dn.putArray( "tags" ), d.tags() ) ;
-        d.dependencies().forEach( dn.putArray( "dependencies" )::add ) ;
+        if( d.dependencies() != null ) {
+            d.dependencies().forEach( dn.putArray( "dependencies" )::add ) ;
+        }
         dn.put( "source", d.source().name() ) ;
         dn.put( "model", d.model() ) ;
+        dn.put( "dependencyModel", d.dependencyModel() ) ;
+        dn.put( "edited", d.edited() ) ;
         dn.put( "human", d.human() ) ;
 
         ObjectNode sn = line.putObject( "sent" ) ;

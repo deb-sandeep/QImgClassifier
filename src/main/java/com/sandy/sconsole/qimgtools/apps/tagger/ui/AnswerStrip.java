@@ -1,32 +1,30 @@
 package com.sandy.sconsole.qimgtools.apps.tagger.ui;
 
-import com.sandy.sconsole.qimgtools.apps.tagger.model.Axis;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagClass;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagDecision;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TierReply;
+import com.sandy.sconsole.qimgtools.apps.tagger.ui.TagBadge.Payload;
 import com.sandy.sconsole.qimgtools.apps.tagger.ui.TagTableModel.Row;
+import com.sandy.sconsole.qimgtools.core.server.TopicDependency;
 import com.sandy.sconsole.qimgtools.core.util.ModelNames;
 
 import javax.swing.BorderFactory;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
 import java.awt.GridLayout;
-import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.util.List;
 import java.util.function.IntConsumer;
+import java.util.function.IntFunction;
 
 /**
  * The selected question's key and the two tiers' answers side by side, so
@@ -34,11 +32,14 @@ import java.util.function.IntConsumer;
  * the top right in square brackets: an answer that matches the key is
  * green, one that misses it pink. Below it are tags as badges, coloured by
  * axis: the key's part shows the hand tags already on the question, a
- * tier's the tags it chose (with its gap proposal dashed). The tier whose
- * tags are decided on is framed. Blank unless exactly one question is
- * selected. Clicking a tier's part decides as its key does: 1 tier 1's
- * tags, 2 tier 2's. The setup pass, which has no key, answers or tier 2,
- * shows the hand tags and tier 1's tags alone. Use on the EDT.
+ * tier's the tags it chose (with its gap proposal dashed); after them, in
+ * the concept pass for a question of the scoped topic, the topics it
+ * depends on, grey. The tier whose tags the chosen set started from is
+ * framed. Blank unless exactly one question is selected. Clicking a tier's
+ * part chooses its tags as its key does: 1 tier 1's, 2 tier 2's. Each tag
+ * and topic can be dragged to the chosen set ({@link TagBadge}). The setup
+ * pass, which has no key, answers or tier 2, shows the hand tags and tier
+ * 1's tags alone. Use on the EDT.
  */
 @SuppressWarnings( "serial" )
 final class AnswerStrip extends JPanel {
@@ -46,10 +47,9 @@ final class AnswerStrip extends JPanel {
     private static final Color KEY_BG    = new Color( 0xDCE8F5 ) ;
     private static final Color TIER1_BG  = new Color( 0xFFF1D6 ) ;
     private static final Color TIER2_BG  = new Color( 0xEDE3F5 ) ;
-    private static final int   HEIGHT    = 112 ;
+    private static final int   HEIGHT    = 92 ;
     private static final float TITLE_PT  = 13f ;
     private static final float ANSWER_PT = 18f ;
-    private static final float BADGE_PT  = 11.5f ;
 
     // Answer colours: matches the key, or misses it.
     private static final Color RIGHT_FG = new Color( 0x2E7D32 ) ;
@@ -61,27 +61,31 @@ final class AnswerStrip extends JPanel {
     /** The frame round the part decided on. */
     private static final Color DECIDED_LINE = new Color( 0x2E7D32 ) ;
 
-    private final TagClass    pass ;
-    private final ModelNames  names ;
-    private final IntConsumer decide ;
-    private final Part        key   = new Part( KEY_BG ) ;
-    private final Part        tier1 = new Part( TIER1_BG ) ;
-    private final Part        tier2 = new Part( TIER2_BG ) ;
+    private final TagClass            pass ;
+    private final ModelNames          names ;
+    private final IntFunction<String> topicName ;
+    private final IntConsumer         decide ;
+    private final Part                key   = new Part( KEY_BG ) ;
+    private final Part                tier1 = new Part( TIER1_BG ) ;
+    private final Part                tier2 = new Part( TIER2_BG ) ;
 
     /** The row shown; null if none. */
     private Row row ;
 
     /**
-     * @param pass   the pass the tagger runs
-     * @param decide called with the decision key a click on a tier stands
-     *        for: 1 tier 1's tags, 2 tier 2's
+     * @param pass      the pass the tagger runs
+     * @param topicName a topic's name by id, for the dependencies
+     * @param decide    called with the decision key a click on a tier
+     *        stands for: 1 tier 1's tags, 2 tier 2's
      */
-    AnswerStrip( TagClass pass, ModelNames names, IntConsumer decide ) {
+    AnswerStrip( TagClass pass, ModelNames names,
+                 IntFunction<String> topicName, IntConsumer decide ) {
 
         super( new GridLayout( 1, 0 ) ) ;
-        this.pass   = pass ;
-        this.names  = names ;
-        this.decide = decide ;
+        this.pass      = pass ;
+        this.names     = names ;
+        this.topicName = topicName ;
+        this.decide    = decide ;
         setPreferredSize( new Dimension( 100, HEIGHT ) ) ;
         add( key ) ;
         add( tier1 ) ;
@@ -115,10 +119,10 @@ final class AnswerStrip extends JPanel {
             return ;
         }
 
-        TagDecision d = row.decision ;
+        TagDecision d = row.chosen() ;
         key.set( keyTitle + "  ·  " + row.item.type(),
                  pass.solves() ? row.item.key() : null, null, false ) ;
-        key.tags( row.existing, null, "no hand tags" ) ;
+        key.tags( row.existing, null, existingDeps( row ), "no hand tags" ) ;
         showTier( tier1, 1, d != null && d.source() == TagDecision.Source.TIER1 ) ;
         showTier( tier2, 2, d != null && d.source() == TagDecision.Source.TIER2 ) ;
     }
@@ -148,11 +152,25 @@ final class AnswerStrip extends JPanel {
             part.note( "declined to answer" ) ;
         }
         else {
-            part.tags( r.tags(), r, "no tags" ) ;
+            part.tags( r.tags(), r, showsDeps( row ) ? r.xdep() : List.of(),
+                       "no tags" ) ;
         }
         part.clickable( declined ? null
                         : "Click to use " + title.toLowerCase() +
                           "'s tags (" + n + ")" ) ;
+    }
+
+    /** True if {@code row}'s dependencies are shown: concept, own. */
+    private boolean showsDeps( Row row ) {
+        return pass.hasDependents() && !row.item.dependent() ;
+    }
+
+    /** The topics {@code row} depends on now, on the server. */
+    private List<Integer> existingDeps( Row row ) {
+
+        List<TopicDependency> deps = row.item.question().getTopicDependencies() ;
+        if( !showsDeps( row ) || deps == null ) return List.of() ;
+        return deps.stream().map( TopicDependency::topicId ).toList() ;
     }
 
     /** Re-show the row shown if it is {@code changed}. */
@@ -164,7 +182,7 @@ final class AnswerStrip extends JPanel {
      * One part: a title with the answer at its right, above the tags as
      * badges, which wrap onto further lines.
      */
-    private static final class Part extends JPanel {
+    private final class Part extends JPanel {
 
         private final JLabel title  = new JLabel( " " ) ;
         private final JLabel answer = new JLabel( " " ) ;
@@ -223,17 +241,25 @@ final class AnswerStrip extends JPanel {
         /**
          * Show {@code tags} as badges, with {@code reply}'s concept reasons
          * as their tooltips and its gap proposal dashed after them (null
-         * for neither); {@code none} if there are no tags.
+         * for neither), then the topics {@code deps}; {@code none} if there
+         * are no tags. The tags and topics can be dragged.
          */
-        void tags( List<String> tags, TagReply reply, String none ) {
+        void tags( List<String> tags, TagReply reply, List<Integer> deps,
+                   String none ) {
 
             body.removeAll() ;
             for( String t : tags ) {
-                add( new Badge( t, whyOf( reply, t ), false ) ) ;
+                add( new TagBadge( t, whyOf( reply, t ), false )
+                             .draggable( Payload.tag( t ) ) ) ;
             }
             if( reply != null && reply.gap() != null ) {
                 TagReply.GapProposal g = reply.gap() ;
-                add( new Badge( "+ " + g.tag(), g.hint(), true ) ) ;
+                add( new TagBadge( "+ " + g.tag(), g.hint(), true ) ) ;
+            }
+            for( int id : deps ) {
+                add( new TagBadge( "→ " + topicName.apply( id ),
+                                   "Depends on topic " + id, false )
+                             .draggable( Payload.topic( id ) ) ) ;
             }
             if( body.getComponentCount() == 0 ) addNote( none ) ;
             body.revalidate() ;
@@ -257,7 +283,7 @@ final class AnswerStrip extends JPanel {
             body.add( l ) ;
         }
 
-        private void add( Badge b ) {
+        private void add( TagBadge b ) {
             // A badge with a tooltip takes the clicks, so it passes them on.
             if( clicks != null ) b.addMouseListener( clicks ) ;
             body.add( b ) ;
@@ -292,67 +318,6 @@ final class AnswerStrip extends JPanel {
             setToolTipText( tip ) ;
             setCursor( Cursor.getPredefinedCursor(
                     clickable ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR ) ) ;
-        }
-    }
-
-    /**
-     * A tag in a rounded box coloured by its axis: setup blue, concept
-     * green, math orange, anything else grey. A proposed tag is dashed.
-     */
-    private static final class Badge extends JLabel {
-
-        private static final int ARC = 10 ;
-
-        private final Color   fill ;
-        private final Color   line ;
-        private final boolean dashed ;
-
-        Badge( String text, String tip, boolean dashed ) {
-
-            super( text ) ;
-
-            Axis axis = Axis.of( text.startsWith( "+ " ) ? text.substring( 2 )
-                                                         : text ) ;
-            this.fill   = fillOf( axis ) ;
-            this.line   = fill.darker().darker() ;
-            this.dashed = dashed ;
-
-            setFont( getFont().deriveFont( dashed ? Font.ITALIC : Font.PLAIN,
-                                           BADGE_PT ) ) ;
-            setForeground( line.darker() ) ;
-            setBorder( BorderFactory.createEmptyBorder( 2, 7, 2, 7 ) ) ;
-            setToolTipText( tip ) ;
-        }
-
-        private static Color fillOf( Axis axis ) {
-            return axis == null ? new Color( 0xE0E0E0 ) : switch( axis ) {
-                case SETUP   -> new Color( 0xD6E9FB ) ;
-                case CONCEPT -> new Color( 0xD5F0D8 ) ;
-                case MATH    -> new Color( 0xFFE3C2 ) ;
-            } ;
-        }
-
-        @Override
-        protected void paintComponent( Graphics g ) {
-
-            Graphics2D g2 = (Graphics2D) g.create() ;
-            int        w  = getWidth() - 1 ;
-            int        h  = getHeight() - 1 ;
-
-            g2.setRenderingHint( RenderingHints.KEY_ANTIALIASING,
-                                 RenderingHints.VALUE_ANTIALIAS_ON ) ;
-            if( !dashed ) {
-                g2.setColor( fill ) ;
-                g2.fillRoundRect( 0, 0, w, h, ARC, ARC ) ;
-            }
-            g2.setColor( line ) ;
-            g2.setStroke( dashed ? new BasicStroke( 1f, BasicStroke.CAP_BUTT,
-                                                    BasicStroke.JOIN_ROUND, 1f,
-                                                    new float[]{ 3f, 3f }, 0f )
-                                 : new BasicStroke( 1f ) ) ;
-            g2.drawRoundRect( 0, 0, w, h, ARC, ARC ) ;
-            g2.dispose() ;
-            super.paintComponent( g ) ;
         }
     }
 }

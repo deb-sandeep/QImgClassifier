@@ -1,10 +1,10 @@
 topicId: 104
 status: approved
-promptVersion: 1
-catalogueFingerprint: eb256374fa091a40
-contentHash: 8edfe92dbb562a43
+promptVersion: 2
+catalogueFingerprint: 5d6bfadd8c7336ea
+contentHash: 9b10e2269076e965
 generatedAt: 2026-10-22T18:29:32Z
-approvedAt: 2026-10-23T15:40:19Z
+approvedAt: 2026-10-23T18:33:08Z
 ---
 ## Setup tags
 
@@ -16,7 +16,7 @@ Setup tag: apply on presence of the component in the figure or stem, not on whet
 - s.connector.rod: Apply when a rigid rod, strut or bar connects two bodies, or a body to a support, and can carry tension or compression. Do not apply for a rod that is only a track for a sliding bead (use an s.path. tag) or a plank that a body rests on (use s.surface.body-on-body).
 - s.connector.pivot: Apply when a body is supported by a hinge, pin joint or pivot that supplies a reaction force of a priori unknown direction. Do not apply for a pulley axle or for a string fixed to a ceiling hook.
 - s.surface.incline: Apply when a body rests on or moves along a fixed inclined plane. Do not apply when the inclined body itself is free to move: that is s.surface.wedge. An incline inside an accelerating lift or truck carries both s.surface.incline and s.surface.accl.
-- s.surface.wedge: Apply when an inclined body is free to move (on a smooth floor, pushed, or released) while another body is in contact with its inclined face. Do not apply to a fixed incline. Do not add s.surface.body-on-body for the block on the wedge face: wedge covers inclined contact; body-on-body covers flat contact.
+- s.body.wedge: Apply when an inclined body is free to move (on a smooth floor, pushed, or released) while another body is in contact with its inclined face. Do not apply to a fixed incline. Do not add s.surface.body-on-body for the block on the wedge face: wedge covers inclined contact; body-on-body covers flat contact.
 - s.surface.body-on-body: Apply when a body rests on or slides over another body that can itself move along the contact: block on plank, stacked blocks, block on trolley or cart. Do not apply when the lower body is fixed (it is then just a surface) or when the contact face is inclined (use s.surface.wedge).
 - s.surface.accl: Apply when a body rests on, hangs in, or is carried by a platform whose acceleration is given or sought: lift, truck, train, conveyor belt, accelerating cart. Do not apply when the moving support is a wedge (s.surface.wedge) or the lower block of a stack (s.surface.body-on-body).
 - s.path.vert-ring: Apply when a body is constrained on both sides to a path in a vertical plane, so it cannot leave the path and the normal can point either way: bead threaded on a vertical circular wire, ball inside a tube. Do not apply to one-sided tracks (s.path.vert-loop) or to a pendulum on a string or rod (no path tag).
