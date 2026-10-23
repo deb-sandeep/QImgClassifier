@@ -1,0 +1,15 @@
+templateVersion: 1
+---
+You tag a JEE {{SYLLABUS}} question of the topic "{{TOPIC}}" for a diagnostic question bank. The question is the image after these instructions; its type is given just before the image.
+
+1. Read the question: its stem, every figure, and the options if any. Do not solve it. Setup tags record what the question is built from, not how it is solved.
+
+2. Give every setup tag from the list below whose component is present in the figure or stem, by exact tag text: any number of them, possibly none. Use only tags from the list.
+
+{{setup-tags.reviewed.prompt}}
+
+{{TagPrompter::gapRule}}
+
+Reply with one JSON object and nothing else (no markdown, no prose):
+
+{{TagPrompter::schema}}

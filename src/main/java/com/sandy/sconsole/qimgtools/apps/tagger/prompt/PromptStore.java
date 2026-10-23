@@ -1,6 +1,7 @@
 package com.sandy.sconsole.qimgtools.apps.tagger.prompt;
 
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagCatalogue;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagClass;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 
 import lombok.extern.slf4j.Slf4j;
@@ -15,28 +16,31 @@ import java.time.temporal.ChronoUnit;
 import java.util.Map;
 
 /**
- * The topic prompts, in the source tree ({@code prompts.dir}):
+ * The topic prompts of one pass, in the source tree ({@code prompts.dir}),
+ * where both passes keep theirs side by side:
  * <pre>
- * qtagger.prompt                   the shared template
- * axes.prompt                      the axis rules, one section per variant
+ * qtagger.setup.prompt             the setup pass' template
+ * qtagger.concept.prompt           the concept pass' template
+ * qtagger.concept.axes.prompt      its axis rules, one section per variant
  * &lt;syllabus&gt;/&lt;id&gt;-&lt;topic name&gt;/
- *   tags.generated.prompt          the mechanical base, rewritten by Generate
- *   tags.reviewed.prompt           tuned by hand, approved; the one runs use
+ *   setup-tags.generated.prompt    the mechanical base, rewritten by Generate
+ *   setup-tags.reviewed.prompt     tuned by hand, approved; the one runs use
+ *   concept-tags.generated.prompt  the same for the concept pass
+ *   concept-tags.reviewed.prompt
  * </pre>
- * {@code tags.reviewed.prompt}'s header says whether it is approved, for
- * which catalogue and text: {@code topicId}, {@code status} ({@code draft} /
- * {@code approved}), {@code promptVersion}, {@code catalogueFingerprint},
- * {@code contentHash}, {@code generatedAt}, {@code approvedAt}. Files are
- * read afresh on every call, so an edit takes effect without a restart.
- * Writes go through a temp file and a rename. Thread-safe.
+ * A reviewed prompt's header says whether it is approved, for which
+ * catalogue and text: {@code topicId}, {@code status} ({@code draft} /
+ * {@code approved}), {@code promptVersion}, {@code catalogueFingerprint}
+ * (of the pass's tags only), {@code contentHash}, {@code generatedAt},
+ * {@code approvedAt}. Files are read afresh on every call, so an edit takes
+ * effect without a restart. Writes go through a temp file and a rename.
+ * Thread-safe.
  */
 @Slf4j
 public final class PromptStore {
 
-    public static final String TEMPLATE  = "qtagger.prompt" ;
-    public static final String AXES      = "axes.prompt" ;
-    public static final String GENERATED = "tags.generated.prompt" ;
-    public static final String REVIEWED  = "tags.reviewed.prompt" ;
+    /** The concept pass' axis rules (the setup pass has none). */
+    public static final String AXES = "qtagger.concept.axes.prompt" ;
 
     public static final String DRAFT    = "draft" ;
     public static final String APPROVED = "approved" ;
@@ -57,10 +61,47 @@ public final class PromptStore {
         public String toString() { return label ; }
     }
 
-    private final File root ;
+    private final File     root ;
+    private final TagClass tagClass ;
 
-    public PromptStore( File root ) {
-        this.root = root ;
+    /** The prompts of pass {@code tagClass} under {@code root}. */
+    public PromptStore( File root, TagClass tagClass ) {
+        this.root     = root ;
+        this.tagClass = tagClass ;
+    }
+
+    /** The pass' template file name, e.g. {@code qtagger.setup.prompt}. */
+    public static String templateName( TagClass c ) {
+        return "qtagger." + c.wire() + ".prompt" ;
+    }
+
+    /** A topic's base file name, e.g. {@code setup-tags.generated.prompt}. */
+    public static String generatedName( TagClass c ) {
+        return c.wire() + "-tags.generated.prompt" ;
+    }
+
+    /** A topic's tuned file name, e.g. {@code setup-tags.reviewed.prompt}. */
+    public static String reviewedName( TagClass c ) {
+        return c.wire() + "-tags.reviewed.prompt" ;
+    }
+
+    public TagClass tagClass() {
+        return tagClass ;
+    }
+
+    /** The pass' template file name. */
+    public String templateName() {
+        return templateName( tagClass ) ;
+    }
+
+    /** The pass' base file name in a topic's folder. */
+    public String generatedName() {
+        return generatedName( tagClass ) ;
+    }
+
+    /** The pass' tuned file name in a topic's folder. */
+    public String reviewedName() {
+        return reviewedName( tagClass ) ;
     }
 
     public File root() {
@@ -79,33 +120,35 @@ public final class PromptStore {
     }
 
     /**
-     * The shared template.
+     * The pass' template.
      *
      * @throws IOException if it is missing or unreadable
      */
     public PromptFile template() throws IOException {
-        return read( new File( root, TEMPLATE ) ) ;
+        return read( new File( root, templateName() ) ) ;
     }
 
     /**
-     * The template's {@code {{axes.prompt}}} text: an {@code ## Own} and a
-     * {@code ## Dependent} section.
+     * The concept template's {@code {{qtagger.concept.axes.prompt}}} text:
+     * an {@code ## Own} and a {@code ## Dependent} section; null in the
+     * setup pass, whose template states its one rule itself.
      *
      * @throws IOException if it is missing or unreadable
      */
     public PromptFile axes() throws IOException {
-        return read( new File( root, AXES ) ) ;
+        return tagClass == TagClass.CONCEPT ? read( new File( root, AXES ) )
+                                            : null ;
     }
 
-    /** The topic's {@code tags.reviewed.prompt}; null if it has none. */
+    /** The topic's reviewed prompt of the pass; null if it has none. */
     public PromptFile topicPrompt( Topic topic ) throws IOException {
-        File f = new File( dir( topic ), REVIEWED ) ;
+        File f = new File( dir( topic ), reviewedName() ) ;
         return f.isFile() ? read( f ) : null ;
     }
 
-    /** The topic's {@code tags.generated.prompt}; null if it has none. */
+    /** The topic's base prompt of the pass; null if it has none. */
     public PromptFile generated( Topic topic ) throws IOException {
-        File f = new File( dir( topic ), GENERATED ) ;
+        File f = new File( dir( topic ), generatedName() ) ;
         return f.isFile() ? read( f ) : null ;
     }
 
@@ -119,10 +162,10 @@ public final class PromptStore {
 
         PromptFile p = topicPrompt( topic ) ;
         if( p == null ) {
-            return new File( dir( topic ), GENERATED ).isFile()
+            return new File( dir( topic ), generatedName() ).isFile()
                    ? State.BASE_ONLY : State.NONE ;
         }
-        return state( p, catalogue ) ;
+        return state( p, catalogue, tagClass ) ;
     }
 
     /**
@@ -131,7 +174,7 @@ public final class PromptStore {
      *
      * @param state       where it stands
      * @param version     its {@code promptVersion}; 0 if it has no
-     *                    {@code tags.reviewed.prompt}
+     *                    reviewed prompt
      * @param approvedAt  when it was last approved; null if never
      * @param generatedAt when its base was last generated; null if never
      */
@@ -154,7 +197,7 @@ public final class PromptStore {
                    : new Summary( State.BASE_ONLY, 0, null,
                                   instant( generated.get( "generatedAt" ) ) ) ;
         }
-        return new Summary( state( reviewed, null ),
+        return new Summary( state( reviewed, null, tagClass ),
                             reviewed.getInt( "promptVersion", 0 ),
                             instant( reviewed.get( "approvedAt" ) ),
                             instant( generated != null
@@ -174,14 +217,18 @@ public final class PromptStore {
         }
     }
 
-    /** Where topic prompt {@code p} stands against {@code catalogue}. */
-    public static State state( PromptFile p, TagCatalogue catalogue ) {
+    /**
+     * Where topic prompt {@code p} of pass {@code tagClass} stands against
+     * {@code catalogue}.
+     */
+    public static State state( PromptFile p, TagCatalogue catalogue,
+                               TagClass tagClass ) {
 
         if( !APPROVED.equals( p.get( "status" ) )
             || !p.contentHash().equals( p.get( "contentHash" ) ) ) {
             return State.DRAFT ;
         }
-        if( catalogue != null && !catalogue.fingerprint().equals(
+        if( catalogue != null && !catalogue.fingerprint( tagClass ).equals(
                 p.get( "catalogueFingerprint" ) ) ) {
             return State.STALE ;
         }
@@ -189,11 +236,11 @@ public final class PromptStore {
     }
 
     /**
-     * Write the topic's base prompt {@code body} to
-     * {@code tags.generated.prompt}, and, if the topic has no
-     * {@code tags.reviewed.prompt} yet, copy it there as a draft.
+     * Write the topic's base prompt {@code body} to the pass' generated
+     * file, and, if the topic has no reviewed prompt of the pass yet, copy
+     * it there as a draft.
      *
-     * @return true if {@code tags.reviewed.prompt} was created
+     * @return true if the reviewed prompt was created
      */
     public synchronized boolean writeGenerated( Topic topic, String body,
                                                 TagCatalogue catalogue )
@@ -202,12 +249,13 @@ public final class PromptStore {
         String now = now() ;
         PromptFile generated = new PromptFile( Map.of(), body )
                 .with( "topicId", topic.getId() )
-                .with( "catalogueFingerprint", catalogue.fingerprint() )
+                .with( "catalogueFingerprint",
+                       catalogue.fingerprint( tagClass ) )
                 .with( "generatedAt", now ) ;
 
-        write( new File( dir( topic ), GENERATED ), generated ) ;
-        log.info( "Wrote the base prompt of topic {} to {}", topic.getId(),
-                  dir( topic ) ) ;
+        write( new File( dir( topic ), generatedName() ), generated ) ;
+        log.info( "Wrote the {} base prompt of topic {} to {}", tagClass.wire(),
+                  topic.getId(), dir( topic ) ) ;
         if( topicPrompt( topic ) != null ) return false ;
 
         PromptFile draft = new PromptFile( Map.of(), body )
@@ -218,14 +266,14 @@ public final class PromptStore {
                 .with( "contentHash", "" )
                 .with( "generatedAt", now )
                 .with( "approvedAt", "" ) ;
-        write( new File( dir( topic ), REVIEWED ), draft ) ;
+        write( new File( dir( topic ), reviewedName() ), draft ) ;
         return true ;
     }
 
     /**
-     * Approve the topic's {@code tags.reviewed.prompt} as it stands, for
+     * Approve the topic's reviewed prompt of the pass as it stands, for
      * {@code catalogue}: status approved, the next prompt version, the
-     * catalogue's fingerprint and the text's hash.
+     * fingerprint of the catalogue's tags of the pass and the text's hash.
      *
      * @return the approved file
      */
@@ -236,7 +284,7 @@ public final class PromptStore {
         PromptFile p = topicPrompt( topic ) ;
         if( p == null ) {
             throw new IOException( "topic " + topic.getId() +
-                                   " has no " + REVIEWED ) ;
+                                   " has no " + reviewedName() ) ;
         }
         return stamp( topic, p, catalogue ) ;
     }
@@ -256,7 +304,7 @@ public final class PromptStore {
         PromptFile p = topicPrompt( topic ) ;
         if( p == null ) {
             throw new IOException( "topic " + topic.getId() +
-                                   " has no " + REVIEWED ) ;
+                                   " has no " + reviewedName() ) ;
         }
         String body = PromptText.appendToSection( p.body(), section, line ) ;
         return stamp( topic, new PromptFile( p.header(), body ), catalogue ) ;
@@ -269,12 +317,14 @@ public final class PromptStore {
                 .with( "topicId", topic.getId() )
                 .with( "status", APPROVED )
                 .with( "promptVersion", p.getInt( "promptVersion", 0 ) + 1 )
-                .with( "catalogueFingerprint", catalogue.fingerprint() )
+                .with( "catalogueFingerprint",
+                       catalogue.fingerprint( tagClass ) )
                 .with( "contentHash", p.contentHash() )
                 .with( "approvedAt", now() ) ;
 
-        write( new File( dir( topic ), REVIEWED ), approved ) ;
-        log.info( "Approved the prompt of topic {}, version {}", topic.getId(),
+        write( new File( dir( topic ), reviewedName() ), approved ) ;
+        log.info( "Approved the {} prompt of topic {}, version {}",
+                  tagClass.wire(), topic.getId(),
                   approved.get( "promptVersion" ) ) ;
         return approved ;
     }

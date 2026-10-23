@@ -1,4 +1,4 @@
-templateVersion: 9
+templateVersion: 1
 ---
 You tag a JEE {{SYLLABUS}} question of the topic "{{TOPIC}}" for a diagnostic question bank. The question is the image after these instructions; its type is given just before the image.
 
@@ -13,11 +13,11 @@ You tag a JEE {{SYLLABUS}} question of the topic "{{TOPIC}}" for a diagnostic qu
 
 2. Tag it from the lists below only, by exact tag text:
 
-{{axes.prompt}}
+{{qtagger.concept.axes.prompt}}
 
 Tags describe the intended efficient solution, not every idea the stem mentions.
 
-{{tags.reviewed.prompt}}
+{{concept-tags.reviewed.prompt}}
 
 {{TagPrompter::otherTopics}}
 

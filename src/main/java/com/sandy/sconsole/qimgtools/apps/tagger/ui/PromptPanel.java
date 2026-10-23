@@ -44,15 +44,21 @@ final class PromptPanel extends JPanel {
         StringBuilder sb = new StringBuilder() ;
         sb.append( a.topic().getId() ).append( ' ' )
           .append( a.topic().getTopicName() ).append( "  -  " )
+          .append( a.tagClass() ).append( " pass, " )
           .append( a.mode() ).append( "\nPrompt v" )
           .append( a.promptVersion() ).append( ", template v" )
           .append( a.templateVersion() ).append( ", catalogue " )
-          .append( a.catalogue().fingerprint() ).append( "\nAbout " )
+          .append( a.catalogue().fingerprint( a.tagClass() ) )
+          .append( "\nAbout " )
           .append( TagPrompter.estimateTokens( a.own() ) )
-          .append( " input tokens per question, " )
-          .append( TagPrompter.estimateTokens( a.dependent() ) )
-          .append( " per dependent (image not counted)\n" ) ;
-        for( Axis axis : Axis.values() ) {
+          .append( " input tokens per question" ) ;
+        if( a.tagClass().hasDependents() ) {
+            sb.append( ", " )
+              .append( TagPrompter.estimateTokens( a.dependent() ) )
+              .append( " per dependent" ) ;
+        }
+        sb.append( " (image not counted)\n" ) ;
+        for( Axis axis : a.tagClass().getAxes() ) {
             sb.append( '\n' ).append( axis.getHeading() ).append( " (" )
               .append( a.offered().tags( axis ).size() ).append( "): " )
               .append( String.join( ", ", a.offered().tags( axis ).stream()

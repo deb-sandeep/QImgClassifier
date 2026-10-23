@@ -7,13 +7,14 @@ import com.sandy.sconsole.ai.AIRequest;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.Axis;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.CatalogueTag;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.OfferedSet;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagClass;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagMode;
 
 import java.util.Collection;
 import java.util.List;
 
 /**
- * The blind solve's reply as a strict JSON schema, for models that support
+ * A pass' reply as a strict JSON schema, for models that support
  * structured output: the shape {@code {{TagPrompter::schema}}} describes in
  * the prompt, with each tag list limited to the offered tags of its axis and
  * {@code xdep} to the topics offered, so a constrained model can't name
@@ -31,7 +32,9 @@ final class ReplySchema {
     private ReplySchema() {}
 
     /**
-     * The schema of a reply for the variant: a dependent has no
+     * The schema of a reply for the offered set's pass and the variant: the
+     * setup pass has only {@code setup}; the concept pass {@code ans},
+     * {@code concept}, {@code math} and {@code xdep}, a dependent no
      * {@code math} or {@code xdep}; {@code gap} is there only in
      * {@link TagMode#REVIEW_GAPS}.
      */
@@ -42,9 +45,33 @@ final class ReplySchema {
         ObjectNode root  = MAPPER.createObjectNode() ;
         ObjectNode props = object( root ) ;
 
+        if( offered.tagClass() == TagClass.SETUP ) {
+            props.set( "setup", tagList( offered.tags( Axis.SETUP ) ) ) ;
+        }
+        else {
+            concept( props, offered, topicIds, dependent ) ;
+        }
+        if( mode == TagMode.REVIEW_GAPS ) {
+            ObjectNode gap  = MAPPER.createObjectNode() ;
+            ObjectNode gapP = object( gap ) ;
+            for( String f : List.of( "tag", "hint", "why" ) ) {
+                gapP.putObject( f ).put( "type", "string" ) ;
+            }
+            ArrayNode any = props.putObject( "gap" ).putArray( "anyOf" ) ;
+            any.addObject().put( "type", "null" ) ;
+            any.add( gap ) ;
+        }
+        required( root ) ;
+        return new AIRequest.ResponseSchema( NAME, root ) ;
+    }
+
+    /** The concept pass' properties: the answer, concept, math, xdep. */
+    private static void concept( ObjectNode props, OfferedSet offered,
+                                 Collection<Integer> topicIds,
+                                 boolean dependent ) {
+
         props.putObject( "ans" ).putArray( "type" ).add( "string" )
                                                   .add( "null" ) ;
-        props.set( "setup", tagList( offered.tags( Axis.SETUP ) ) ) ;
 
         ObjectNode pick  = MAPPER.createObjectNode() ;
         ObjectNode pickP = object( pick ) ;
@@ -62,18 +89,6 @@ final class ReplySchema {
                 topicIds.stream().sorted().forEach( ids::add ) ;
             }
         }
-        if( mode == TagMode.REVIEW_GAPS ) {
-            ObjectNode gap  = MAPPER.createObjectNode() ;
-            ObjectNode gapP = object( gap ) ;
-            for( String f : List.of( "tag", "hint", "why" ) ) {
-                gapP.putObject( f ).put( "type", "string" ) ;
-            }
-            ArrayNode any = props.putObject( "gap" ).putArray( "anyOf" ) ;
-            any.addObject().put( "type", "null" ) ;
-            any.add( gap ) ;
-        }
-        required( root ) ;
-        return new AIRequest.ResponseSchema( NAME, root ) ;
     }
 
     /**

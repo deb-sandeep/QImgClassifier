@@ -22,8 +22,9 @@ import java.util.function.Predicate;
 
 /**
  * The tagger's table: one row per question loaded, with its key, the hand
- * tags already on it, each tier's answer and tags, and where it stands. All
- * row state lives here and is touched only on the EDT.
+ * tags already on it, each tier's answer and tags (the setup pass: tier 1's
+ * tags alone), and where it stands. All row state lives here and is touched
+ * only on the EDT.
  */
 @SuppressWarnings( "serial" )
 final class TagTableModel extends AbstractTableModel
@@ -56,6 +57,12 @@ final class TagTableModel extends AbstractTableModel
 
         /** The hand tags on it the run could replace, as loaded. */
         final List<String> existing ;
+
+        /**
+         * True if the tiers answer and are checked against the key (the
+         * concept pass); false if they only tag (setup).
+         */
+        final boolean solved ;
 
         TaggerStatus status ;
 
@@ -99,9 +106,10 @@ final class TagTableModel extends AbstractTableModel
         TaggerStatus undecidedStatus ;
         String       undecidedMessage ;
 
-        Row( TagItem item, List<String> existing ) {
+        Row( TagItem item, List<String> existing, boolean solved ) {
             this.item     = item ;
             this.existing = List.copyOf( existing ) ;
+            this.solved   = solved ;
             this.status   = !item.hasImages()         ? TaggerStatus.NO_IMAGES
                           : item.unsupported() != null ? TaggerStatus.UNSUPPORTED
                           :                              TaggerStatus.PENDING ;
@@ -117,7 +125,7 @@ final class TagTableModel extends AbstractTableModel
         /** True if tier {@code tier}'s answer matches the key. */
         boolean correct( int tier ) {
             TierReply t = tier( tier ) ;
-            return t != null && AnswerChecker.matches( item.type(),
+            return solved && t != null && AnswerChecker.matches( item.type(),
                                                        item.key(),
                                                        t.answer() ) ;
         }
@@ -131,12 +139,13 @@ final class TagTableModel extends AbstractTableModel
         }
 
         /**
-         * True if it may take tier {@code tier}'s tags: the tier answered
-         * (one that declined has none).
+         * True if it may take tier {@code tier}'s tags: the tier replied,
+         * and, where it solves, answered (one that declined has none).
          */
         boolean canUse( int tier ) {
             TierReply t = tier( tier ) ;
-            return isOpen() && t != null && !t.reply().isAbstained() ;
+            return isOpen() && t != null
+                   && !( solved && t.reply().isAbstained() ) ;
         }
 
         /** True if it has hand tags to keep. */
@@ -372,7 +381,8 @@ final class TagTableModel extends AbstractTableModel
 
     /**
      * "✓ C   s.x, c.y": tier {@code tier}'s answer marked against the key,
-     * and its tags; tier 2's failure if asked and it gave none.
+     * and its tags (the setup pass: its tags alone); tier 2's failure if
+     * asked and it gave none.
      */
     private static String tierText( Row row, int tier ) {
 
@@ -380,6 +390,10 @@ final class TagTableModel extends AbstractTableModel
         if( t == null ) {
             return tier == 2 && row.opinions != null
                    && row.opinions.tier2Failure() != null ? "-" : "" ;
+        }
+        if( !row.solved ) {
+            return t.reply().tags().isEmpty()
+                   ? "no tags" : String.join( ", ", t.reply().tags() ) ;
         }
         return ( row.correct( tier ) ? "✓ " : "✗ " ) +
                t.reply().answerText() + "   " +

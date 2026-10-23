@@ -1,5 +1,6 @@
 package com.sandy.sconsole.qimgtools.apps.tagger.workspace;
 
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagClass;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagDecision;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagJudgement;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagOpinions;
@@ -15,19 +16,22 @@ import java.io.IOException;
 /**
  * The tagger's audit trail, the provenance the server doesn't keep: every
  * judgement of the tiers' replies and every decision the server applied,
- * one JSON object per line, only ever appended to. Lines:
+ * one JSON object per line, only ever appended to; one file per pass, and
+ * each line names its pass. Lines:
  * <pre>
  * { "time", "event" : "judgement", "serverId", "questionId", "sourceId",
- *   "key", "type", "scopeTopicId", "dependent", "prompt" : { ... },
+ *   "tagClass", "key", "type", "scopeTopicId", "dependent",
+ *   "prompt" : { ... },
  *   "tier1" : { ... }, "tier2" : { ... }, "tier2Failure",
  *   "status", "reason", "acceptedTier" }
  * { "time", "event" : "decision", "serverId", "questionId", "sourceId",
- *   "scopeTopicId", "dependent", "prompt" : { ... },
+ *   "tagClass", "scopeTopicId", "dependent", "prompt" : { ... },
  *   "decision" : { "tags", "dependencies", "source", "model", "human",
  *                  "tier" },
  *   "sent" : { "tagIds", "dependencyTopicIds", "dependencyActor",
  *              "forDependencyOf" },
- *   "status", "message", "autoTaggingNeeded" }
+ *   "status", "message", "autoSetupTaggingNeeded",
+ *   "autoConceptTaggingNeeded" }
  * </pre>
  * {@code prompt} is {@code { "catalogueFingerprint", "templateVersion",
  * "promptVersion" }}: what the replies were given. Thread-safe.
@@ -40,9 +44,12 @@ public final class TagAuditLog {
                                String promptVersion ) {}
 
     private final JsonLines lines ;
+    private final TagClass  tagClass ;
 
-    public TagAuditLog( File file ) {
-        this.lines = new JsonLines( file ) ;
+    /** The audit log of pass {@code tagClass}, in {@code file}. */
+    public TagAuditLog( File file, TagClass tagClass ) {
+        this.lines    = new JsonLines( file ) ;
+        this.tagClass = tagClass ;
     }
 
     /** Record how the tiers' replies {@code o} on {@code q} were judged. */
@@ -51,6 +58,7 @@ public final class TagAuditLog {
                            TagOpinions o, TagJudgement j ) throws IOException {
 
         ObjectNode line = JsonLines.entry( "judgement", q ) ;
+        line.put( "tagClass", tagClass.wire() ) ;
         line.put( "key", q.getAnswer() ) ;
         line.put( "type", q.getProblemType() ) ;
         line.put( "scopeTopicId", scopeTopicId ) ;
@@ -71,6 +79,7 @@ public final class TagAuditLog {
             throws IOException {
 
         ObjectNode line = JsonLines.entry( "decision", q ) ;
+        line.put( "tagClass", tagClass.wire() ) ;
         line.put( "scopeTopicId", scopeTopicId ) ;
         line.put( "dependent", dependent ) ;
         stamp( line, prompt ) ;
@@ -94,7 +103,8 @@ public final class TagAuditLog {
 
         line.put( "status", r.status() ) ;
         line.put( "message", r.message() ) ;
-        line.put( "autoTaggingNeeded", r.autoTaggingNeeded() ) ;
+        line.put( "autoSetupTaggingNeeded", r.autoSetupTaggingNeeded() ) ;
+        line.put( "autoConceptTaggingNeeded", r.autoConceptTaggingNeeded() ) ;
         lines.append( line ) ;
     }
 

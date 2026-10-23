@@ -30,9 +30,10 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * What happens to a question of the tagger around its AI attempts:
  * transcripts and token counts are saved as the reviewer saves them, and
- * the replies are judged against the key. A tier 1 answer that misses the
- * key is escalated to the {@link #TIER2} root, which solves again, blind;
- * the replies become {@link TagOpinions}, judged ({@link TagJudgement}),
+ * the replies are judged. In the concept pass a tier 1 answer that misses
+ * the key is escalated to the {@link #TIER2} root, which solves again,
+ * blind; the setup pass, which asks for no answer, has tier 1 alone. The
+ * replies become {@link TagOpinions}, judged ({@link TagJudgement}),
  * stored in {@link PendingTagging}, recorded in the {@link TagAuditLog} and
  * reported to the listener. Nothing is written to the server here; that
  * waits for Save. Thread-safe.
@@ -43,7 +44,10 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
     /** The root every question starts on. */
     public static final String TIER1 = "tier1" ;
 
-    /** The root a question goes to when tier 1 misses the key. */
+    /**
+     * The root a question goes to when tier 1 misses the key (the concept
+     * pass only).
+     */
     public static final String TIER2 = "tier2" ;
 
     private final TaggerListener  listener ;
@@ -104,7 +108,7 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
 
         Assembly a = prompter.assembly() ;
         return a == null ? null
-               : new PromptStamp( a.catalogue().fingerprint(),
+               : new PromptStamp( a.catalogue().fingerprint( a.tagClass() ),
                                   a.templateVersion(), a.promptVersion() ) ;
     }
 
@@ -120,11 +124,13 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
 
     /**
      * Tier 2's root when tier 1's answer misses the key; null for a correct
-     * answer, and for tier 2's own reply.
+     * answer, for tier 2's own reply, and in the setup pass (no answer).
      */
     @Override
     public String secondOpinionRoot( QTask task, TagReply reply,
                                      AIAgent agent, String model ) {
+
+        if( !prompter.assembly().tagClass().solves() ) return null ;
 
         Escalation esc = escalations.get( task ) ;
         if( esc != null ) {
@@ -233,7 +239,8 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
         int      tier    = escalations.containsKey( task ) ? 2 : 1 ;
         String   variant = item != null && item.dependent() ? ", dependent"
                                                             : "" ;
-        return "tier " + tier + ", topic " + a.topic().getId() + variant +
+        return a.tagClass().wire() + " pass, tier " + tier + ", topic " +
+               a.topic().getId() + variant +
                ", template v" + a.templateVersion() +
                ", prompt v" + a.promptVersion() ;
     }

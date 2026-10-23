@@ -2,6 +2,7 @@ package com.sandy.sconsole.qimgtools.apps.tagger.server;
 
 import com.sandy.sconsole.qimgtools.apps.tagger.model.CatalogueTag;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.ServerTag;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagClass;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 import com.sandy.sconsole.qimgtools.core.server.PendingResult;
 import com.sandy.sconsole.qimgtools.core.server.SConsoleServer;
@@ -22,11 +23,13 @@ import java.util.Map;
 
 /**
  * Client for the SConsole server's master APIs the tagger uses (see the
- * server's {@code doc/feature-enhancements/2026-10-22/auto-tagging-support/}
- * and {@code bulk-tag-import/} {@code api-changes.md}): topics, a topic's
- * tags, the tagging queue and a topic's dependents (both with an
- * {@code afterId} cursor), the tags on a batch of questions, saving tag sets
- * with their dependencies, and importing a tag. Calls go through
+ * server's {@code doc/feature-enhancements/2026-10-22/auto-tagging-support/},
+ * {@code bulk-tag-import/} and
+ * {@code 2026-10-23/bi-modal-auto-tagging/} {@code api-changes.md}): topics,
+ * a topic's tags, a pass' tagging queue and a topic's dependents (both with
+ * an {@code afterId} cursor), the tags on a batch of questions, saving a
+ * pass' tag sets with their dependencies, and importing a tag. Calls go
+ * through
  * {@link SConsoleServer}, which turns a failed one into a
  * {@link ServerException}. Thread-safe.
  */
@@ -78,13 +81,15 @@ public class TaggerServerClient {
 
     /**
      * The first {@code limit} questions of topic {@code topicId}, by id,
-     * still needing tags, after {@code afterId} (null: from the first).
+     * awaiting pass {@code tagClass} (concept: only those in an exam),
+     * after {@code afterId} (null: from the first).
      */
-    public PendingResult pending( int topicId, int limit, Integer afterId )
-            throws ServerException {
+    public PendingResult pending( TagClass tagClass, int topicId, int limit,
+                                  Integer afterId ) throws ServerException {
 
-        return server.get( "/Master/Question/AutoTagging/Pending?topicIds=" +
-                           topicId + "&limit=" + limit + after( afterId ),
+        return server.get( "/Master/Question/AutoTagging/Pending?tagClass=" +
+                           tagClass.wire() + "&topicIds=" + topicId +
+                           "&limit=" + limit + after( afterId ),
                            new TypeReference<PendingResult>() {} ) ;
     }
 
@@ -133,15 +138,18 @@ public class TaggerServerClient {
 
     /**
      * Replace the explicit tags of each question {@code items} names
-     * (1-{@value #MAX_REFRESHES}), with their dependencies. Items are
-     * independent; a rejected one doesn't affect the others.
+     * (1-{@value #MAX_REFRESHES}), with their dependencies, for pass
+     * {@code tagClass}: an applied item clears only that pass' flag. Items
+     * are independent; a rejected one doesn't affect the others.
      *
      * @return the server's result for each item, in the same order
      */
-    public List<RefreshResult> refresh( List<RefreshItem> items )
+    public List<RefreshResult> refresh( TagClass tagClass,
+                                        List<RefreshItem> items )
             throws ServerException {
 
-        ObjectNode body = server.mapper().createObjectNode() ;
+        ObjectNode body = server.mapper().createObjectNode()
+                                .put( "tagClass", tagClass.wire() ) ;
         ArrayNode  list = body.putArray( "refreshes" ) ;
 
         for( RefreshItem item : items ) {

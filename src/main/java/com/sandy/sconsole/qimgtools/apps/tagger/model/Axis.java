@@ -7,9 +7,10 @@ import lombok.RequiredArgsConstructor;
  * The kind of a diagnostic tag, given by its prefix: a convention of the tag
  * design (the server knows only tags). Each axis has its own count rule: a
  * question gets every setup tag whose component is present, the one or two
- * dominant concepts, and at most two math techniques. A dependent (a
- * question run under another topic it depends on) gets only setup and 0-2
- * concept tags: its math was done in its own topic's run.
+ * dominant concepts, and at most two math techniques. Each pass tags its
+ * own axes ({@link TagClass}). A dependent (a question run in the concept
+ * pass of another topic it depends on) gets only 0-2 concept tags of that
+ * topic: its setup and math belong to its own topic.
  */
 @Getter
 @RequiredArgsConstructor
@@ -46,7 +47,7 @@ public enum Axis {
     /** The most tags of this axis a question may get. */
     public int max( boolean dependent ) {
         return switch( this ) {
-            case SETUP   -> Integer.MAX_VALUE ;
+            case SETUP   -> dependent ? 0 : Integer.MAX_VALUE ;
             case CONCEPT -> 2 ;
             case MATH    -> dependent ? 0 : 2 ;
         } ;

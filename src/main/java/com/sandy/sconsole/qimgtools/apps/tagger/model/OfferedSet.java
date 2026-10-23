@@ -11,12 +11,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * The tags a topic prompt offers the model: its {@code - <tagText>:} lines,
- * by the axis section ({@code ## Setup}, {@code ## Concept},
- * {@code ## Math}) they sit in. Replies are validated against it. What is
- * wrong with the file (a tag the catalogue lacks, a tag in another axis'
- * section, a tag listed twice) is collected in {@link #problems()}; such
- * lines are left out. Immutable.
+ * The tags a pass's topic prompt offers the model: its
+ * {@code - <tagText>:} lines, by the axis section ({@code ## Setup},
+ * {@code ## Concept}, {@code ## Math}) they sit in. Replies are validated
+ * against it. What is wrong with the file (a tag the catalogue lacks, a tag
+ * of an axis the pass doesn't tag, a tag in another axis' section, a tag
+ * listed twice) is collected in {@link #problems()}; such lines are left
+ * out. Immutable.
  */
 public final class OfferedSet {
 
@@ -37,17 +38,23 @@ public final class OfferedSet {
             new EnumMap<>( Axis.class ) ;
     private final Map<String,CatalogueTag>     byText = new LinkedHashMap<>() ;
     private final List<String>                 problems ;
+    private final TagClass                     tagClass ;
 
-    private OfferedSet( List<String> problems ) {
+    private OfferedSet( TagClass tagClass, List<String> problems ) {
+        this.tagClass = tagClass ;
         this.problems = Collections.unmodifiableList( problems ) ;
         for( Axis a : Axis.values() ) byAxis.put( a, new ArrayList<>() ) ;
     }
 
-    /** The tags {@code text} (a topic prompt's body) offers. */
-    public static OfferedSet parse( String text, TagCatalogue catalogue ) {
+    /**
+     * The tags {@code text} (the body of pass {@code tagClass}'s topic
+     * prompt) offers.
+     */
+    public static OfferedSet parse( String text, TagCatalogue catalogue,
+                                    TagClass tagClass ) {
 
         List<String> problems = new ArrayList<>() ;
-        OfferedSet   set      = new OfferedSet( problems ) ;
+        OfferedSet   set      = new OfferedSet( tagClass, problems ) ;
         Axis         section  = null ;
         boolean      notes    = false ;
         int          lineNo   = 0 ;
@@ -72,6 +79,11 @@ public final class OfferedSet {
             if( tag == null ) {
                 problems.add( at + " is not a hinted tag of the catalogue" ) ;
             }
+            else if( !tagClass.tags( tag.axis() ) ) {
+                problems.add( at + " is a " + tag.axis().getWord() +
+                              " tag, not offered in the " +
+                              tagClass.wire() + " pass" ) ;
+            }
             else if( tag.axis() != section ) {
                 problems.add( at + " is not in its " + tag.axis().getHeading() +
                               " section" ) ;
@@ -84,8 +96,10 @@ public final class OfferedSet {
                 set.byText.put( key( tag.tagText() ), tag ) ;
             }
         }
-        if( set.byAxis.get( Axis.CONCEPT ).isEmpty() ) {
-            problems.add( "no concept tag is offered" ) ;
+        // The pass's first axis is the one a question must get a tag of.
+        Axis main = tagClass.getAxes().get( 0 ) ;
+        if( set.byAxis.get( main ).isEmpty() ) {
+            problems.add( "no " + main.getWord() + " tag is offered" ) ;
         }
         return set ;
     }
@@ -127,6 +141,11 @@ public final class OfferedSet {
         return Collections.unmodifiableList( byAxis.get( axis ) ) ;
     }
 
+    /** The pass the prompt is for. */
+    public TagClass tagClass() {
+        return tagClass ;
+    }
+
     /** Every offered tag, setup, concept, then math. */
     public List<CatalogueTag> all() {
         List<CatalogueTag> all = new ArrayList<>() ;
@@ -135,19 +154,23 @@ public final class OfferedSet {
     }
 
     /**
-     * The tags a run may change on a question: every offered tag, or for a
-     * dependent its setup and concept tags (its math was done in its own
-     * topic's run).
+     * The tags a run may change on a question: every offered tag (the
+     * pass's axes), or for a dependent the topic's concept tags (its setup
+     * and math belong to its own topic). Every other tag on the question is
+     * kept as it is.
      */
     public List<CatalogueTag> replaceable( boolean dependent ) {
         return all().stream()
-                    .filter( t -> !dependent || t.axis() != Axis.MATH )
+                    .filter( t -> !dependent || t.axis() == Axis.CONCEPT )
                     .toList() ;
     }
 
-    /** The catalogue's tags the prompt leaves out (allowed, warned about). */
+    /**
+     * The catalogue's tags of the pass the prompt leaves out (allowed,
+     * warned about).
+     */
     public List<CatalogueTag> leftOut( TagCatalogue catalogue ) {
-        return catalogue.tags().stream()
+        return catalogue.tags( tagClass ).stream()
                         .filter( t -> !contains( t.tagText() ) ).toList() ;
     }
 

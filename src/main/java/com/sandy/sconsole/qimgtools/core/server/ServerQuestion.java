@@ -48,8 +48,18 @@ public class ServerQuestion {
      */
     private boolean topicReviewNeeded ;
 
-    /** True while the question still needs tags from the tagger. */
-    private boolean autoTaggingNeeded ;
+    /**
+     * True while the question awaits the tagger's setup pass; set only by
+     * the server, cleared by a setup refresh.
+     */
+    private boolean autoSetupTaggingNeeded ;
+
+    /**
+     * True while the question awaits the tagger's concept pass, in an exam
+     * or not (the concept queue holds only those in an exam); set only by
+     * the server, cleared by a concept refresh.
+     */
+    private boolean autoConceptTaggingNeeded ;
 
     /**
      * The other topics of its syllabus the question's solution depends on;

@@ -4,6 +4,7 @@ import com.sandy.sconsole.ai.AIRequest;
 import com.sandy.sconsole.qimgtools.apps.tagger.check.ReplyValidator;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.OfferedSet;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagCatalogue;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagClass;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagMode;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply;
@@ -19,15 +20,17 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * The blind solve asked of the models, and reading their replies. The
- * prompt is the shared template ({@code qtagger.prompt}) with its axis rules
- * ({@code axes.prompt}), the scope topic's approved
- * {@code tags.reviewed.prompt} and the syllabus' other topics in it, then a
- * line naming the question's type; the image follows. All but that last line
- * is the same for every question of a variant, so prompt caching keeps it
- * for the run. There are two variants: a question of the
- * scope's topic, and a dependent (no math section, 0-2 concept tags, no
- * dependencies asked).
+ * What the models are asked, and reading their replies. The prompt is the
+ * pass' template ({@code qtagger.<pass>.prompt}) with the scope topic's
+ * approved reviewed prompt of the pass in it - in the concept pass also its
+ * axis rules ({@code qtagger.concept.axes.prompt}) and the syllabus' other
+ * topics - then a line naming the question's type; the image follows. All
+ * but that last line is the same for every question of a variant, so prompt
+ * caching keeps it for the run. The setup pass asks the model to read the
+ * question and give its setup tags; the concept pass to solve it blind and
+ * give its concept and math tags and dependencies, in two variants: a
+ * question of the scope's topic, and a dependent (no math section, 0-2
+ * concept tags, no dependencies asked).
  * <p>
  * The scope's prompt is swapped whole ({@link #use}) when the scope changes
  * or a gap tag joins it; a request already built keeps the prompt it had.
@@ -52,20 +55,26 @@ public final class TagPrompter implements TaskPrompter<TagReply> {
      * A scope's prompt, assembled.
      *
      * @param topic       the scope's topic
-     * @param template    the shared template
+     * @param template    the pass' template
      * @param topicPrompt the topic's approved prompt
      * @param catalogue   the topic's catalogue
      * @param offered     the tags the prompt offers
      * @param mode        whether gaps may be proposed
      * @param otherTopics the syllabus' other topics, offered as dependencies
      * @param own         the fixed part for the topic's own questions
-     * @param dependent   the fixed part for its dependents
+     * @param dependent   the fixed part for its dependents; the setup pass,
+     *                    which has none, the same as {@code own}
      */
     public record Assembly( Topic topic, PromptFile template,
                             PromptFile topicPrompt, TagCatalogue catalogue,
                             OfferedSet offered, TagMode mode,
                             List<Topic> otherTopics, String own,
                             String dependent ) {
+
+        /** The pass the prompt is for. */
+        public TagClass tagClass() {
+            return offered.tagClass() ;
+        }
 
         public String templateVersion() {
             return template.get( "templateVersion" ) ;
@@ -123,39 +132,53 @@ public final class TagPrompter implements TaskPrompter<TagReply> {
     }
 
     /**
-     * Assemble the prompt of {@code topic} from {@code template}, filling
-     * its {@code {{axes.prompt}}} from {@code axes} and its
-     * {@code {{tags.reviewed.prompt}}} from the topic's approved
-     * {@code topicPrompt}.
+     * Assemble the prompt of pass {@code tagClass} for {@code topic} from
+     * {@code template}, filling its {@code {{<pass>-tags.reviewed.prompt}}}
+     * from the topic's approved {@code topicPrompt} and, in the concept
+     * pass, its {@code {{qtagger.concept.axes.prompt}}} from {@code axes}.
      *
+     * @param axes           the concept pass' axis rules; ignored (may be
+     *                       null) in the setup pass
      * @param syllabusTopics every topic of the topic's syllabus
      * @throws IllegalStateException if {@code axes} lacks a variant's section
      */
-    public static Assembly assemble( Topic topic, PromptFile template,
-                                     PromptFile axes, PromptFile topicPrompt,
+    public static Assembly assemble( TagClass tagClass, Topic topic,
+                                     PromptFile template, PromptFile axes,
+                                     PromptFile topicPrompt,
                                      TagCatalogue catalogue, TagMode mode,
                                      List<Topic> syllabusTopics ) {
 
-        OfferedSet  offered = OfferedSet.parse( topicPrompt.body(), catalogue ) ;
-        List<Topic> others  = syllabusTopics.stream()
+        OfferedSet  offered = OfferedSet.parse( topicPrompt.body(), catalogue,
+                                                tagClass ) ;
+        List<Topic> others  = !tagClass.hasDependents() ? List.of()
+                : syllabusTopics.stream()
                 .filter( t -> t.getId() != topic.getId()
                               && t.getId() != TagCatalogue.FOUNDATION_MATHS
                               && t.getId() != TagCatalogue.FOUNDATION_VECTORS )
                 .toList() ;
+
+        if( !tagClass.hasDependents() ) {
+            String own = fill( tagClass, topic, template, "", topicPrompt,
+                               mode, others, false ) ;
+            return new Assembly( topic, template, topicPrompt, catalogue,
+                                 offered, mode, others, own, own ) ;
+        }
+
         String ownAxes = axesSection( axes, OWN_AXES ) ;
         String depAxes = axesSection( axes, DEPENDENT_AXES ) ;
 
         return new Assembly( topic, template, topicPrompt, catalogue, offered,
                              mode, others,
-                             fill( topic, template, ownAxes, topicPrompt, mode,
-                                   others, false ),
-                             fill( topic, template, depAxes, topicPrompt, mode,
-                                   others, true ) ) ;
+                             fill( tagClass, topic, template, ownAxes,
+                                   topicPrompt, mode, others, false ),
+                             fill( tagClass, topic, template, depAxes,
+                                   topicPrompt, mode, others, true ) ) ;
     }
 
     private static String axesSection( PromptFile axes, String name ) {
 
-        String text = PromptText.section( axes.body(), name ) ;
+        String text = axes == null ? null
+                                   : PromptText.section( axes.body(), name ) ;
         if( text == null || text.isBlank() ) {
             throw new IllegalStateException( PromptStore.AXES +
                                              " has no ## " + name +
@@ -173,14 +196,14 @@ public final class TagPrompter implements TaskPrompter<TagReply> {
      * The template with its placeholders filled. A placeholder names where
      * its text comes from: {@code {{<file>}}} a prompt file,
      * {@code {{TagPrompter::<method>}}} the method here that builds it (so
-     * renaming one of those methods means renaming its placeholder in
-     * {@code qtagger.prompt}), and {@code {{SYLLABUS}}} / {@code {{TOPIC}}}
-     * the topic's names.
+     * renaming one of those methods means renaming its placeholder in the
+     * templates), and {@code {{SYLLABUS}}} / {@code {{TOPIC}}} the topic's
+     * names. A template may leave out what its pass doesn't use.
      */
-    private static String fill( Topic topic, PromptFile template,
-                                String axes, PromptFile topicPrompt,
-                                TagMode mode, List<Topic> others,
-                                boolean dependent ) {
+    private static String fill( TagClass tagClass, Topic topic,
+                                PromptFile template, String axes,
+                                PromptFile topicPrompt, TagMode mode,
+                                List<Topic> others, boolean dependent ) {
 
         String tags = dependent
                     ? PromptText.forDependent( topicPrompt.body() )
@@ -190,12 +213,16 @@ public final class TagPrompter implements TaskPrompter<TagReply> {
                 .replace( "{{SYLLABUS}}", topic.getSyllabusName() )
                 .replace( "{{TOPIC}}", topic.getTopicName() )
                 .replace( placeholder( PromptStore.AXES ), axes )
-                .replace( placeholder( PromptStore.REVIEWED ), tags.strip() )
+                .replace( placeholder( PromptStore.reviewedName( tagClass ) ),
+                          tags.strip() )
                 .replace( "{{TagPrompter::otherTopics}}",
-                          dependent ? "" : otherTopics( topic, others ) )
+                          dependent || others.isEmpty()
+                          ? "" : otherTopics( topic, others ) )
                 .replace( "{{TagPrompter::gapRule}}",
-                          mode == TagMode.REVIEW_GAPS ? gapRule() : "" )
-                .replace( "{{TagPrompter::schema}}", schema( mode, dependent ) )
+                          mode == TagMode.REVIEW_GAPS ? gapRule( tagClass )
+                                                      : "" )
+                .replace( "{{TagPrompter::schema}}",
+                          schema( tagClass, mode, dependent ) )
                 .replaceAll( BLANK_LINES, "\n\n" )
                 .strip() ;
     }
@@ -222,25 +249,42 @@ public final class TagPrompter implements TaskPrompter<TagReply> {
                  .toString() ;
     }
 
-    private static String gapRule() {
-        return "If a setup or concept move the solution hinges on has no " +
-               "tag in the lists, propose one in \"gap\": its tag text in the " +
-               "lists' style, a hint saying when to apply it (one or two " +
-               "sentences), and why this question needs it. Propose only " +
-               "when a dominant move is truly uncovered; otherwise \"gap\" " +
-               "is null. If the dominant concept has no tag, propose it as " +
-               "the gap and give only the concept tags that do apply, " +
+    private static String gapRule( TagClass tagClass ) {
+
+        if( tagClass == TagClass.SETUP ) {
+            return "If a component of the figure or stem that shapes the " +
+                   "problem has no setup tag in the list, propose one in " +
+                   "\"gap\": its tag text in the list's style (starting " +
+                   "\"s.\"), a hint saying when to apply it (one or two " +
+                   "sentences), and why this question needs it. Propose " +
+                   "only when such a component is truly uncovered; " +
+                   "otherwise \"gap\" is null.\n\n" ;
+        }
+        return "If a concept the solution hinges on has no tag in the " +
+               "lists, propose one in \"gap\": its tag text in the lists' " +
+               "style (starting \"c.\"), a hint saying when to apply it (one " +
+               "or two sentences), and why this question needs it. Propose " +
+               "only when a dominant concept is truly uncovered; otherwise " +
+               "\"gap\" is null. If the dominant concept has no tag, propose " +
+               "it as the gap and give only the concept tags that do apply, " +
                "possibly none.\n\n" ;
     }
 
-    private static String schema( TagMode mode, boolean dependent ) {
+    private static String schema( TagClass tagClass, TagMode mode,
+                                  boolean dependent ) {
 
-        StringBuilder sb = new StringBuilder( "{\"ans\": \"<answer>\" or null, " )
-                .append( "\"setup\": [\"<tag>\"], " )
-                .append( "\"concept\": [{\"t\": \"<tag>\", " )
-                .append( "\"why\": \"<at most 12 words>\"}]" ) ;
-        if( !dependent ) {
-            sb.append( ", \"math\": [\"<tag>\"], \"xdep\": [<topic id>]" ) ;
+        StringBuilder sb = new StringBuilder( "{" ) ;
+        if( tagClass == TagClass.SETUP ) {
+            sb.append( "\"setup\": [\"<tag>\"]" ) ;
+        }
+        else {
+            sb.append( "\"ans\": \"<answer>\" or null, " )
+              .append( "\"concept\": [{\"t\": \"<tag>\", " )
+              .append( "\"why\": \"<at most 12 words>\"}]" ) ;
+            if( !dependent ) {
+                sb.append( ", \"math\": [\"<tag>\"], " )
+                  .append( "\"xdep\": [<topic id>]" ) ;
+            }
         }
         if( mode == TagMode.REVIEW_GAPS ) {
             sb.append( ", \"gap\": null or {\"tag\": \"<tag text>\", " )

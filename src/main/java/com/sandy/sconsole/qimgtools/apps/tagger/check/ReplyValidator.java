@@ -4,6 +4,7 @@ import com.sandy.sconsole.qimgtools.apps.tagger.model.Axis;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.CatalogueTag;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.OfferedSet;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagCatalogue;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagClass;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagMode;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply.ConceptPick;
@@ -21,25 +22,29 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Reads a model's reply to the blind solve and checks it against what was
- * offered. The reply is a JSON object ({@code ans}, {@code setup},
- * {@code concept}, {@code math}, {@code xdep}, {@code gap}), possibly in
- * markdown fences or among other text; extra fields are ignored.
+ * Reads a model's reply and checks it against what was offered. The reply
+ * is a JSON object, possibly in markdown fences or among other text; extra
+ * fields are ignored. In the setup pass it is {@code setup} and
+ * {@code gap}; in the concept pass {@code ans}, {@code concept},
+ * {@code math}, {@code xdep} and {@code gap} (a dependent: {@code ans},
+ * {@code concept}, {@code gap}).
  * <p>
  * A slip is mended where the mapping is unambiguous, and noted in
  * {@link TagReply#fixes()}: a tag's case or spacing, a missing axis prefix,
  * a tag given by its full name, a tag listed under another axis, a
- * duplicate, a dependency on a topic not offered (dropped), math tags or
- * dependencies from a dependent (dropped). Anything else - a missing or
- * blank answer, a tag that isn't offered, the wrong number of tags on an
- * axis - rejects the reply as a {@link BadReply}, so the model is asked
- * again. The one exception to the counts: a reply proposing a concept tag
- * as its gap may give no concept tag.
+ * duplicate, a dependency on a topic not offered (dropped), tags of an axis
+ * the pass or a dependent doesn't take, or dependencies from a dependent or
+ * in the setup pass (dropped). Anything else - a missing or blank answer
+ * in the concept pass, a tag that isn't offered, the wrong number of tags
+ * on an axis - rejects the reply as a {@link BadReply}, so the model is
+ * asked again. The one exception to the counts: a concept reply proposing a
+ * concept tag as its gap may give no concept tag.
  * <p>
- * {@code "ans": null} is the model declining to answer (an unreadable
- * figure, missing data, an ambiguous question): the reply is
+ * In the concept pass, {@code "ans": null} is the model declining to answer
+ * (an unreadable figure, missing data, an ambiguous question): the reply is
  * {@link TagReply#abstained()}, the rest of it ignored, so it never matches
- * the key and the question goes on to tier 2. Stateless.
+ * the key and the question goes on to tier 2. The setup pass asks for no
+ * answer, and any given is ignored. Stateless.
  */
 public final class ReplyValidator {
 
@@ -55,14 +60,25 @@ public final class ReplyValidator {
      * What a reply is checked against.
      *
      * @param catalogue  the topic's catalogue (for full names)
-     * @param offered    the tags the prompt offered
-     * @param dependent  true for a dependent: setup and 0-2 concept tags only
+     * @param offered    the tags the prompt offered, for its pass
+     * @param dependent  true for a dependent: 0-2 concept tags only
      * @param mode       whether a gap may be proposed
      * @param topicIds   the topics a dependency may name
      */
     public record Context( TagCatalogue catalogue, OfferedSet offered,
                            boolean dependent, TagMode mode,
-                           Set<Integer> topicIds ) {}
+                           Set<Integer> topicIds ) {
+
+        /** The pass the reply is for. */
+        public TagClass pass() {
+            return offered.tagClass() ;
+        }
+
+        /** True if the reply may give tags of {@code axis}. */
+        boolean takes( Axis axis ) {
+            return pass().tags( axis ) && axis.max( dependent ) > 0 ;
+        }
+    }
 
     private ReplyValidator() {}
 
@@ -78,13 +94,17 @@ public final class ReplyValidator {
             throw new BadReply( "the model's reply was not a JSON object" ) ;
         }
 
-        JsonNode ans = root.get( "ans" ) ;
-        if( ans != null && ans.isNull() ) {
-            return TagReply.abstained() ;
-        }
-        String answer = text( ans ) ;
-        if( answer == null || answer.isBlank() ) {
-            throw new BadReply( "the model's reply has no answer" ) ;
+        String answer = null ;
+        if( ctx.pass().solves() ) {
+            JsonNode ans = root.get( "ans" ) ;
+            if( ans != null && ans.isNull() ) {
+                return TagReply.abstained() ;
+            }
+            answer = text( ans ) ;
+            if( answer == null || answer.isBlank() ) {
+                throw new BadReply( "the model's reply has no answer" ) ;
+            }
+            answer = answer.trim() ;
         }
 
         List<String>              fixes  = new ArrayList<>() ;
@@ -98,6 +118,13 @@ public final class ReplyValidator {
             if( !list.isArray() ) {
                 throw new BadReply( "'" + a.getWord() + "' is not a list" ) ;
             }
+            if( !ctx.takes( a ) ) {
+                if( !list.isEmpty() ) {
+                    fixes.add( "ignored the " + a.getWord() + " list (" +
+                               taker( ctx ) + " takes none)" ) ;
+                }
+                continue ;
+            }
             for( JsonNode entry : list ) {
                 String given = entry.isObject() ? text( entry.get( "t" ) )
                                                 : text( entry ) ;
@@ -105,9 +132,11 @@ public final class ReplyValidator {
 
                 CatalogueTag tag = resolve( given, a, ctx, fixes ) ;
                 if( tag == null ) {
-                    if( ctx.dependent() && given.trim().startsWith(
-                            Axis.MATH.getPrefix() ) ) {
-                        fixes.add( "dropped math tag " + given + " (dependent)" ) ;
+                    Axis named = Axis.of( given.trim() ) ;
+                    if( named != null && !ctx.takes( named ) ) {
+                        fixes.add( "dropped " + named.getWord() + " tag " +
+                                   given + " (" + taker( ctx ) +
+                                   " takes none)" ) ;
                         continue ;
                     }
                     throw new BadReply( "tag '" + given + "' is not offered" ) ;
@@ -130,7 +159,7 @@ public final class ReplyValidator {
 
         GapProposal gap = gap( root.get( "gap" ), ctx, fixes ) ;
 
-        for( Axis a : Axis.values() ) {
+        for( Axis a : ctx.pass().getAxes() ) {
             int n = byAxis.get( a ).size() ;
             if( n == 0 && a == Axis.CONCEPT && isConcept( gap ) ) continue ;
             if( n < a.min( ctx.dependent() ) || n > a.max( ctx.dependent() ) ) {
@@ -143,10 +172,16 @@ public final class ReplyValidator {
         List<ConceptPick> concept = byAxis.get( Axis.CONCEPT ).stream()
                 .map( t -> new ConceptPick( t, whys.get( t ) ) ).toList() ;
 
-        return new TagReply( answer.trim(), byAxis.get( Axis.SETUP ), concept,
+        return new TagReply( answer, byAxis.get( Axis.SETUP ), concept,
                              byAxis.get( Axis.MATH ),
                              dependencies( root.get( "xdep" ), ctx, fixes ),
                              gap, fixes ) ;
+    }
+
+    /** "the setup pass", "a dependent": what took no tags of an axis. */
+    private static String taker( Context ctx ) {
+        return ctx.dependent() ? "a dependent"
+                               : "the " + ctx.pass().wire() + " pass" ;
     }
 
     /**
@@ -200,8 +235,10 @@ public final class ReplyValidator {
         if( xdep == null || xdep.isNull() ) return ids ;
         if( !xdep.isArray() ) throw new BadReply( "'xdep' is not a list" ) ;
 
-        if( ctx.dependent() ) {
-            if( !xdep.isEmpty() ) fixes.add( "ignored xdep (dependent)" ) ;
+        if( ctx.dependent() || !ctx.pass().solves() ) {
+            if( !xdep.isEmpty() ) {
+                fixes.add( "ignored xdep (" + taker( ctx ) + " takes none)" ) ;
+            }
             return ids ;
         }
         for( JsonNode n : xdep ) {
@@ -224,7 +261,11 @@ public final class ReplyValidator {
         return ids ;
     }
 
-    /** The gap proposed; null if none, or gaps aren't asked for. */
+    /**
+     * The gap proposed; null if none, or gaps aren't asked for. A pass may
+     * propose only a tag of its first axis: setup a setup tag, concept a
+     * concept tag.
+     */
     private static GapProposal gap( JsonNode gap, Context ctx,
                                     List<String> fixes ) {
 
@@ -237,13 +278,13 @@ public final class ReplyValidator {
         if( tag == null || tag.isBlank() ) return null ;
 
         // A schema-bound reply must give a gap object, and some models fill
-        // it with a stand-in ("none") instead of null: only a setup or
-        // concept tag is a proposal.
+        // it with a stand-in ("none") instead of null: only a tag of the
+        // pass's axis is a proposal.
+        Axis axis = ctx.pass().getAxes().get( 0 ) ;
         tag = tag.trim() ;
-        if( !tag.startsWith( Axis.SETUP.getPrefix() )
-            && !tag.startsWith( Axis.CONCEPT.getPrefix() ) ) {
-            fixes.add( "ignored a gap proposal that names no setup or " +
-                       "concept tag ('" + tag + "')" ) ;
+        if( !tag.startsWith( axis.getPrefix() ) ) {
+            fixes.add( "ignored a gap proposal that names no " +
+                       axis.getWord() + " tag ('" + tag + "')" ) ;
             return null ;
         }
         return new GapProposal( tag, text( gap.get( "hint" ) ),

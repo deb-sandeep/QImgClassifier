@@ -23,11 +23,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Edits one tag set: the offered tags as a group of check boxes per axis,
- * preset to the tags in view, each with its hint as a tooltip; for a
- * question of the scoped topic, also the syllabus' other topics it depends
- * on. OK checks the axis counts (concept 1-2 and math 0-2; for a dependent,
- * concept 0-2 and no math) and asks again until they hold.
+ * Edits one tag set of the pass: the offered tags as a group of check boxes
+ * per axis of the pass, preset to the tags in view, each with its hint as a
+ * tooltip; in the concept pass, for a question of the scoped topic, also
+ * the syllabus' other topics it depends on. OK checks the axis counts
+ * (setup any number; concept 1-2 and math 0-2; for a dependent, concept
+ * 0-2 alone) and asks again until they hold.
  */
 final class TagEditorDialog {
 
@@ -44,10 +45,10 @@ final class TagEditorDialog {
     /**
      * Ask for a tag set, preset to {@code tags} and {@code dependencies}.
      *
-     * @param dependent true to edit a dependent's set: no math, no
-     *        dependencies
-     * @param topics    the topics a dependency may name; ignored for a
-     *        dependent
+     * @param dependent true to edit a dependent's set: concept tags alone,
+     *        no dependencies
+     * @param topics    the topics a dependency may name; empty in the setup
+     *        pass, ignored for a dependent
      * @return the set chosen; null if the user cancelled
      */
     static Result ask( Component parent, String title, OfferedSet offered,
@@ -57,7 +58,7 @@ final class TagEditorDialog {
         Map<Axis,List<JCheckBox>> boxes = new LinkedHashMap<>() ;
         JPanel                    axes  = new JPanel( new GridLayout( 1, 0, 8, 0 ) ) ;
 
-        for( Axis axis : Axis.values() ) {
+        for( Axis axis : offered.tagClass().getAxes() ) {
             if( axis.max( dependent ) == 0 ) continue ;
             List<JCheckBox> group = new ArrayList<>() ;
             JPanel          list  = column() ;
@@ -75,7 +76,7 @@ final class TagEditorDialog {
         }
 
         List<JCheckBox> deps = new ArrayList<>() ;
-        if( !dependent ) {
+        if( !dependent && !topics.isEmpty() ) {
             JPanel list = column() ;
             for( Topic t : topics ) {
                 JCheckBox b = new JCheckBox( t.getTopicName(),

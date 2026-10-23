@@ -4,13 +4,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * A model's reply to the blind solve, as read and checked: its answer, the
- * tags it chose by axis, the other topics the solution needs, and any new
- * tag it proposes (only in {@link TagMode#REVIEW_GAPS}).
+ * A model's reply, as read and checked: in the concept pass its answer to
+ * the blind solve, the tags it chose by axis, the other topics the solution
+ * needs; in the setup pass only setup tags; and any new tag it proposes
+ * (only in {@link TagMode#REVIEW_GAPS}).
  *
  * @param answer  the answer, in the labels the image prints (e.g. "C",
- *                "1,3", "2.5"); null if the model declined to answer, and
- *                then it has no tags
+ *                "1,3", "2.5"); null in the setup pass, which asks for
+ *                none, and in the concept pass if the model declined to
+ *                answer, and then it has no tags
  * @param setup   setup tags, in reply order
  * @param concept concept tags, each with why it is dominant
  * @param math    math tags
@@ -51,7 +53,10 @@ public record TagReply( String answer, List<String> setup,
                              null, List.of() ) ;
     }
 
-    /** True if the model declined to answer. */
+    /**
+     * True if the model declined to answer: meaningful only in the concept
+     * pass (a setup reply has no answer).
+     */
     public boolean isAbstained() {
         return answer == null ;
     }

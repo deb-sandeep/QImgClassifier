@@ -1,5 +1,7 @@
 package com.sandy.sconsole.qimgtools.apps.tagger.ui;
 
+import com.sandy.sconsole.qimgtools.apps.tagger.model.Axis;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagClass;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply.ConceptPick;
@@ -24,8 +26,9 @@ import java.util.function.Predicate;
 
 /**
  * The selected question's key, why it was handed over and its hand tags,
- * above the two tiers' replies side by side (answer, tags by axis, each
- * concept tag's reason, the topics it depends on, any gap proposed), with
+ * above the two tiers' replies side by side (answer, tags by axis of the
+ * pass, each concept tag's reason, the topics it depends on, any gap
+ * proposed; the setup pass: tier 1's tags alone, no key or answer), with
  * the decisions the user can make on it: take tier 1's or tier 2's tags,
  * edit a set, keep the hand tags, or defer it; a question whose gap
  * proposal waits shows a button to review it. With several questions
@@ -58,6 +61,7 @@ final class TagDecisionPanel extends JPanel {
         void reviewGap( Row row ) ;
     }
 
+    private final TagClass            pass ;
     private final Actions             actions ;
     private final ModelNames          names ;
     private final IntFunction<String> topicName ;
@@ -79,13 +83,15 @@ final class TagDecisionPanel extends JPanel {
     private List<Row> rows = List.of() ;
 
     /**
+     * @param pass      the pass the tagger runs
      * @param names     the names models are shown by
      * @param topicName a topic's name by id, for the dependencies
      */
-    TagDecisionPanel( Actions actions, ModelNames names,
+    TagDecisionPanel( TagClass pass, Actions actions, ModelNames names,
                       IntFunction<String> topicName ) {
 
         super( new BorderLayout( 0, 4 ) ) ;
+        this.pass      = pass ;
         this.actions   = actions ;
         this.names     = names ;
         this.topicName = topicName ;
@@ -112,20 +118,21 @@ final class TagDecisionPanel extends JPanel {
         labels.add( heading ) ;
         labels.add( state ) ;
 
+        // The setup pass has no tier 2.
         JPanel opinions = new JPanel( new GridLayout( 1, 0, 4, 0 ) ) ;
         opinions.add( tier1 ) ;
-        opinions.add( tier2 ) ;
+        if( pass.solves() ) opinions.add( tier2 ) ;
 
         JPanel keys = new JPanel( new GridLayout( 1, 0, 4, 0 ) ) ;
         keys.add( use1 ) ;
-        keys.add( use2 ) ;
+        if( pass.solves() ) keys.add( use2 ) ;
         keys.add( edit ) ;
         keys.add( existing ) ;
         keys.add( defer ) ;
 
-        JLabel hint = new JLabel( "Keys on the table: 1 tier 1's · 2 tier " +
-                                  "2's · 3 edit · 4 existing · 5 defer · " +
-                                  "6 skip" ) ;
+        String tier2 = pass.solves() ? "2 tier 2's · " : "" ;
+        JLabel hint  = new JLabel( "Keys on the table: 1 tier 1's · " + tier2 +
+                                   "3 edit · 4 existing · 5 defer · 6 skip" ) ;
         hint.setFont( hint.getFont().deriveFont( hint.getFont().getSize2D() - 1 ) ) ;
 
         JPanel hintRow = new JPanel( new BorderLayout() ) ;
@@ -166,7 +173,7 @@ final class TagDecisionPanel extends JPanel {
                                              ? "   dependent of " +
                                                item.question().getTopicName()
                                              : "" ) ) ;
-        state.setText( "Key " + item.key() + "  ·  " +
+        state.setText( ( pass.solves() ? "Key " + item.key() + "  ·  " : "" ) +
                        TagTableModel.statusText( row ) + "  ·  existing: " +
                        ( row.existing.isEmpty() ? "none"
                                                 : String.join( ", ",
@@ -261,8 +268,9 @@ final class TagDecisionPanel extends JPanel {
                 return ;
             }
             by.setText( title + ": " + names.of( t.model() ) +
-                        ( t.reply().isAbstained() ? " - no answer"
-                                                  : " - answer " + t.answer() ) ) ;
+                        ( !pass.solves() ? ""
+                          : t.reply().isAbstained() ? " - no answer"
+                          : " - answer " + t.answer() ) ) ;
             text.setText( describe( t.reply() ) ) ;
             text.setCaretPosition( 0 ) ;
         }
@@ -276,14 +284,20 @@ final class TagDecisionPanel extends JPanel {
         private String describe( TagReply r ) {
 
             StringBuilder sb = new StringBuilder() ;
-            sb.append( "Setup: " ).append( list( r.setup() ) ).append( '\n' ) ;
-            sb.append( "Concept:" ) ;
-            if( r.concept().isEmpty() ) sb.append( " none" ) ;
-            for( ConceptPick c : r.concept() ) {
-                sb.append( "\n  " ).append( c.tag() ) ;
-                if( c.why() != null ) sb.append( " - " ).append( c.why() ) ;
+            if( pass.tags( Axis.SETUP ) ) {
+                sb.append( "Setup: " ).append( list( r.setup() ) ) ;
             }
-            sb.append( "\nMath: " ).append( list( r.math() ) ) ;
+            if( pass.tags( Axis.CONCEPT ) ) {
+                sb.append( "Concept:" ) ;
+                if( r.concept().isEmpty() ) sb.append( " none" ) ;
+                for( ConceptPick c : r.concept() ) {
+                    sb.append( "\n  " ).append( c.tag() ) ;
+                    if( c.why() != null ) sb.append( " - " ).append( c.why() ) ;
+                }
+            }
+            if( pass.tags( Axis.MATH ) ) {
+                sb.append( "\nMath: " ).append( list( r.math() ) ) ;
+            }
             if( !r.xdep().isEmpty() ) {
                 sb.append( "\nDepends on: " ).append( list(
                         r.xdep().stream().map( topicName::apply ).toList() ) ) ;

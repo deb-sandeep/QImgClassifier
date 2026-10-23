@@ -1,6 +1,7 @@
 package com.sandy.sconsole.qimgtools.apps.tagger.ui;
 
 import com.sandy.sconsole.qimgtools.apps.tagger.model.Axis;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagClass;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagDecision;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TierReply;
@@ -36,7 +37,8 @@ import java.util.function.IntConsumer;
  * tier's the tags it chose (with its gap proposal dashed). The tier whose
  * tags are decided on is framed. Blank unless exactly one question is
  * selected. Clicking a tier's part decides as its key does: 1 tier 1's
- * tags, 2 tier 2's. Use on the EDT.
+ * tags, 2 tier 2's. The setup pass, which has no key, answers or tier 2,
+ * shows the hand tags and tier 1's tags alone. Use on the EDT.
  */
 @SuppressWarnings( "serial" )
 final class AnswerStrip extends JPanel {
@@ -59,6 +61,7 @@ final class AnswerStrip extends JPanel {
     /** The frame round the part decided on. */
     private static final Color DECIDED_LINE = new Color( 0x2E7D32 ) ;
 
+    private final TagClass    pass ;
     private final ModelNames  names ;
     private final IntConsumer decide ;
     private final Part        key   = new Part( KEY_BG ) ;
@@ -69,18 +72,20 @@ final class AnswerStrip extends JPanel {
     private Row row ;
 
     /**
+     * @param pass   the pass the tagger runs
      * @param decide called with the decision key a click on a tier stands
      *        for: 1 tier 1's tags, 2 tier 2's
      */
-    AnswerStrip( ModelNames names, IntConsumer decide ) {
+    AnswerStrip( TagClass pass, ModelNames names, IntConsumer decide ) {
 
-        super( new GridLayout( 1, 3 ) ) ;
+        super( new GridLayout( 1, 0 ) ) ;
+        this.pass   = pass ;
         this.names  = names ;
         this.decide = decide ;
         setPreferredSize( new Dimension( 100, HEIGHT ) ) ;
         add( key ) ;
         add( tier1 ) ;
-        add( tier2 ) ;
+        if( pass.solves() ) add( tier2 ) ;
         onClick( tier1, 1 ) ;
         onClick( tier2, 2 ) ;
         show( null ) ;
@@ -98,9 +103,11 @@ final class AnswerStrip extends JPanel {
     /** Show {@code row}'s key and answers; null clears the strip. */
     void show( Row row ) {
 
+        String keyTitle = pass.solves() ? "Key" : "Existing" ;
+
         this.row = row ;
         if( row == null ) {
-            key.set( "Key", null, null, false ) ;
+            key.set( keyTitle, null, null, false ) ;
             tier1.set( TagTableModel.TIER1, null, null, false ) ;
             tier2.set( TagTableModel.TIER2, null, null, false ) ;
             tier1.clickable( null ) ;
@@ -109,7 +116,8 @@ final class AnswerStrip extends JPanel {
         }
 
         TagDecision d = row.decision ;
-        key.set( "Key  ·  " + row.item.type(), row.item.key(), null, false ) ;
+        key.set( keyTitle + "  ·  " + row.item.type(),
+                 pass.solves() ? row.item.key() : null, null, false ) ;
         key.tags( row.existing, null, "no hand tags" ) ;
         showTier( tier1, 1, d != null && d.source() == TagDecision.Source.TIER1 ) ;
         showTier( tier2, 2, d != null && d.source() == TagDecision.Source.TIER2 ) ;
@@ -130,16 +138,19 @@ final class AnswerStrip extends JPanel {
             return ;
         }
 
-        TagReply r = t.reply() ;
-        part.set( title + "  ·  " + names.of( t.model() ), r.answerText(),
+        TagReply r        = t.reply() ;
+        boolean  declined = pass.solves() && r.isAbstained() ;
+
+        part.set( title + "  ·  " + names.of( t.model() ),
+                  pass.solves() ? r.answerText() : null,
                   row.correct( n ) ? RIGHT_FG : WRONG_FG, decided ) ;
-        if( r.isAbstained() ) {
+        if( declined ) {
             part.note( "declined to answer" ) ;
         }
         else {
             part.tags( r.tags(), r, "no tags" ) ;
         }
-        part.clickable( r.isAbstained() ? null
+        part.clickable( declined ? null
                         : "Click to use " + title.toLowerCase() +
                           "'s tags (" + n + ")" ) ;
     }

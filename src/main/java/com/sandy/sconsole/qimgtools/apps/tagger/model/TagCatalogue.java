@@ -15,7 +15,8 @@ import java.util.Map;
  * The tags a topic's prompt may offer: the topic's tags with an AI
  * association hint (setup and concept), then Foundation Mathematics' hinted
  * math tags, as the server holds them now. Legacy tags (no hint) are never
- * part of it. Immutable.
+ * part of it. Each pass offers its own axes of it ({@link TagClass}).
+ * Immutable.
  */
 public final class TagCatalogue {
 
@@ -123,15 +124,22 @@ public final class TagCatalogue {
                ? hint.substring( rule.length() ).strip() : hint ;
     }
 
+    /** The tags pass {@code tagClass} offers, by axis in order. */
+    public List<CatalogueTag> tags( TagClass tagClass ) {
+        return tags.stream().filter( t -> tagClass.tags( t.axis() ) )
+                   .toList() ;
+    }
+
     /**
-     * A hash of every tag's id, text and hint: it changes when a tag is
-     * added, renamed or re-hinted on the server, which makes an approved
-     * prompt stale.
+     * A hash of the id, text and hint of every tag pass {@code tagClass}
+     * offers: it changes when one is added, renamed or re-hinted on the
+     * server, which makes the pass's approved prompt stale. The other
+     * pass's tags don't count.
      */
-    public String fingerprint() {
+    public String fingerprint( TagClass tagClass ) {
 
         StringBuilder sb = new StringBuilder() ;
-        tags.stream()
+        tags( tagClass ).stream()
             .sorted( Comparator.comparingInt( CatalogueTag::id ) )
             .forEach( t -> sb.append( t.id() ).append( '|' )
                              .append( t.tagText() ).append( '|' )

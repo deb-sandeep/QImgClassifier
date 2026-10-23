@@ -14,6 +14,7 @@ import com.sandy.sconsole.qimgtools.apps.tagger.model.NewTag;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.Scope;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.ServerTag;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagCatalogue;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagClass;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagDecision;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagMode;
@@ -78,19 +79,24 @@ import java.util.stream.Collectors;
 
 /**
  * Entry point and controller of the tagger: tags the questions of one topic
- * (the scope) with that topic's diagnostic tags. Each question is solved
- * blind by the {@code tier1} models of {@code qtagger.ai.json} with the
- * topic's approved prompt, and the answer checked against the key; a miss
+ * (the scope) with that topic's diagnostic tags, in one of two passes
+ * ({@link TagClass}), chosen as the app starts and fixed till it exits. In
+ * the setup pass each question is read by the {@code tier1} models of
+ * {@code qtagger.setup.ai.json} with the topic's approved setup prompt, and
+ * its setup tags taken. In the concept pass it is solved blind by the
+ * {@code tier1} models of {@code qtagger.concept.ai.json} with the topic's
+ * approved concept prompt, and the answer checked against the key; a miss
  * goes to {@code tier2} (see {@link TaggerOutcomes}). The replies are kept
  * in {@link PendingTagging} until the user's or the models' tags are saved
- * on the server ({@code POST /Master/TagAssociation/Refresh}), and every
- * judgement and decision in the {@link TagAuditLog}.
+ * on the server ({@code POST /Master/TagAssociation/Refresh}, for the
+ * pass), and every judgement and decision in the {@link TagAuditLog}.
  * <p>
- * Load fetches the scoped topic's own questions awaiting tags after the
- * scope's cursor, then its dependents (questions of other topics with an
- * open dependency on it). Topic prompts are generated, reviewed and approved
- * in the source tree ({@link PromptStore}). Settings come from
- * {@code qtagger.properties} ({@link TaggerConfig}).
+ * Load fetches the scoped topic's own questions awaiting the pass after the
+ * scope's cursor (concept: those in an exam), then, in the concept pass,
+ * its dependents (questions of other topics with an open dependency on it).
+ * Topic prompts are generated, reviewed and approved per pass in the source
+ * tree ({@link PromptStore}). Settings come from {@code qtagger.properties}
+ * ({@link TaggerConfig}).
  */
 @Slf4j
 public class QTagger implements TaggerFrame.Controller {
@@ -99,10 +105,14 @@ public class QTagger implements TaggerFrame.Controller {
     private static final List<Subject> SUBJECTS =
             List.of( Subject.PHYSICS, Subject.CHEMISTRY, Subject.MATHS ) ;
 
+    /** The property naming the pass, which skips asking for it. */
+    private static final String PASS_PROPERTY = "tagger.pass" ;
+
     /** The format of a tag import file. */
     private static final String TAGSET_FORMAT = "sconsole-tagset" ;
     private static final int    TAGSET_FORMAT_VERSION = 2 ;
 
+    private final TagClass           tagClass ;
     private final TaggerConfig       config ;
     private final TaggerServerClient server ;
     private final PromptStore        prompts ;
@@ -133,13 +143,16 @@ public class QTagger implements TaggerFrame.Controller {
     public QTagger( TaggerConfig config, TaggerServerClient server,
                     Map<String,List<Topic>> topics, TaggerFrame frame ) {
 
+        this.tagClass   = config.getTagClass() ;
         this.config     = config ;
         this.server     = server ;
         this.topics     = topics ;
         this.listener   = frame ;
-        this.prompts    = new PromptStore( config.getPromptsDir() ) ;
-        this.pending    = new PendingTagging( config.getPendingTaggingFile() ) ;
-        this.audit      = new TagAuditLog( config.getTagAuditFile() ) ;
+        this.prompts    = new PromptStore( config.getPromptsDir(), tagClass ) ;
+        this.pending    = new PendingTagging( config.getPendingTaggingFile(),
+                                              tagClass.solves() ) ;
+        this.audit      = new TagAuditLog( config.getTagAuditFile(),
+                                           tagClass ) ;
         this.notes      = new TaggerNotes( config.getTaggerNotesFile() ) ;
         this.scopeStore = new ScopeStore( config.getScopeFile() ) ;
         this.locator    = new QuestionLocator( config.getQBankDir() ) ;
@@ -165,12 +178,26 @@ public class QTagger implements TaggerFrame.Controller {
 
     public static void main( String[] args ) {
 
+        TagClass tagClass ;
+        try {
+            tagClass = choosePass() ;
+        }
+        catch( IllegalArgumentException e ) {
+            fail( "Invalid pass", "-D" + PASS_PROPERTY + ": " +
+                  e.getMessage(), e ) ;
+            return ;
+        }
+        if( tagClass == null ) {
+            System.exit( 0 ) ;
+            return ;
+        }
+        log.info( "Tagging pass: {}", tagClass ) ;
+
         TaggerConfig config ;
         try {
-            config = TaggerConfig.load() ;
+            config = TaggerConfig.load( tagClass ) ;
             AIConfig ai = config.getAi() ;
-            for( String root : List.of( TaggerOutcomes.TIER1,
-                                        TaggerOutcomes.TIER2 ) ) {
+            for( String root : roots( tagClass ) ) {
                 if( ai.isRootUsable( root ) ) continue ;
                 throw new IllegalStateException( ai.appLocation() + ": root '" +
                         root + "' is missing or has no model enabled" ) ;
@@ -181,9 +208,9 @@ public class QTagger implements TaggerFrame.Controller {
             return ;
         }
 
-        File workspaceDir = config.getWorkspaceDir() ;
-        if( !workspaceDir.isDirectory() && !workspaceDir.mkdirs() ) {
-            log.error( "Could not create the workspace folder {}", workspaceDir ) ;
+        File passDir = config.getPassDir() ;
+        if( !passDir.isDirectory() && !passDir.mkdirs() ) {
+            log.error( "Could not create the workspace folder {}", passDir ) ;
         }
 
         TaggerServerClient server = new TaggerServerClient(
@@ -206,10 +233,13 @@ public class QTagger implements TaggerFrame.Controller {
         try {
             SwingUtilities.invokeAndWait( () -> {
                 frame[0] = new TaggerFrame(
+                        tagClass,
                         new TranscriptStore( config.getWorkspaceDir() ),
                         ModelNames.of( config.getAi() ),
                         firstUsable( config.getAi(), TaggerOutcomes.TIER1 ),
-                        firstUsable( config.getAi(), TaggerOutcomes.TIER2 ) ) ;
+                        tagClass.solves()
+                        ? firstUsable( config.getAi(), TaggerOutcomes.TIER2 )
+                        : null ) ;
                 app[0] = new QTagger( config, server, topics, frame[0] ) ;
                 frame[0].setController( app[0] ) ;
             } ) ;
@@ -225,6 +255,40 @@ public class QTagger implements TaggerFrame.Controller {
             frame[0].setVisible( true ) ;
             frame[0].scopeRestored( problem ) ;
         } ) ;
+    }
+
+    /**
+     * The pass to run: the one {@code -Dtagger.pass} names, else the one the
+     * user picks; null if the user cancelled.
+     *
+     * @throws IllegalArgumentException if the property names no pass
+     */
+    private static TagClass choosePass() {
+
+        String named = System.getProperty( PASS_PROPERTY ) ;
+        if( named != null && !named.isBlank() ) return TagClass.of( named ) ;
+
+        String[] options = { "Setup tagging (whole corpus)",
+                             "Concept tagging (exam questions)" } ;
+        int      answer  = JOptionPane.showOptionDialog( null,
+                "Which tagging pass?\n\nSetup tags the setup axis of every " +
+                "question, read by a cheap model.\nConcept tags the concept " +
+                "and math axes and the dependencies of\nthe questions in an " +
+                "exam, solved and checked against the key.",
+                "QTagger", JOptionPane.DEFAULT_OPTION,
+                JOptionPane.QUESTION_MESSAGE, null, options, null ) ;
+        return switch( answer ) {
+            case 0  -> TagClass.SETUP ;
+            case 1  -> TagClass.CONCEPT ;
+            default -> null ;
+        } ;
+    }
+
+    /** The roots pass {@code tagClass} needs usable. */
+    private static List<String> roots( TagClass tagClass ) {
+        return tagClass.solves()
+               ? List.of( TaggerOutcomes.TIER1, TaggerOutcomes.TIER2 )
+               : List.of( TaggerOutcomes.TIER1 ) ;
     }
 
     /** Report a startup failure and exit. */
@@ -311,18 +375,17 @@ public class QTagger implements TaggerFrame.Controller {
 
         if( topicPrompt == null ) {
             throw new IllegalStateException( topic.getTopicName() + " has no " +
-                    PromptStore.REVIEWED + " - generate one first" ) ;
+                    prompts.reviewedName() + " - generate one first" ) ;
         }
-        PromptStore.State state = PromptStore.state( topicPrompt, catalogue ) ;
+        PromptStore.State state = PromptStore.state( topicPrompt, catalogue,
+                                                     tagClass ) ;
         if( state != PromptStore.State.APPROVED ) {
-            throw new IllegalStateException( "the prompt of " +
-                    topic.getTopicName() + " is " + state +
+            throw new IllegalStateException( "the " + tagClass.wire() +
+                    " prompt of " + topic.getTopicName() + " is " + state +
                     " - review and approve it" ) ;
         }
 
-        Assembly a = TagPrompter.assemble(
-                topic, prompts.template(), prompts.axes(), topicPrompt,
-                catalogue, s.mode(), topics.get( topic.getSyllabusName() ) ) ;
+        Assembly a = assemble( topic, topicPrompt, catalogue, s.mode() ) ;
         if( !a.offered().problems().isEmpty() ) {
             throw new IllegalStateException( "the prompt of " +
                     topic.getTopicName() + " has problems: " +
@@ -331,8 +394,9 @@ public class QTagger implements TaggerFrame.Controller {
         prompter.use( a ) ;
         scope = s ;
         saveScope() ;
-        log.info( "Scope: topic {} {}, {} per load, {}, prompt v{} " +
-                  "(template v{}), {} tags offered", topic.getId(),
+        log.info( "Scope: {} pass, topic {} {}, {} per load, {}, prompt v{} " +
+                  "(template v{}), {} tags offered", tagClass.wire(),
+                  topic.getId(),
                   topic.getTopicName(), s.batchSize(), s.mode(),
                   a.promptVersion(), a.templateVersion(),
                   a.offered().all().size() ) ;
@@ -347,10 +411,33 @@ public class QTagger implements TaggerFrame.Controller {
         }
     }
 
-    /** The catalogue of {@code topic}: its tags and the math tags. */
+    /**
+     * The catalogue of {@code topic}: its tags, and the math tags if the
+     * pass offers them.
+     */
     private TagCatalogue catalogue( Topic topic ) throws ServerException {
+
+        List<CatalogueTag> math = tagClass.tags( Axis.MATH )
+                                  ? server.tags( TagCatalogue.FOUNDATION_MATHS )
+                                  : List.of() ;
         return new TagCatalogue( topic.getId(), server.tags( topic.getId() ),
-                server.tags( TagCatalogue.FOUNDATION_MATHS ) ) ;
+                                 math ) ;
+    }
+
+    /** {@code topic}'s prompt of the pass, assembled from its files now. */
+    private Assembly assemble( Topic topic, PromptFile topicPrompt,
+                               TagCatalogue catalogue, TagMode mode )
+            throws IOException {
+
+        return TagPrompter.assemble( tagClass, topic, prompts.template(),
+                                     prompts.axes(), topicPrompt, catalogue,
+                                     mode,
+                                     topics.get( topic.getSyllabusName() ) ) ;
+    }
+
+    @Override
+    public TagClass tagClass() {
+        return tagClass ;
     }
 
     @Override
@@ -394,22 +481,23 @@ public class QTagger implements TaggerFrame.Controller {
     }
 
     /**
-     * Write {@code topic}'s base prompt from its catalogue now.
+     * Write {@code topic}'s base prompt of the pass from its catalogue now.
      *
-     * @return true if it was also copied to {@code tags.reviewed.prompt}, the
+     * @return true if it was also copied to the pass' reviewed prompt, the
      *         topic having none
      */
     @Override
     public boolean generatePrompt( Topic topic ) throws Exception {
 
         TagCatalogue catalogue = catalogue( topic ) ;
-        if( catalogue.tags().isEmpty() ) {
+        if( catalogue.tags( tagClass ).isEmpty() ) {
             throw new IllegalStateException( topic.getTopicName() +
-                    " has no tag with an AI association hint" ) ;
+                    " has no " + tagClass.wire() + " tag with an AI " +
+                    "association hint" ) ;
         }
-        return prompts.writeGenerated( topic,
-                                       PromptGenerator.generate( catalogue ),
-                                       catalogue ) ;
+        return prompts.writeGenerated(
+                topic, PromptGenerator.generate( catalogue, tagClass ),
+                catalogue ) ;
     }
 
     /**
@@ -424,15 +512,13 @@ public class QTagger implements TaggerFrame.Controller {
 
         if( topicPrompt == null ) {
             throw new IllegalStateException( topic.getTopicName() + " has no " +
-                    PromptStore.REVIEWED + " - generate one first" ) ;
+                    prompts.reviewedName() + " - generate one first" ) ;
         }
 
-        Scope    s    = scope ;
-        TagMode  mode = s != null && s.topicId() == topic.getId()
-                        ? s.mode() : TagMode.EXISTING_ONLY ;
-        Assembly a    = TagPrompter.assemble(
-                topic, prompts.template(), prompts.axes(), topicPrompt,
-                catalogue, mode, topics.get( topic.getSyllabusName() ) ) ;
+        Scope    s      = scope ;
+        TagMode  mode   = s != null && s.topicId() == topic.getId()
+                          ? s.mode() : TagMode.EXISTING_ONLY ;
+        Assembly a      = assemble( topic, topicPrompt, catalogue, mode ) ;
         int      tokens = TagPrompter.estimateTokens( a.own() ) ;
 
         Map<String,Double> costs = new LinkedHashMap<>() ;
@@ -442,7 +528,8 @@ public class QTagger implements TaggerFrame.Controller {
             costs.put( m.label(), tokens / 1e6 * price * 1000 ) ;
         }
         return new PromptReview( topic, catalogue, topicPrompt,
-                                 PromptStore.state( topicPrompt, catalogue ),
+                                 PromptStore.state( topicPrompt, catalogue,
+                                                    tagClass ),
                                  a.own(), a.dependent(),
                                  a.offered().problems(),
                                  a.offered().leftOut( catalogue ), costs ) ;
@@ -463,8 +550,8 @@ public class QTagger implements TaggerFrame.Controller {
         PromptFile now = prompts.topicPrompt( review.topic() ) ;
         if( now == null || !now.contentHash().equals(
                 review.topicPrompt().contentHash() ) ) {
-            throw new IllegalStateException( PromptStore.REVIEWED + " changed " +
-                    "since it was reviewed - review it again" ) ;
+            throw new IllegalStateException( prompts.reviewedName() +
+                    " changed since it was reviewed - review it again" ) ;
         }
         prompts.approve( review.topic(), review.catalogue() ) ;
     }
@@ -472,10 +559,11 @@ public class QTagger implements TaggerFrame.Controller {
     // ---- loading -------------------------------------------------------
 
     /**
-     * The next {@code limit} questions of the scope: its topic's own,
-     * after the own cursor, then, if they run out, its dependents after
-     * theirs; {@code fromStart} first puts both cursors back. The cursors
-     * move on past the questions returned, and are saved with the scope.
+     * The next {@code limit} questions of the scope: its topic's own
+     * awaiting the pass, after the own cursor, then, in the concept pass if
+     * they run out, its dependents after theirs; {@code fromStart} first
+     * puts both cursors back. The cursors move on past the questions
+     * returned, and are saved with the scope.
      */
     @Override
     public Loaded load( int limit, boolean fromStart ) throws Exception {
@@ -484,15 +572,18 @@ public class QTagger implements TaggerFrame.Controller {
         int   n = Math.min( Math.max( limit, 1 ),
                             TaggerServerClient.MAX_LIMIT ) ;
 
-        PendingResult        own       = server.pending( s.topicId(), n,
-                                                         s.ownAfterId() ) ;
+        PendingResult        own       = server.pending( tagClass, s.topicId(),
+                                                         n, s.ownAfterId() ) ;
         List<ServerQuestion> ownQs     = own.getQuestions() ;
         List<ServerQuestion> depQs     = List.of() ;
         Integer              ownAfter  = last( ownQs, s.ownAfterId() ) ;
         Integer              depAfter  = s.depAfterId() ;
         int                  depTotal ;
 
-        if( ownQs.size() < n ) {
+        if( !tagClass.hasDependents() ) {
+            depTotal = 0 ;
+        }
+        else if( ownQs.size() < n ) {
             PendingResult dep = server.dependents( s.topicId(),
                                                    n - ownQs.size(),
                                                    depAfter ) ;
@@ -521,9 +612,9 @@ public class QTagger implements TaggerFrame.Controller {
         scope = s.withCursors( ownAfter, depAfter ) ;
         saveScope() ;
         log.info( "Loaded {} own and {} dependent questions{}; {} own and {} " +
-                  "dependents await tags", ownQs.size(), depQs.size(),
+                  "dependents await {} tags", ownQs.size(), depQs.size(),
                   fromStart ? " from the start" : "", own.getTotalResults(),
-                  depTotal ) ;
+                  depTotal, tagClass.wire() ) ;
         return new Loaded( items, own.getTotalResults(), depTotal ) ;
     }
 
@@ -536,10 +627,12 @@ public class QTagger implements TaggerFrame.Controller {
     private TagItem item( ServerQuestion q, boolean dependent,
                           List<ServerTag> tags ) {
 
+        // Only an answer the pass checks can be unsupported.
         QuestionLocator.Located l = locator.locate( q ) ;
         return new TagItem( q, l.task(), l.problem(),
-                            AnswerChecker.unsupported( q.getProblemType(),
-                                                       q.getAnswer() ),
+                            !tagClass.solves() ? null
+                            : AnswerChecker.unsupported( q.getProblemType(),
+                                                         q.getAnswer() ),
                             dependent, tags ) ;
     }
 
@@ -643,10 +736,13 @@ public class QTagger implements TaggerFrame.Controller {
     // ---- saving --------------------------------------------------------
 
     /**
-     * Send {@code items}' decisions to the server, at most
+     * Send {@code items}' decisions to the server for the pass, at most
      * {@link TaggerServerClient#MAX_REFRESHES} per request, and note each
-     * one applied in the audit log, dropping its stored replies. A request
-     * that fails rejects all of its items, with the reason.
+     * one applied in the audit log, dropping its stored replies. Each
+     * request is built on the questions' tags read just before it, so a
+     * tag put on since the Load (by the other pass, say) is kept. A request
+     * that fails, or whose tags can't be read, rejects all of its items,
+     * with the reason.
      *
      * @return the server's result for each item, in the same order
      */
@@ -665,14 +761,19 @@ public class QTagger implements TaggerFrame.Controller {
 
     private List<RefreshResult> saveBatch( List<SaveItem> batch ) {
 
-        Assembly          a    = prompter.assembly() ;
-        int               sc   = a.topic().getId() ;
-        List<RefreshItem> sent = batch.stream()
-                                      .map( s -> refreshItem( s, a ) ).toList() ;
+        Assembly            a  = prompter.assembly() ;
+        int                 sc = a.topic().getId() ;
+        List<RefreshItem>   sent ;
         List<RefreshResult> results ;
 
         try {
-            results = server.refresh( sent ) ;
+            Map<Integer,List<ServerTag>> now = server.questionTags(
+                    batch.stream().map( s -> s.item().id() ).toList() ) ;
+            sent    = batch.stream()
+                           .map( s -> refreshItem( s, a, now.getOrDefault(
+                                   s.item().id(), List.of() ) ) )
+                           .toList() ;
+            results = server.refresh( tagClass, sent ) ;
         }
         catch( ServerException e ) {
             log.error( "Could not save {} questions' tags: {}", batch.size(),
@@ -716,12 +817,14 @@ public class QTagger implements TaggerFrame.Controller {
     }
 
     /**
-     * The refresh of one question: its explicit tags the run may not
-     * replace, kept, and the decided tags; with its dependencies for a
-     * question of the scoped topic, or closing its dependency on it for a
-     * dependent.
+     * The refresh of one question: its explicit tags now ({@code tags})
+     * that the run may not replace, kept, and the decided tags; in the
+     * concept pass with its dependencies for a question of the scoped
+     * topic, or closing its dependency on it for a dependent. The setup
+     * pass leaves the dependencies alone.
      */
-    private static RefreshItem refreshItem( SaveItem s, Assembly a ) {
+    private static RefreshItem refreshItem( SaveItem s, Assembly a,
+                                            List<ServerTag> tags ) {
 
         TagItem     item      = s.item() ;
         TagDecision d         = s.decision() ;
@@ -730,7 +833,7 @@ public class QTagger implements TaggerFrame.Controller {
                                  .collect( Collectors.toSet() ) ;
         Set<Integer> ids      = new LinkedHashSet<>() ;
 
-        item.tags().stream()
+        tags.stream()
             .filter( t -> t.explicit() && !replaced.contains( t.id() ) )
             .forEach( t -> ids.add( t.id() ) ) ;
         for( String text : d.tags() ) {
@@ -746,8 +849,10 @@ public class QTagger implements TaggerFrame.Controller {
             return new RefreshItem( item.id(), List.copyOf( ids ), null, null,
                                     null, a.topic().getId() ) ;
         }
-        // Keeping the hand tags says nothing of the dependencies.
-        if( d.source() == TagDecision.Source.EXISTING ) {
+        // Keeping the hand tags says nothing of the dependencies, and the
+        // setup pass never touches them.
+        if( d.source() == TagDecision.Source.EXISTING
+            || !a.tagClass().hasDependents() ) {
             return new RefreshItem( item.id(), List.copyOf( ids ), null, null,
                                     null, null ) ;
         }
@@ -826,9 +931,7 @@ public class QTagger implements TaggerFrame.Controller {
                 topic, axis.getHeading(),
                 "- " + created.tagText() + ": " + catalogue.ownHint( created ),
                 catalogue ) ;
-        prompter.use( TagPrompter.assemble(
-                topic, prompts.template(), prompts.axes(), approved,
-                catalogue, a.mode(), topics.get( topic.getSyllabusName() ) ) ) ;
+        prompter.use( assemble( topic, approved, catalogue, a.mode() ) ) ;
         return created ;
     }
 
@@ -871,8 +974,7 @@ public class QTagger implements TaggerFrame.Controller {
     public String heldForTheDay() {
 
         HubStatus status = scheduler.hubStatus() ;
-        for( String root : List.of( TaggerOutcomes.TIER1,
-                                    TaggerOutcomes.TIER2 ) ) {
+        for( String root : roots( tagClass ) ) {
             if( heldForTheDay( status, root ) ) {
                 return "every model of the " + root + " root, fallbacks " +
                        "included, is held for the day" ;
@@ -933,7 +1035,10 @@ public class QTagger implements TaggerFrame.Controller {
         return scheduler.nextRequestAt() ;
     }
 
-    /** "Laws of Motion (104), Review gaps - Nemotron, GLM @ server". */
+    /**
+     * "Laws of Motion (104), Review gaps, 50 per load - Nemotron, tier 2
+     * GLM @ server"; the setup pass names no tier 2.
+     */
     @Override
     public String describe() {
 
@@ -944,8 +1049,10 @@ public class QTagger implements TaggerFrame.Controller {
         return ( t != null ? t.getTopicName() : "topic" ) + " (" +
                s.topicId() + "), " + s.mode() + ", " + s.batchSize() +
                " per load - " + firstModel( TaggerOutcomes.TIER1 ) +
-               ", tier 2 " + firstModel( TaggerOutcomes.TIER2 ) + " @ " +
-               config.getServerUrl() ;
+               ( tagClass.solves() ? ", tier 2 " +
+                                     firstModel( TaggerOutcomes.TIER2 )
+                                   : "" ) +
+               " @ " + config.getServerUrl() ;
     }
 
     /** The first model root {@code root} may use. */

@@ -2,6 +2,7 @@ package com.sandy.sconsole.qimgtools.apps.tagger.ui;
 
 import com.sandy.sconsole.qimgtools.apps.tagger.model.Scope;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagCatalogue;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagClass;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagMode;
 import com.sandy.sconsole.qimgtools.apps.tagger.prompt.PromptStore;
 import com.sandy.sconsole.qimgtools.apps.tagger.server.TaggerServerClient;
@@ -23,12 +24,13 @@ import java.util.List;
 import java.util.function.Function;
 
 /**
- * Chooses the scope: one topic, from a syllabus' {@link TopicTable} showing
- * where each one's prompt stands (a topic that can't be chosen greyed, with
- * why); the batch size; and the tag mode. Only a topic
- * with an approved prompt can be chosen; Foundation Mathematics, whose tags
- * are every topic's math, never. Whether the approved prompt is still
- * current is checked against the server's catalogue once the dialog closes.
+ * Chooses the scope of the pass: one topic, from a syllabus'
+ * {@link TopicTable} showing where each one's prompt of the pass stands (a
+ * topic that can't be chosen greyed, with why); the batch size; and the tag
+ * mode. Only a topic with an approved prompt can be chosen; Foundation
+ * Mathematics, whose tags are every topic's math, never. Whether the
+ * approved prompt is still current is checked against the server's
+ * catalogue once the dialog closes.
  */
 final class ScopeDialog {
 
@@ -43,7 +45,8 @@ final class ScopeDialog {
      *         topic is unchanged and "Start from the first question" is
      *         not ticked; null if the user cancelled
      */
-    static Scope ask( Component parent, Scope current, String problem,
+    static Scope ask( Component parent, TagClass pass, Scope current,
+                      String problem,
                       List<String> syllabusNames,
                       Function<String,List<Topic>> topicsOf,
                       Function<Topic,PromptStore.Summary> summaryOf ) {
@@ -85,7 +88,7 @@ final class ScopeDialog {
         bottom.add( options ) ;
         if( current != null && current.hasCursors() ) {
             JPanel cursor = new JPanel( new FlowLayout( FlowLayout.LEFT, 8, 0 ) ) ;
-            cursor.add( new JLabel( cursorText( current, topicsOf,
+            cursor.add( new JLabel( cursorText( pass, current, topicsOf,
                                                 syllabusNames ) ) ) ;
             cursor.add( reset ) ;
             bottom.add( cursor ) ;
@@ -106,7 +109,7 @@ final class ScopeDialog {
 
         while( true ) {
             int answer = JOptionPane.showConfirmDialog( parent, panel,
-                    "Scope", JOptionPane.OK_CANCEL_OPTION,
+                    pass + " scope", JOptionPane.OK_CANCEL_OPTION,
                     JOptionPane.PLAIN_MESSAGE ) ;
             if( answer != JOptionPane.OK_OPTION ) return null ;
 
@@ -133,9 +136,9 @@ final class ScopeDialog {
 
     /**
      * Where the next load of {@code scope}'s topic continues: after the
-     * last question of each queue already loaded.
+     * last question of each queue already loaded (the setup pass has one).
      */
-    private static String cursorText( Scope scope,
+    private static String cursorText( TagClass pass, Scope scope,
                                       Function<String,List<Topic>> topicsOf,
                                       List<String> syllabusNames ) {
 
@@ -145,8 +148,10 @@ final class ScopeDialog {
                 .map( Topic::getTopicName ).findFirst()
                 .orElse( "Topic " + scope.topicId() ) ;
         return name + ": the next load continues " +
-               after( scope.ownAfterId() ) + " (dependents: " +
-               after( scope.depAfterId() ) + ")" ;
+               after( scope.ownAfterId() ) +
+               ( pass.hasDependents() ? " (dependents: " +
+                                        after( scope.depAfterId() ) + ")"
+                                      : "" ) ;
     }
 
     private static String after( Integer id ) {

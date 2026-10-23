@@ -2,6 +2,7 @@ package com.sandy.sconsole.qimgtools.apps.tagger.ui;
 
 import com.sandy.sconsole.qimgtools.apps.tagger.model.CatalogueTag;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagCatalogue;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagClass;
 import com.sandy.sconsole.qimgtools.apps.tagger.prompt.PromptReview;
 import com.sandy.sconsole.qimgtools.apps.tagger.prompt.PromptStore;
 import com.sandy.sconsole.qimgtools.apps.tagger.prompt.TagPrompter;
@@ -75,14 +76,15 @@ final class PromptDialogs {
     }
 
     /**
-     * Show {@code review}: where the prompt stands, what it would cost, what
-     * is wrong with it or left out, and the prompt itself for either kind of
-     * question. Approve is offered unless the prompt is approved and current
-     * or has problems.
+     * Show {@code review} of pass {@code pass}' prompt: where it stands,
+     * what it would cost, what is wrong with it or left out, and the prompt
+     * itself for each kind of question the pass has. Approve is offered
+     * unless the prompt is approved and current or has problems.
      *
      * @return true if the user chose to approve it
      */
-    static boolean review( Component parent, PromptReview review ) {
+    static boolean review( Component parent, TagClass pass,
+                           PromptReview review ) {
 
         PromptStore.State state  = review.state() ;
         int               own    = TagPrompter.estimateTokens( review.own() ) ;
@@ -92,11 +94,14 @@ final class PromptDialogs {
 
         sb.append( "Topic: " ).append( review.topic().getId() ).append( ' ' )
           .append( review.topic().getTopicName() ).append( "\nPrompt: " )
+          .append( pass ).append( " pass, " )
           .append( state ).append( ", version " )
           .append( review.topicPrompt().getInt( "promptVersion", 0 ) )
           .append( "\nEstimated input: about " ).append( own )
-          .append( " tokens per question (" ).append( dep )
-          .append( " for a dependent), image not counted\n" ) ;
+          .append( " tokens per question" )
+          .append( pass.hasDependents() ? " (" + dep + " for a dependent)"
+                                        : "" )
+          .append( ", image not counted\n" ) ;
         for( Map.Entry<String,Double> e : review.costPer1000().entrySet() ) {
             sb.append( String.format( "  %s: $%.2f per 1,000 questions " +
                                       "(list price, no cache discount)%n",
@@ -118,8 +123,10 @@ final class PromptDialogs {
         JTabbedPane prompts = new JTabbedPane() ;
         prompts.addTab( "Own questions", new JScrollPane(
                 text( review.own(), 30 ) ) ) ;
-        prompts.addTab( "Dependents", new JScrollPane(
-                text( review.dependent(), 30 ) ) ) ;
+        if( pass.hasDependents() ) {
+            prompts.addTab( "Dependents", new JScrollPane(
+                    text( review.dependent(), 30 ) ) ) ;
+        }
         prompts.setPreferredSize( new Dimension( 900, 520 ) ) ;
 
         JPanel panel = new JPanel( new BorderLayout( 0, 6 ) ) ;
@@ -131,7 +138,8 @@ final class PromptDialogs {
         Object[] options    = approvable ? new Object[] { APPROVE, CLOSE }
                                          : new Object[] { CLOSE } ;
         int      answer     = JOptionPane.showOptionDialog( parent, panel,
-                "Review topic prompt", JOptionPane.DEFAULT_OPTION,
+                "Review " + pass.wire() + " topic prompt",
+                JOptionPane.DEFAULT_OPTION,
                 JOptionPane.PLAIN_MESSAGE, null, options, CLOSE ) ;
 
         return approvable && answer == 0 ;

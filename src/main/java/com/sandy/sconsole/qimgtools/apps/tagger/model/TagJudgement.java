@@ -6,13 +6,14 @@ import java.util.HashSet;
 import java.util.List;
 
 /**
- * Where the tiers' replies leave a question: the key decides. A tier whose
- * answer matches the key has its tags accepted, unless it proposes a new
- * tag (in {@link TagMode#REVIEW_GAPS}; the run then pauses for the user) or
- * it drops a hand tag the question already carries (adding to them is
- * fine). Otherwise the question
- * goes to the user: both tiers gave the same wrong answer (the key is
- * suspect), or neither answered right.
+ * Where the tiers' replies leave a question. In the concept pass the key
+ * decides: a tier whose answer matches it has its tags accepted, unless it
+ * proposes a new tag (in {@link TagMode#REVIEW_GAPS}; the run then pauses
+ * for the user) or it drops a hand tag the question already carries
+ * (adding to them is fine). Otherwise the question goes to the user: both
+ * tiers gave the same wrong answer (the key is suspect), or neither
+ * answered right. In the setup pass there is no answer to check: tier 1's
+ * reply is taken, on the same terms for a gap and the hand tags.
  *
  * @param status   {@link TaggerStatus#ACCEPTED_T1}, {@code ACCEPTED_T2},
  *                 {@code GAP_PROPOSED} or {@code NEEDS_HUMAN}
@@ -32,11 +33,13 @@ public record TagJudgement( TaggerStatus status, HandOffReason reason,
                                    TagMode mode, OfferedSet offered,
                                    boolean gapSettled ) {
 
+        TagClass  pass = offered.tagClass() ;
         String    type = item.type() ;
         String    key  = item.key() ;
         TierReply t1   = opinions.tier1() ;
         TierReply t2   = opinions.tier2() ;
-        TierReply ok   = AnswerChecker.matches( type, key, t1.answer() ) ? t1
+        TierReply ok   = !pass.solves() ? t1
+                       : AnswerChecker.matches( type, key, t1.answer() ) ? t1
                        : t2 != null
                          && AnswerChecker.matches( type, key, t2.answer() ) ? t2
                        : null ;
@@ -55,7 +58,8 @@ public record TagJudgement( TaggerStatus status, HandOffReason reason,
 
         // Only a concept gap lets a reply give no concept tag; once the gap
         // is settled without one, the user must choose.
-        if( !item.dependent() && ok.reply().concept().isEmpty() ) {
+        if( pass == TagClass.CONCEPT && !item.dependent()
+            && ok.reply().concept().isEmpty() ) {
             return handOff( HandOffReason.NO_CONCEPT, ok ) ;
         }
 

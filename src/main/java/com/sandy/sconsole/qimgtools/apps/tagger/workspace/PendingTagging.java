@@ -27,8 +27,9 @@ import java.util.Objects;
  *   "deferred" : { "note", "time" }
  * }
  * </pre>
- * The replies are reused only while the question's key and topic, and the
- * scope it was run for, are as they were. {@code gapSettled} is set once the
+ * The replies are reused only while the question's topic and the scope it
+ * was run for are as they were, and, where the pass checks answers (the
+ * concept pass), its key. One file per pass. {@code gapSettled} is set once the
  * user has decided on the gap the accepted tier proposed (its reply then
  * holds the tag taken, if any); {@code deferred} once the question was put
  * off. An entry goes once its save is applied, so the file holds only the
@@ -55,15 +56,23 @@ public final class PendingTagging {
     private final File       file ;
     private final ObjectNode root ;
 
+    /** True if a stored reply is valid only for the key it was judged on. */
+    private final boolean keyed ;
+
     /** True if the file exists but could not be read; it is then left alone. */
     private final boolean unreadable ;
 
-    public PendingTagging( File file ) {
+    /**
+     * The pending replies in {@code file}; {@code keyed} if they were
+     * judged against the answer key, and so hold only while it is the same.
+     */
+    public PendingTagging( File file, boolean keyed ) {
 
         ObjectNode loaded ;
         boolean    failed = false ;
 
-        this.file = file ;
+        this.file  = file ;
+        this.keyed = keyed ;
         try {
             loaded = JsonFiles.readObject( file ) ;
         }
@@ -79,15 +88,16 @@ public final class PendingTagging {
 
     /**
      * What is stored for {@code q} run under topic {@code scopeTopicId}, if
-     * stored while its key and topic were what they are now; null
-     * otherwise.
+     * stored while its topic (and, keyed, its key) were what they are now;
+     * null otherwise.
      */
     public synchronized Stored stored( ServerQuestion q, int scopeTopicId ) {
 
         JsonNode e = root.path( key( q ) ) ;
         if( !e.isObject()
             || e.path( "scopeTopicId" ).asInt( -1 ) != scopeTopicId
-            || !Objects.equals( TagJson.text( e.get( "key" ) ), q.getAnswer() )
+            || keyed && !Objects.equals( TagJson.text( e.get( "key" ) ),
+                                         q.getAnswer() )
             || q.getTopicId() == null
             || e.path( "topicId" ).asInt( -1 ) != q.getTopicId() ) {
             return null ;

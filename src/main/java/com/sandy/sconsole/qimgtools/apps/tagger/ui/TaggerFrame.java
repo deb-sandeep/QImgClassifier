@@ -6,6 +6,7 @@ import com.sandy.sconsole.qimgtools.apps.tagger.model.CatalogueTag;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.HandOffReason;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.NewTag;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.Scope;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagClass;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagDecision;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagJudgement;
@@ -83,6 +84,7 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GraphicsEnvironment;
@@ -117,16 +119,19 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
- * The tagger's window, the reviewer's in layout and habits. The table lists
- * the scoped topic's questions awaiting tags, then its dependents, with each
- * one's key, the hand tags already on it and the two tiers' answers and
- * tags; Load fetches the next ones after the scope's cursor (Load from
- * start brings back every one still pending), Start sends those not yet
- * judged to tier 1, and Stop winds that down. A tier whose answer matches
- * the key has its tags accepted, to be saved; the rest are handed to the
- * user, who decides on them with keys 1-6, the {@link TagDecisionPanel} or
- * the row menu. A gap proposed in Review gaps mode pauses the run until the
- * {@link GapDialog} settles it. Decisions stay in the table until Save
+ * The tagger's window, the reviewer's in layout and habits, for one pass
+ * ({@link TagClass}), which the title and a badge at the left of the status
+ * bar show. The table lists the scoped topic's questions awaiting the pass,
+ * then (concept) its dependents, with each one's key, the hand tags already
+ * on it and the two tiers' answers and tags (setup: tier 1's tags alone,
+ * the key and tier 2 columns hidden); Load fetches the next ones after the
+ * scope's cursor (Load from start brings back every one still pending),
+ * Start sends those not yet judged to tier 1, and Stop winds that down. A
+ * setup reply, or a concept tier whose answer matches the key, has its tags
+ * accepted, to be saved; the rest are handed to the user, who decides on
+ * them with keys 1-6, the {@link TagDecisionPanel} or the row menu. A gap
+ * proposed in Review gaps mode pauses the run until the {@link GapDialog}
+ * settles it. Decisions stay in the table until Save
  * sends them, with the accepted rows, to the server off the EDT. Every
  * command is an {@code Action} on the menu bar, the main ones also as icon
  * buttons ({@link ToolIcon}) on the toolbar.
@@ -141,6 +146,9 @@ public class TaggerFrame extends JFrame
 
     /** What the frame needs from the tagger. */
     public interface Controller {
+
+        /** The pass the tagger runs. */
+        TagClass tagClass() ;
 
         /** The scope in effect; null before one is set. */
         Scope scope() ;
@@ -393,7 +401,15 @@ public class TaggerFrame extends JFrame
         public String toString() { return label ; }
     }
 
+    // The pass badge's backgrounds, one per pass so they are told apart.
+    private static final Map<TagClass,Color> PASS_BG = new EnumMap<>( Map.of(
+            TagClass.SETUP,   new Color( 0x1565C0 ),
+            TagClass.CONCEPT, new Color( 0x6A1B9A ) ) ) ;
+
     private Controller controller ;
+
+    /** The pass the tagger runs. */
+    private final TagClass pass ;
 
     /** The names models are shown by. */
     private final ModelNames names ;
@@ -569,15 +585,17 @@ public class TaggerFrame extends JFrame
     private final Set<String> loggedLimits = new HashSet<>() ;
 
     /**
+     * @param pass        the pass the tagger runs
      * @param transcripts source of the transcripts shown on the right
      * @param names       the names models are shown by
      * @param tier1       tier 1's first model, named in its column
-     * @param tier2       tier 2's, likewise
+     * @param tier2       tier 2's, likewise; null in the setup pass
      */
-    public TaggerFrame( TranscriptStore transcripts, ModelNames names,
-                        String tier1, String tier2 ) {
+    public TaggerFrame( TagClass pass, TranscriptStore transcripts,
+                        ModelNames names, String tier1, String tier2 ) {
 
-        super( "QTagger" ) ;
+        super( title( pass, null ) ) ;
+        this.pass            = pass ;
         this.names           = names ;
         this.model           = new TagTableModel( names, tier1, tier2 ) ;
         this.table           = new JTable( model ) ;
@@ -585,10 +603,11 @@ public class TaggerFrame extends JFrame
         this.headerFilters   = new HeaderFilterController<>( table, model,
                                                            this::applyFilter ) ;
         this.transcriptPanel = new TranscriptPanel( transcripts, names ) ;
-        this.decisionPanel   = new TagDecisionPanel( this, names,
+        this.decisionPanel   = new TagDecisionPanel( pass, this, names,
                                                      this::topicName ) ;
         this.rateLimitStrip  = new RateLimitStrip( names ) ;
-        this.answerStrip     = new AnswerStrip( names, this::decideByClick ) ;
+        this.answerStrip     = new AnswerStrip( pass, names,
+                                                this::decideByClick ) ;
 
         buildTable() ;
 
@@ -661,7 +680,17 @@ public class TaggerFrame extends JFrame
         queueBar.add( queueText, BorderLayout.CENTER ) ;
         queueBar.add( paceText, BorderLayout.EAST ) ;
 
+        JLabel badge = new JLabel( pass.wire().toUpperCase() ) ;
+        badge.setOpaque( true ) ;
+        badge.setBackground( PASS_BG.get( pass ) ) ;
+        badge.setForeground( Color.WHITE ) ;
+        badge.setFont( badge.getFont().deriveFont( Font.BOLD ) ) ;
+        badge.setBorder( BorderFactory.createEmptyBorder( 4, 12, 4, 12 ) ) ;
+        badge.setToolTipText( pass + " tagging pass; restart QTagger to " +
+                              "run the other" ) ;
+
         JPanel footer = new JPanel( new BorderLayout() ) ;
+        footer.add( badge, BorderLayout.WEST ) ;
         footer.add( statusBar, BorderLayout.CENTER ) ;
         footer.add( queueBar, BorderLayout.EAST ) ;
 
@@ -718,9 +747,18 @@ public class TaggerFrame extends JFrame
 
     /** Show the scope in the title and the Prompt tab. */
     private void showScope() {
-        setTitle( "QTagger - " + controller.describe() ) ;
+        setTitle( title( pass, controller.describe() ) ) ;
         promptPanel.show( controller.assembly() ) ;
         updateControls() ;
+    }
+
+    /**
+     * "QTagger [SETUP] - <scope>": the pass first, so a title cut short
+     * still shows it.
+     */
+    private static String title( TagClass pass, String scope ) {
+        return "QTagger [" + pass.wire().toUpperCase() + "]" +
+               ( scope != null ? " - " + scope : "" ) ;
     }
 
     /** An action named {@code name} that runs {@code run}. */
@@ -915,6 +953,11 @@ public class TaggerFrame extends JFrame
         table.setRowHeight( ROW_HEIGHT ) ;
 
         setColumnWidths() ;
+        // The setup pass has no key to check and no tier 2.
+        if( !pass.solves() ) {
+            hideColumn( TagTableModel.COL_KEY ) ;
+            hideColumn( TagTableModel.COL_TIER2 ) ;
+        }
         table.getSelectionModel().addListSelectionListener( e -> {
             if( !e.getValueIsAdjusting() ) showSelection() ;
         } ) ;
@@ -938,6 +981,12 @@ public class TaggerFrame extends JFrame
                 column.setPreferredWidth( COLUMN_WIDTHS[c] ) ;
             }
         }
+    }
+
+    /** Take model column {@code col} out of the table's view. */
+    private void hideColumn( int col ) {
+        table.removeColumn( table.getColumnModel().getColumn(
+                table.convertColumnIndexToView( col ) ) ) ;
     }
 
     /**
@@ -1105,7 +1154,7 @@ public class TaggerFrame extends JFrame
             || procState != ProcessingState.STOPPED ) return ;
         if( problem == null && !discardUnsaved( "Scope" ) ) return ;
 
-        Scope chosen = ScopeDialog.ask( this, controller.scope(), problem,
+        Scope chosen = ScopeDialog.ask( this, pass, controller.scope(), problem,
                                         controller.syllabusNames(),
                                         controller::topics,
                                         controller::promptSummary ) ;
@@ -1146,12 +1195,14 @@ public class TaggerFrame extends JFrame
         background( () -> controller.generatePrompt( topic ), created -> {
             generateAction.setEnabled( true ) ;
             File dir = controller.promptDir( topic ) ;
+            String generated = PromptStore.generatedName( pass ) ;
+            String reviewed  = PromptStore.reviewedName( pass ) ;
             JOptionPane.showMessageDialog( this, "Wrote " +
-                    PromptStore.GENERATED + " in\n" + dir + "\n\n" +
-                    ( created ? "It was copied to " + PromptStore.REVIEWED +
+                    generated + " in\n" + dir + "\n\n" +
+                    ( created ? "It was copied to " + reviewed +
                                 " as a draft: tune it, then review and " +
                                 "approve it (Prompts > Review topic prompt)."
-                              : PromptStore.REVIEWED + " is unchanged; compare " +
+                              : reviewed + " is unchanged; compare " +
                                 "the two files to see what the server's " +
                                 "tags changed." ),
                     "Generate topic prompt", JOptionPane.INFORMATION_MESSAGE ) ;
@@ -1174,7 +1225,7 @@ public class TaggerFrame extends JFrame
         reviewPromptAction.setEnabled( false ) ;
         background( () -> controller.reviewPrompt( topic ), review -> {
             reviewPromptAction.setEnabled( true ) ;
-            if( !PromptDialogs.review( this, review ) ) return ;
+            if( !PromptDialogs.review( this, pass, review ) ) return ;
             try {
                 controller.approvePrompt( review ) ;
             }
@@ -1187,8 +1238,9 @@ public class TaggerFrame extends JFrame
                 && procState == ProcessingState.STOPPED ) {
                 setScope( s ) ;
             }
-            JOptionPane.showMessageDialog( this, "Approved the prompt of " +
-                    topic.getTopicName() + ". Commit " + PromptStore.REVIEWED +
+            JOptionPane.showMessageDialog( this, "Approved the " +
+                    pass.wire() + " prompt of " + topic.getTopicName() +
+                    ". Commit " + PromptStore.reviewedName( pass ) +
                     " in\n" + controller.promptDir( topic ),
                     "Review topic prompt", JOptionPane.INFORMATION_MESSAGE ) ;
         }, e -> {
@@ -1326,7 +1378,8 @@ public class TaggerFrame extends JFrame
 
         Assembly a = controller.assembly() ;
         return items.stream()
-                    .map( i -> new Row( i, i.existing( a.offered() ) ) )
+                    .map( i -> new Row( i, i.existing( a.offered() ),
+                                        pass.solves() ) )
                     .toList() ;
     }
 
@@ -2141,13 +2194,19 @@ public class TaggerFrame extends JFrame
                                             : "refused by the server" ) ;
             return ;
         }
+        boolean still = r.stillNeeded( pass ) ;
+
         row.status  = TaggerStatus.SAVED ;
         row.message = "Saved: " + describe( row.decision ) +
-                      ( Boolean.TRUE.equals( r.autoTaggingNeeded() )
-                        ? " - still awaiting tags on the server" : "" ) ;
-        row.item.question().setAutoTaggingNeeded(
-                Boolean.TRUE.equals( r.autoTaggingNeeded() ) ) ;
-        if( !Boolean.TRUE.equals( r.autoTaggingNeeded() ) ) {
+                      ( still ? " - still awaiting " + pass.wire() +
+                                " tags on the server" : "" ) ;
+        if( pass == TagClass.SETUP ) {
+            row.item.question().setAutoSetupTaggingNeeded( still ) ;
+        }
+        else {
+            row.item.question().setAutoConceptTaggingNeeded( still ) ;
+        }
+        if( !still ) {
             if( row.item.dependent() ) depPending = Math.max( 0, depPending - 1 ) ;
             else ownPending = Math.max( 0, ownPending - 1 ) ;
         }
@@ -2531,8 +2590,9 @@ public class TaggerFrame extends JFrame
                 model.count( TaggerStatus.FAILED ),
                 model.count( TaggerStatus.ERROR ) ) ;
         if( ownPending >= 0 ) {
-            text += " · awaiting tags: " + ownPending + " own, " +
-                    depPending + " dependents" ;
+            text += " · awaiting " + pass.wire() + " tags: " + ownPending +
+                    ( pass.hasDependents() ? " own, " + depPending +
+                                             " dependents" : "" ) ;
         }
         // Running and queued counts are in the queue section on the right.
         if( procState == ProcessingState.STOPPING ) text += "   |   stopping" ;

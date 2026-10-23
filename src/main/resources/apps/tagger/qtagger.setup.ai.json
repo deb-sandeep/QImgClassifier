@@ -1,0 +1,48 @@
+// The tagger's AI models for the setup pass (qtagger.concept.ai.json has the
+// concept pass'). Override with -Dai.app.config=<file>. See the classifier's
+// qimgclassifier.ai.json for what each setting means.
+//
+// Every question goes to the "tier1" root, strictly in table order. The
+// model only reads the question and lists the setup tags whose component it
+// shows: nothing is solved and there is no key to check, so there is no
+// tier 2, and the root needs a usable model, else the tagger refuses to
+// start. Reading needs no reasoning, so it is off, and the reply, a short
+// tag list, is capped small (maxOutputTokens).
+//
+// The free Nemotron takes the questions; once its daily quota is used up
+// (rateLimitedRPD), on a server error, or while it is set to pass its
+// questions through, the paid one does. A reply that can't be read, or names
+// a tag that isn't offered, is sent once more (retries: 1).
+{
+  "parent" : "classpath:/common/ai-model-config.json",
+
+  "roots" : {
+    "tier1" : [ "nvidia/nemotron-3.5-super-vl:free" ]
+  },
+
+  "models" : {
+    "nvidia/nemotron-3.5-super-vl:free" : {
+      "enabled"               : true,
+      "maxParallel"           : 4,
+      "requestTimeoutSeconds" : 90,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "maxOutputTokens"       : 1500,
+      "promptCaching"         : true,
+      "fallback"              : {
+        "rateLimitedRPD" : [ "nvidia/nemotron-3.5-super-vl" ],
+        "serverError"    : [ "nvidia/nemotron-3.5-super-vl" ],
+        "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ]
+      }
+    },
+    "nvidia/nemotron-3.5-super-vl" : {
+      "enabled"               : true,
+      "maxParallel"           : 3,
+      "requestTimeoutSeconds" : 90,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "maxOutputTokens"       : 1500,
+      "promptCaching"         : true
+    }
+  }
+}

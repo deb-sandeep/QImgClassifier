@@ -1,5 +1,6 @@
-// The tagger's AI models. Override with -Dai.app.config=<file>. See the
-// classifier's qimgclassifier.ai.json for what each setting means.
+// The tagger's AI models for the concept pass (qtagger.setup.ai.json has the
+// setup pass'). Override with -Dai.app.config=<file>. See the classifier's
+// qimgclassifier.ai.json for what each setting means.
 //
 // Every question goes to the "tier1" root, strictly in table order, and is
 // solved blind (the model never sees the key). A tier 1 answer that misses
