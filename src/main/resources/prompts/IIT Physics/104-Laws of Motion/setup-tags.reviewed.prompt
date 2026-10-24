@@ -1,10 +1,10 @@
 topicId: 104
 status: approved
-promptVersion: 2
+promptVersion: 3
 catalogueFingerprint: 5d6bfadd8c7336ea
-contentHash: 9b10e2269076e965
+contentHash: fcc74468d6561d28
 generatedAt: 2026-10-22T18:29:32Z
-approvedAt: 2026-10-23T18:33:08Z
+approvedAt: 2026-10-24T09:26:05Z
 ---
 ## Setup tags
 
@@ -15,10 +15,10 @@ Setup tag: apply on presence of the component in the figure or stem, not on whet
 - s.connector.spring: Apply when any spring, or an elastic cord modelled by Hooke's law (F = kx), is part of the system, including spring balances and spring combinations. Do not apply for elastic collisions or 'elastic' strings that are treated as inextensible.
 - s.connector.rod: Apply when a rigid rod, strut or bar connects two bodies, or a body to a support, and can carry tension or compression. Do not apply for a rod that is only a track for a sliding bead (use an s.path. tag) or a plank that a body rests on (use s.surface.body-on-body).
 - s.connector.pivot: Apply when a body is supported by a hinge, pin joint or pivot that supplies a reaction force of a priori unknown direction. Do not apply for a pulley axle or for a string fixed to a ceiling hook.
-- s.surface.incline: Apply when a body rests on or moves along a fixed inclined plane. Do not apply when the inclined body itself is free to move: that is s.surface.wedge. An incline inside an accelerating lift or truck carries both s.surface.incline and s.surface.accl.
+- s.surface.incline: Apply when a body rests on or moves along a fixed inclined plane. Do not apply when the inclined body itself is free to move: that is s.body.wedge. An incline inside an accelerating lift or truck carries both s.surface.incline and s.surface.accl.
 - s.body.wedge: Apply when an inclined body is free to move (on a smooth floor, pushed, or released) while another body is in contact with its inclined face. Do not apply to a fixed incline. Do not add s.surface.body-on-body for the block on the wedge face: wedge covers inclined contact; body-on-body covers flat contact.
-- s.surface.body-on-body: Apply when a body rests on or slides over another body that can itself move along the contact: block on plank, stacked blocks, block on trolley or cart. Do not apply when the lower body is fixed (it is then just a surface) or when the contact face is inclined (use s.surface.wedge).
-- s.surface.accl: Apply when a body rests on, hangs in, or is carried by a platform whose acceleration is given or sought: lift, truck, train, conveyor belt, accelerating cart. Do not apply when the moving support is a wedge (s.surface.wedge) or the lower block of a stack (s.surface.body-on-body).
+- s.surface.body-on-body: Apply when a body rests on or slides over another body that can itself move along the contact: block on plank, stacked blocks, block on trolley or cart. Do not apply when the lower body is fixed (it is then just a surface) or when the contact face is inclined (use s.body.wedge).
+- s.surface.accl: Apply when a body rests on, hangs in, or is carried by a platform whose acceleration is given or sought: lift, truck, train, conveyor belt, accelerating cart. Do not apply when the moving support is a wedge (s.body.wedge) or the lower block of a stack (s.surface.body-on-body).
 - s.path.vert-ring: Apply when a body is constrained on both sides to a path in a vertical plane, so it cannot leave the path and the normal can point either way: bead threaded on a vertical circular wire, ball inside a tube. Do not apply to one-sided tracks (s.path.vert-loop) or to a pendulum on a string or rod (no path tag).
 - s.path.horz-ring: Apply when a body is constrained on both sides to a path in a horizontal plane: bead on a horizontal ring, particle in a rotating horizontal tube. Do not apply to one-sided horizontal tracks (s.path.horz-loop).
 - s.path.vert-loop: Apply when a body moves on a one-sided track in a vertical plane, so the normal satisfies N >= 0 and the body can leave the track: loop-the-loop, inside of a vertical circular track. Do not apply to two-sided paths (s.path.vert-ring) or non-circular surfaces such as a hemisphere (s.path.curved).
