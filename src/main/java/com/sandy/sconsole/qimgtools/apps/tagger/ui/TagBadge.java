@@ -26,8 +26,9 @@ import java.util.function.Consumer;
  * A tag in a rounded box coloured by its axis: setup blue, concept green,
  * math orange, anything else (a topic depended on) grey. A proposed tag is
  * dashed. A badge may be dragged ({@link #draggable}), carrying its tag or
- * topic to a drop target ({@link #dropTarget}), and may be removed with a
- * click on its × ({@link #removable}). Use on the EDT.
+ * topic to a drop target ({@link #dropTarget}), clicked
+ * ({@link #clickable}), and removed with a click on its ×
+ * ({@link #removable}). Use on the EDT.
  */
 @SuppressWarnings( "serial" )
 final class TagBadge extends JLabel {
@@ -140,6 +141,21 @@ final class TagBadge extends JLabel {
     }
 
     /**
+     * Run {@code onClick} on a click on the badge (a press and release
+     * without a drag).
+     */
+    TagBadge clickable( Runnable onClick ) {
+
+        addMouseListener( new MouseAdapter() {
+            @Override public void mouseClicked( MouseEvent e ) {
+                if( e.getButton() == MouseEvent.BUTTON1 ) onClick.run() ;
+            }
+        } ) ;
+        setCursor( Cursor.getPredefinedCursor( Cursor.HAND_CURSOR ) ) ;
+        return this ;
+    }
+
+    /**
      * End the badge with a ×; a click on it runs {@code onRemove}, and the
      * mouse turns into a hand over it.
      */
@@ -174,6 +190,11 @@ final class TagBadge extends JLabel {
         this.dimmed = dimmed ;
         setForeground( dimmed ? line : line.darker() ) ;
         return this ;
+    }
+
+    /** True if the badge is painted faded. */
+    boolean isDimmed() {
+        return dimmed ;
     }
 
     /**

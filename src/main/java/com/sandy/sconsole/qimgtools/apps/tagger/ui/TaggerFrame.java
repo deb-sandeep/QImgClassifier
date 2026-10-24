@@ -139,7 +139,8 @@ import java.util.function.Predicate;
  * a chosen set, the tags it is to be saved with: a choice sets it whole (a
  * tier's tags, the hand tags), and the {@link ChosenTagsBar} edits it a tag
  * or topic at a time, dragged from the strip or the {@link TopicTagsPanel}
- * and taken out with a ×, for every selected row at once. A gap
+ * (or clicked there, a chosen one taken out again) and taken out with a ×,
+ * for every selected row at once. A gap
  * proposed in Review gaps mode pauses the run until the {@link GapDialog}
  * settles it. Decisions stay in the table until Save
  * sends them, with the accepted rows, to the server off the EDT. Every
@@ -661,7 +662,7 @@ public class TaggerFrame extends JFrame
         this.headerFilters   = new HeaderFilterController<>( table, model,
                                                            this::applyFilter ) ;
         this.transcriptPanel = new TranscriptPanel( transcripts, names ) ;
-        this.topicTags       = new TopicTagsPanel( pass ) ;
+        this.topicTags       = new TopicTagsPanel( pass, this::editChosen ) ;
         this.chosenBar       = new ChosenTagsBar( this::topicName,
                                                   p -> editChosen( p, true ),
                                                   p -> editChosen( p, false ) ) ;

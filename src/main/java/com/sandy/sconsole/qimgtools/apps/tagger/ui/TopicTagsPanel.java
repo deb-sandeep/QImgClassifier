@@ -24,32 +24,41 @@ import java.awt.Font;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiConsumer;
 
 /**
  * The scoped topic's tags the pass offers, one section per axis of the pass
  * (with its count rule), and in the concept pass the syllabus' other topics
  * a question may depend on: the palette the chosen set is filled from, by
- * dragging a badge to the chosen tags bar. Each tag's hint is its tooltip.
- * The tags and topics in the chosen set of the selection are faded. Use on
- * the EDT.
+ * dragging a badge to the chosen tags bar or clicking it. Each tag's hint
+ * is its tooltip. The tags and topics in the chosen set of the selection
+ * are faded, and a click on a faded badge takes it out again. Use on the
+ * EDT.
  */
 @SuppressWarnings( "serial" )
 final class TopicTagsPanel extends JPanel {
 
     private static final int WIDTH = 270 ;
 
-    private final TagClass pass ;
-    private final JLabel   title = new JLabel( " " ) ;
-    private final JPanel   list  = new JPanel() ;
+    private final TagClass                    pass ;
+    private final BiConsumer<Payload,Boolean> toggle ;
+    private final JLabel                      title = new JLabel( " " ) ;
+    private final JPanel                      list  = new JPanel() ;
 
     // The badges shown, by what they carry, to fade the chosen ones.
     private final Map<String,TagBadge>  tagBadges   = new HashMap<>() ;
     private final Map<Integer,TagBadge> topicBadges = new HashMap<>() ;
 
-    TopicTagsPanel( TagClass pass ) {
+    /**
+     * @param toggle called with a clicked badge's payload, and true to add
+     *               it to the chosen set (it isn't faded) or false to take
+     *               it out (it is)
+     */
+    TopicTagsPanel( TagClass pass, BiConsumer<Payload,Boolean> toggle ) {
 
         super( new BorderLayout( 0, 4 ) ) ;
-        this.pass = pass ;
+        this.pass   = pass ;
+        this.toggle = toggle ;
 
         title.setFont( title.getFont().deriveFont( Font.BOLD ) ) ;
         title.setBorder( BorderFactory.createEmptyBorder( 4, 8, 0, 8 ) ) ;
@@ -80,15 +89,16 @@ final class TopicTagsPanel extends JPanel {
         topicBadges.clear() ;
         title.setText( a == null ? "Topic tags"
                                  : "Tags of " + a.topic().getTopicName() ) ;
-        title.setToolTipText( "Drag a tag to the chosen tags below" ) ;
+        title.setToolTipText( "Drag or click a tag to add it to the chosen " +
+                             "tags below; click a faded one to take it out" ) ;
 
         if( a != null ) {
             for( Axis axis : pass.getAxes() ) {
                 section( axis.getHeading() + "  (" +
                          axis.countRule( false ) + ")" ) ;
                 for( CatalogueTag t : a.offered().tags( axis ) ) {
-                    TagBadge b = new TagBadge( t.tagText(), t.hint(), false )
-                                         .draggable( Payload.tag( t.tagText() ) ) ;
+                    TagBadge b = badge( t.tagText(), t.hint(),
+                                        Payload.tag( t.tagText() ) ) ;
                     tagBadges.put( t.tagText(), b ) ;
                     item( b ) ;
                 }
@@ -96,9 +106,9 @@ final class TopicTagsPanel extends JPanel {
             if( pass.hasDependents() ) {
                 section( "Depends on  (own questions)" ) ;
                 for( Topic t : a.otherTopics() ) {
-                    TagBadge b = new TagBadge( "→ " + t.getTopicName(),
-                                               "Topic " + t.getId(), false )
-                                         .draggable( Payload.topic( t.getId() ) ) ;
+                    TagBadge b = badge( "→ " + t.getTopicName(),
+                                        "Topic " + t.getId(),
+                                        Payload.topic( t.getId() ) ) ;
                     topicBadges.put( t.getId(), b ) ;
                     item( b ) ;
                 }
@@ -113,6 +123,16 @@ final class TopicTagsPanel extends JPanel {
         tagBadges.forEach( ( t, b ) -> b.dimmed( tags.contains( t ) ) ) ;
         topicBadges.forEach( ( id, b ) -> b.dimmed( topics.contains( id ) ) ) ;
         list.repaint() ;
+    }
+
+    /**
+     * A badge that can be dragged with {@code p}, and clicked to toggle it
+     * in the chosen set.
+     */
+    private TagBadge badge( String text, String tip, Payload p ) {
+
+        TagBadge b = new TagBadge( text, tip, false ).draggable( p ) ;
+        return b.clickable( () -> toggle.accept( p, !b.isDimmed() ) ) ;
     }
 
     private void section( String heading ) {
