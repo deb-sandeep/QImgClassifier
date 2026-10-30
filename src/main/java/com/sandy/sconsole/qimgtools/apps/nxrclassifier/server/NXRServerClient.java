@@ -38,12 +38,15 @@ public class NXRServerClient {
 
     /**
      * The first {@code batchSize} (1-{@value #MAX_BATCH}) questions, by id,
-     * with no label, and how many there are in all. There is no cursor: a
-     * question stays first until it is labelled.
+     * with no label after {@code afterId} (null: from the first), and how
+     * many there are in all. A server that doesn't know {@code afterId}
+     * ignores it and returns the first ones.
      */
-    public PendingResult pending( int batchSize ) throws ServerException {
+    public PendingResult pending( int batchSize, Integer afterId )
+            throws ServerException {
         return server.get( "/Master/Question/NXR/Pending?batchSize=" +
-                           batchSize,
+                           batchSize +
+                           ( afterId == null ? "" : "&afterId=" + afterId ),
                            new TypeReference<PendingResult>() {} ) ;
     }
 

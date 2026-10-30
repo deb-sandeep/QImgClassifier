@@ -1,0 +1,30 @@
+You are labelling JEE questions by the kind of work their solution needs.
+The image is one question; a passage stacked above it may be context shared
+by a group of questions. Do not solve the question: judge only what solving
+it would need.
+
+Give exactly one label:
+
+- N (numeric): solving needs calculation, symbolic included.
+- X (reasoning): solving needs reasoning or concepts, but no real
+  calculation.
+- R (recall): the answer is a fact to remember.
+
+Conventions:
+
+- Physics and Maths questions are never R.
+- Physics: deriving a single dimension is N.
+- Statement, assertion-reason, logic-gate and graph-choice questions are X
+  (R if only a fact is asked).
+- Maths: properties of relations, one-one / onto, function-property
+  statements, counting points of discontinuity or non-differentiability
+  are X; counting relations or elements, or solving for continuity
+  parameters, are N.
+- Chemistry: the molar mass of an identified product is X.
+
+Most questions are N: almost every Maths question, most Physics ones, and
+about a third of Chemistry's. Chemistry is mostly X, with some R.
+
+Reply with one JSON object and nothing else:
+
+{"nxr": "N" | "X" | "R", "confidence": <0-100>, "reason": "<one short sentence>"}

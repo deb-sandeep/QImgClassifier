@@ -1,0 +1,40 @@
+// The NXR classifier's AI models. Override with -Dai.app.config=<file>.
+// The questions the local classifier leaves undecided go to the "nxr" root,
+// strictly in table order; see the classifier's qimgclassifier.ai.json for
+// what each setting means.
+//
+// The paid Nemotron is used only while the free one is held back by its
+// daily limit, after a server error, or while the free one is set to pass
+// its questions through (Models tab). Without a usable model in the root
+// the app still runs, with asking the AI disabled.
+{
+  "parent" : "classpath:/common/ai-model-config.json",
+
+  "roots" : {
+    "nxr" : [ "nvidia/nemotron-3.5-super-vl:free" ]
+  },
+
+  "models" : {
+    "nvidia/nemotron-3.5-super-vl:free" : {
+      "enabled"               : true,
+      "maxParallel"           : 4,
+      "requestTimeoutSeconds" : 100,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "promptCaching"         : true,
+      "fallback"              : {
+        "rateLimitedRPD" : [ "nvidia/nemotron-3.5-super-vl" ],
+        "serverError"    : [ "nvidia/nemotron-3.5-super-vl" ],
+        "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ]
+      }
+    },
+    "nvidia/nemotron-3.5-super-vl" : {
+      "enabled"               : true,
+      "maxParallel"           : 3,
+      "requestTimeoutSeconds" : 100,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "promptCaching"         : true
+    }
+  }
+}

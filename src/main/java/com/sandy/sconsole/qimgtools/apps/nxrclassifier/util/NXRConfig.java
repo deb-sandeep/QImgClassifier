@@ -1,5 +1,7 @@
 package com.sandy.sconsole.qimgtools.apps.nxrclassifier.util;
 
+import com.sandy.sconsole.ai.config.AIConfig;
+import com.sandy.sconsole.qimgtools.core.util.AIConfigs;
 import com.sandy.sconsole.qimgtools.core.util.ConfigProperties;
 
 import lombok.Getter;
@@ -13,7 +15,9 @@ import static com.sandy.sconsole.qimgtools.apps.nxrclassifier.server.NXRServerCl
  * Settings of the NXR classifier, read from the
  * {@code /apps/nxrclassifier/nxrclassifier.properties} classpath resource
  * (see that file for what each key means). A JVM system property of the
- * same name overrides the file (see {@link ConfigProperties}).
+ * same name overrides the file (see {@link ConfigProperties}). The AI models
+ * asked about the questions the classifier leaves undecided come from the
+ * JSON app config {@link #AI_CONFIG} and its parent.
  * <p>
  * Every key must be present; a missing or malformed value fails
  * {@link #load()} with an {@link IllegalStateException} naming the key.
@@ -24,6 +28,14 @@ public final class NXRConfig {
     /** Classpath location of the configuration file. */
     public static final String RESOURCE =
             "/apps/nxrclassifier/nxrclassifier.properties" ;
+
+    /** Location of the app's AI config, unless {@code -Dai.app.config}. */
+    /** The most questions classified at once. */
+    public static final int MAX_CLASSIFY_THREADS = 16 ;
+
+    /** Location of the app's AI config, unless {@code -Dai.app.config}. */
+    public static final String AI_CONFIG =
+            "classpath:/apps/nxrclassifier/nxrclassifier.ai.json" ;
 
     /** Base URL of the SConsole server, e.g. {@code http://localhost:8080}. */
     private final String   serverUrl ;
@@ -48,6 +60,21 @@ public final class NXRConfig {
     /** The tesseract executable the classifier runs for OCR. */
     private final File tesseractBin ;
 
+    /** Questions classified at once (1-{@value #MAX_CLASSIFY_THREADS}). */
+    private final int classifyThreads ;
+
+    /** Request times of the current UTC day, behind the per-day limits. */
+    private final File requestHistoryFile ;
+
+    /** One row per AI attempt with its token counts. */
+    private final File usageLogFile ;
+
+    /**
+     * The models asked about undecided questions, from {@link #AI_CONFIG}
+     * or the file {@code -Dai.app.config} names.
+     */
+    private final AIConfig ai ;
+
     private NXRConfig( ConfigProperties props ) {
 
         serverUrl            = props.str( "server.url" ) ;
@@ -60,13 +87,21 @@ public final class NXRConfig {
         batchSize    = props.wholeNumber( "nxr.batch.size", 1, MAX_BATCH ) ;
         modelFile    = props.path( "nxr.model.file" ) ;
         tesseractBin = props.path( "nxr.tesseract.bin" ) ;
+
+        classifyThreads = props.wholeNumber( "nxr.classify.threads", 1,
+                                             MAX_CLASSIFY_THREADS ) ;
+
+        requestHistoryFile = props.workspacePath( "request.history.file" ) ;
+        usageLogFile       = props.workspacePath( "usage.log.file" ) ;
+
+        ai = AIConfigs.load( AI_CONFIG ) ;
     }
 
     /**
      * Read the settings from {@link #RESOURCE} and system properties.
      *
      * @throws IllegalStateException if the resource is missing or unreadable,
-     *         or a key is missing or malformed
+     *         a key is missing or malformed, or the AI config is invalid
      */
     public static NXRConfig load() {
         return new NXRConfig( ConfigProperties.load( RESOURCE ) ) ;

@@ -1,5 +1,6 @@
 package com.sandy.sconsole.qimgtools.apps.nxrclassifier.workspace;
 
+import com.sandy.sconsole.qimgtools.apps.nxrclassifier.model.NXRReply;
 import com.sandy.sconsole.qimgtools.apps.nxrclassifier.model.NXRSaveResult;
 import com.sandy.sconsole.qimgtools.apps.nxrclassifier.model.NXRUpdate;
 import com.sandy.sconsole.qimgtools.core.server.ServerQuestion;
@@ -23,12 +24,14 @@ import java.time.Instant;
  * <pre>
  * { "time", "serverId", "questionId", "sourceId", "problemType",
  *   "suggested" : "N" | "X" | "R" | null, "confidence", "method",
- *   "reason", "value" : "N" | "X" | "R", "by" : "classifier" | "user",
- *   "status" : "APPLIED" | "UNCHANGED" }
+ *   "reason", "ai" : "N" | "X" | "R" | null, "aiModel", "aiConfidence",
+ *   "aiReason", "value" : "N" | "X" | "R",
+ *   "by" : "classifier" | "ai" | "user", "status" : "APPLIED" | "UNCHANGED" }
  * </pre>
  * {@code confidence}, {@code method} and {@code reason} are the
  * classifier's (null if it didn't run), so a later model can re-run only
- * its {@code MODEL} labels, and a re-run can leave the user's alone.
+ * its {@code MODEL} labels, and a re-run can leave the user's alone; the
+ * {@code ai} fields are the AI model's, null if none answered.
  * Thread-safe.
  */
 public final class NXRAuditLog {
@@ -67,8 +70,13 @@ public final class NXRAuditLog {
             line.putNull( "method" ) ;
             line.putNull( "reason" ) ;
         }
+        NXRReply ai = u.ai() ;
+        line.put( "ai", ai == null ? null : ai.value().name() ) ;
+        line.put( "aiModel", ai == null ? null : ai.model() ) ;
+        line.put( "aiConfidence", ai == null ? null : ai.confidence() ) ;
+        line.put( "aiReason", ai == null ? null : ai.reason() ) ;
         line.put( "value", u.value().name() ) ;
-        line.put( "by", u.byUser() ? "user" : "classifier" ) ;
+        line.put( "by", u.by().wire() ) ;
         line.put( "status", r.status().name() ) ;
         append( line ) ;
     }

@@ -2,7 +2,9 @@ package com.sandy.sconsole.qimgtools.apps.nxrclassifier.ui;
 
 import com.sandy.sconsole.qimgtools.apps.nxrclassifier.model.NXRValue;
 import com.sandy.sconsole.qimgtools.apps.nxrclassifier.ui.NXRTableModel.Row;
+import com.sandy.sconsole.qimgtools.apps.nxrclassifier.model.NXRStatus;
 import com.sandy.sconsole.qimgtools.core.server.ServerQuestion;
+import com.sandy.sconsole.qimgtools.core.util.ModelNames;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -19,8 +21,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The selected question's facts and its labels (the classifier's and the one
- * to save) above three large buttons, N, X and R, that label it, and one that
+ * The selected question's facts and its labels (the classifier's, the AI's
+ * and the one to save) above three large buttons, N, X and R, that label it, and one that
  * clears the user's label. With several questions selected it says only
  * "Multiple selections", and a button labels each of them. Keys 1-4 (and N,
  * X, R) on the frame's table press these buttons ({@link #press}). Use on
@@ -52,11 +54,13 @@ final class NXRDecisionPanel extends JPanel {
     private static final float BUTTON_FONT_SIZE = 18f ;
     private static final int   BUTTON_HEIGHT    = 56 ;
 
-    private final Actions actions ;
+    private final Actions    actions ;
+    private final ModelNames names ;
 
     private final JLabel heading    = new JLabel( " " ) ;
     private final JLabel facts      = new JLabel( " " ) ;
     private final JLabel classifier = new JLabel( " " ) ;
+    private final JLabel ai         = new JLabel( " " ) ;
 
     private final Map<NXRValue,JButton> buttons =
             new EnumMap<>( NXRValue.class ) ;
@@ -74,10 +78,12 @@ final class NXRDecisionPanel extends JPanel {
     /** The rows shown; empty when none is. */
     private List<Row> rows = List.of() ;
 
-    NXRDecisionPanel( Actions actions ) {
+    /** @param names the names models are shown by */
+    NXRDecisionPanel( Actions actions, ModelNames names ) {
 
         super( new BorderLayout( 0, 6 ) ) ;
         this.actions = actions ;
+        this.names   = names ;
 
         setBorder( BorderFactory.createTitledBorder( "Label" ) ) ;
         heading.setFont( heading.getFont().deriveFont( Font.BOLD ) ) ;
@@ -86,6 +92,7 @@ final class NXRDecisionPanel extends JPanel {
         labels.add( heading ) ;
         labels.add( facts ) ;
         labels.add( classifier ) ;
+        labels.add( ai ) ;
 
         JPanel row = new JPanel( new GridLayout( 1, 0, 6, 0 ) ) ;
         int    key = 1 ;
@@ -131,6 +138,7 @@ final class NXRDecisionPanel extends JPanel {
         this.rows = List.copyOf( rows ) ;
         facts.setText( " " ) ;
         classifier.setText( " " ) ;
+        ai.setText( " " ) ;
         enableButtons() ;
         markChosen( null ) ;
         markGuess( null ) ;
@@ -150,6 +158,7 @@ final class NXRDecisionPanel extends JPanel {
                        ( q.getAnswer() == null ? "-" : q.getAnswer() ) +
                        "    Syllabus: " + q.getSyllabusName() ) ;
         classifier.setText( "Classifier: " + classifierText( row ) ) ;
+        ai.setText( "AI: " + aiText( row ) ) ;
         markChosen( row.value() ) ;
         markGuess( guess( row ) ) ;
     }
@@ -162,6 +171,16 @@ final class NXRDecisionPanel extends JPanel {
             case FAILED  -> "failed" ;
             default      -> row.classifierText() ;
         } ;
+    }
+
+    /** The AI's label of {@code row} and its model, or why there is none. */
+    private String aiText( Row row ) {
+
+        if( row.ai != null ) {
+            return row.ai.describe() + "  - " + names.of( row.ai.model() ) ;
+        }
+        return row.status == NXRStatus.ASKING_AI ? "asked, no answer yet"
+                                                 : "not asked" ;
     }
 
     /** Re-show the current rows after {@code changed} changed. */

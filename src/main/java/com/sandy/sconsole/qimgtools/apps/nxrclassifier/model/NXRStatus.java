@@ -14,8 +14,14 @@ public enum NXRStatus {
     /** The classifier gave a label; it is saved as it is. */
     CLASSIFIED( "Classified" ),
 
-    /** The classifier gave no label; awaits the user's. */
+    /** The classifier gave no label; awaits the user's, or the AI's. */
     UNDECIDED( "Undecided" ),
+
+    /** Sent to an AI model, as the classifier gave no label. */
+    ASKING_AI( "Asking AI" ),
+
+    /** An AI model gave the label the classifier didn't; saved as it is. */
+    AI_LABELLED( "AI labelled" ),
 
     /** The question's images are not in the question bank. */
     NO_IMAGES( "No local images" ),

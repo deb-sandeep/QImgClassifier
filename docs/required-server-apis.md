@@ -175,3 +175,29 @@ instead, because only that one refuses to overwrite a user's decision.
 
 Provenance in `QuestionVO` (`topicAssocActor`, `topicAssocAiModel`,
 `topicAssocConfidence`) may now be `null`, which means unknown.
+
+## 3. NXR pending fetch: an `afterId` cursor (requested 2026-10-30)
+
+`GET /Master/Question/NXR/Pending?batchSize=1..100` (see
+`SConsoleNxt/doc/feature-enhancements/2026-10-30/nxr-classification/api-changes.md`)
+always returns the first unlabelled questions by id. The NXR classifier
+leaves some questions unlabelled (no local or AI label, awaiting the user),
+so once a batch's worth of them pile up every fetch returns the same ones.
+
+Requested: an optional `afterId` parameter, as the tagger's pending fetches
+have:
+
+```
+GET /Master/Question/NXR/Pending?batchSize=50&afterId=1234
+```
+
+- Returns the first `batchSize` questions with `nxrValue` null and
+  `id > afterId`, by id. Without `afterId`, from the first, as now.
+- `totalResults` stays the count of all unlabelled questions, whatever
+  `afterId` is.
+- `afterId` not a whole number → HTTP 400.
+
+The client already sends it (`NXRServerClient.pending`): Load fetches after
+the last question loaded, Load from start without the parameter. Until the
+server reads it, the parameter is ignored and every fetch starts from the
+first.

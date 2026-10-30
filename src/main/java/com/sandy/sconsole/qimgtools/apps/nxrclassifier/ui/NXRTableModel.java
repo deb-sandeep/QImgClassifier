@@ -1,6 +1,7 @@
 package com.sandy.sconsole.qimgtools.apps.nxrclassifier.ui;
 
 import com.sandy.sconsole.qimgtools.apps.nxrclassifier.model.NXRItem;
+import com.sandy.sconsole.qimgtools.apps.nxrclassifier.model.NXRReply;
 import com.sandy.sconsole.qimgtools.apps.nxrclassifier.model.NXRStatus;
 import com.sandy.sconsole.qimgtools.apps.nxrclassifier.model.NXRUpdate;
 import com.sandy.sconsole.qimgtools.apps.nxrclassifier.model.NXRValue;
@@ -14,10 +15,12 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 
 /**
  * The NXR classifier's table: one row per question awaiting its label, with
- * the classifier's label, the one to save, and where the question stands.
+ * the classifier's label, the AI's, the one to save, and where the question
+ * stands.
  * All state lives here and is touched on the EDT only.
  */
 @SuppressWarnings( "serial" )
@@ -30,13 +33,14 @@ final class NXRTableModel extends AbstractTableModel
     static final int COL_TYPE       = 3 ;
     static final int COL_CLASSIFIER = 4 ;
     static final int COL_CONFIDENCE = 5 ;
-    static final int COL_LABEL      = 6 ;
-    static final int COL_STATUS     = 7 ;
-    static final int COL_SAVED      = 8 ;
+    static final int COL_AI         = 6 ;
+    static final int COL_LABEL      = 7 ;
+    static final int COL_STATUS     = 8 ;
+    static final int COL_SAVED      = 9 ;
 
     private static final String[] COLUMNS = {
-            "Id", "Source", "Question", "Type", "Classifier", "Conf %", "Label",
-            "Status", ""
+            "Id", "Source", "Question", "Type", "Classifier", "Conf %", "AI",
+            "Label", "Status", ""
     } ;
 
     /** One question and everything that has happened to it. */
@@ -54,6 +58,9 @@ final class NXRTableModel extends AbstractTableModel
 
         /** The classifier's label; null if it gave none (or hasn't run). */
         NXRValue suggested ;
+
+        /** The AI model's reply; null if none was asked or answered. */
+        NXRReply ai ;
 
         /** The user's label; null if the user chose none. */
         NXRValue chosen ;
@@ -80,9 +87,37 @@ final class NXRTableModel extends AbstractTableModel
             this.classifiedStatus = status ;
         }
 
-        /** The label to save: the user's, else the classifier's; or null. */
+        /**
+         * The label to save: the user's, else the classifier's, else the
+         * AI's; or null.
+         */
         NXRValue value() {
-            return chosen != null ? chosen : suggested ;
+            return chosen != null    ? chosen
+                 : suggested != null ? suggested
+                 : ai != null        ? ai.value()
+                 : null ;
+        }
+
+        /**
+         * Whose label {@link #value} is: the classifier's or the AI's if
+         * it is theirs, even when the user chose it again; else the user's.
+         */
+        NXRUpdate.By by() {
+
+            NXRValue v = value() ;
+            if( v == suggested ) return NXRUpdate.By.CLASSIFIER ;
+            if( ai != null && v == ai.value() ) return NXRUpdate.By.AI ;
+            return NXRUpdate.By.USER ;
+        }
+
+        /**
+         * True if it may be sent to the AI: the classifier gave no label,
+         * the user chose none, and it isn't with the AI or being saved.
+         */
+        boolean isAskable() {
+            return item.hasImages() && suggested == null && chosen == null
+                   && ( status == NXRStatus.UNDECIDED
+                        || status == NXRStatus.AI_LABELLED ) ;
         }
 
         /**
@@ -100,6 +135,7 @@ final class NXRTableModel extends AbstractTableModel
         boolean isSavable() {
             return value() != null
                    && ( status == NXRStatus.CLASSIFIED
+                        || status == NXRStatus.AI_LABELLED
                         || status == NXRStatus.DECIDED
                         || status == NXRStatus.ERROR ) ;
         }
@@ -112,7 +148,7 @@ final class NXRTableModel extends AbstractTableModel
 
         /** The update Save sends for it. */
         NXRUpdate update() {
-            return new NXRUpdate( item, value(), result ) ;
+            return new NXRUpdate( item, value(), by(), result, ai ) ;
         }
 
         /**
@@ -156,6 +192,49 @@ final class NXRTableModel extends AbstractTableModel
         fireTableDataChanged() ;
     }
 
+    /**
+     * Add a row for each of {@code items} after those shown.
+     *
+     * @return the rows added
+     */
+    List<Row> addItems( List<NXRItem> items ) {
+
+        int       first = rows.size() ;
+        List<Row> added = new ArrayList<>() ;
+
+        for( NXRItem item : items ) {
+            Row row = new Row( item ) ;
+            rows.add( row ) ;
+            byId.put( item.id(), row ) ;
+            added.add( row ) ;
+        }
+        if( !added.isEmpty() ) {
+            fireTableRowsInserted( first, rows.size() - 1 ) ;
+        }
+        return added ;
+    }
+
+    /** True if the question with server id {@code id} has a row. */
+    boolean has( int id ) {
+        return byId.containsKey( id ) ;
+    }
+
+    /**
+     * Drop the rows {@code test} accepts.
+     *
+     * @return how many were dropped
+     */
+    int removeIf( Predicate<Row> test ) {
+
+        List<Row> gone = rows.stream().filter( test ).toList() ;
+        if( gone.isEmpty() ) return 0 ;
+
+        rows.removeAll( gone ) ;
+        gone.forEach( r -> byId.remove( r.item.id() ) ) ;
+        fireTableDataChanged() ;
+        return gone.size() ;
+    }
+
     @Override
     public List<Row> rows() {
         return rows ;
@@ -174,8 +253,8 @@ final class NXRTableModel extends AbstractTableModel
 
     @Override
     public boolean enumerable( int col ) {
-        return col == COL_SOURCE || col == COL_TYPE
-               || col == COL_CLASSIFIER || col == COL_STATUS ;
+        return col == COL_SOURCE || col == COL_TYPE || col == COL_CLASSIFIER
+               || col == COL_AI || col == COL_STATUS ;
     }
 
     @Override
@@ -263,6 +342,8 @@ final class NXRTableModel extends AbstractTableModel
             case COL_CONFIDENCE -> row.result == null ? null
                                    : (Integer) (int) Math.round(
                                            row.result.confidence() * 100 ) ;
+            case COL_AI         -> row.ai == null ? ""
+                                                  : row.ai.value().name() ;
             case COL_LABEL      -> labelText( row ) ;
             case COL_STATUS     -> row.status.getLabel() ;
             case COL_SAVED      -> row.status == NXRStatus.SAVED ;
@@ -287,12 +368,19 @@ final class NXRTableModel extends AbstractTableModel
         return Math.round( r.confidence() * 100 ) + "%" ;
     }
 
-    /** "R  Recall", or "[U] X  Reasoning" for the user's; blank for none. */
+    /**
+     * "R  Recall" for the classifier's, "[AI] X  Reasoning" for the AI's,
+     * "[U] X  Reasoning" for the user's; blank for none.
+     */
     private static String labelText( Row row ) {
 
         NXRValue v = row.value() ;
         if( v == null ) return "" ;
-        return ( row.chosen != null && row.chosen != row.suggested
-                 ? "[U] " : "" ) + v.describe() ;
+        String by = switch( row.by() ) {
+            case CLASSIFIER -> "" ;
+            case AI         -> "[AI] " ;
+            case USER       -> "[U] " ;
+        } ;
+        return by + v.describe() ;
     }
 }
