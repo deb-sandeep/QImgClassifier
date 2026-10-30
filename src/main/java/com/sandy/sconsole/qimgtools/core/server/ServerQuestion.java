@@ -62,6 +62,13 @@ public class ServerQuestion {
     private boolean autoConceptTaggingNeeded ;
 
     /**
+     * The question's NXR label: {@code N} (numeric), {@code X} (reasoning)
+     * or {@code R} (recall); null until classified. Output only: set on the
+     * server by its NXR endpoints, never sent back by this app.
+     */
+    private String nxrValue ;
+
+    /**
      * The other topics of its syllabus the question's solution depends on;
      * null where the server didn't load them (every fetch but the tagger's).
      */
