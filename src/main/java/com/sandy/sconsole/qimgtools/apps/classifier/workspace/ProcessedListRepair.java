@@ -17,10 +17,14 @@ import java.util.Set;
 /**
  * Re-syncs the {@link ProcessedList} with the sources' topic maps. Every
  * source in the source list - plus any extra name already in the processed
- * list - is checked: a listed source with an unclassified question (one
- * missing from its {@code ai-topic-map.json}) is removed, an unlisted source
- * whose questions are all classified is added. A source whose folder cannot
- * be found is left as it is.
+ * list - is checked: a listed source with a question that is unclassified
+ * (missing from its {@code ai-topic-map.json}) or has no topic in its
+ * {@code question-info.json} is removed, an unlisted source whose questions
+ * are all classified and have a topic is added. A source whose folder cannot
+ * be found is left as it is. A source synced to the SConsole server counts
+ * as complete before its questions are looked at. The classifier gives a
+ * removed source's classified questions their topics when it next loads the
+ * source.
  */
 @Slf4j
 @NoArgsConstructor( access = AccessLevel.PRIVATE )
@@ -34,15 +38,23 @@ public final class ProcessedListRepair {
         int sourcesChecked ;
         int questionsChecked ;
         int imagesChecked ;
+
+        /** Questions unclassified or without a topic. */
         int questionsUnassociated ;
-        final List<String> added            = new ArrayList<>() ;
+
+        /** Questions classified but without a topic. */
+        int questionsWithoutTopic ;
+        final List<String> added = new ArrayList<>() ;
 
         /**
          * Sources taken off the processed list (they have unclassified
-         * questions again).
+         * questions, or questions without a topic, again).
          */
         @Getter
         final List<String> removed = new ArrayList<>() ;
+
+        /** Synced to the server, so complete without checking its questions. */
+        int serverSynced ;
 
         /** Complete and already listed. */
         final List<String> keptListed = new ArrayList<>() ;
@@ -74,9 +86,11 @@ public final class ProcessedListRepair {
                   .append( error ).append( "\n\n" ) ;
             }
             int untouched = keptListed.size() + keptUnlisted.size() ;
-            appendStat( sb, "Sources checked", sourcesChecked, null ) ;
+            appendStat( sb, "Sources checked", sourcesChecked,
+                        serverSynced + " server synced" ) ;
             appendStat( sb, "Questions checked", questionsChecked,
-                        questionsUnassociated + " not associated" ) ;
+                        questionsUnassociated + " not associated, of them " +
+                        questionsWithoutTopic + " classified" ) ;
             appendStat( sb, "Images checked", imagesChecked, null ) ;
             appendStat( sb, "Added to processed list", added.size(), null ) ;
             appendStat( sb, "Removed from list", removed.size(), null ) ;
@@ -212,6 +226,12 @@ public final class ProcessedListRepair {
         }
         r.sourcesChecked++ ;
 
+        if( QuestionTopicAssociator.isServerSynced( srcDir ) ) {
+            r.serverSynced++ ;
+            record( srcName, listed, true, updated, r ) ;
+            return ;
+        }
+
         Map<String,List<File>> groups =
                 FileHelper.getQuestionImgGroups( srcDir, questionFilter ) ;
         boolean complete ;
@@ -223,16 +243,29 @@ public final class ProcessedListRepair {
         else {
             Set<String> classified =
                     WorkspaceTopicMap.classifiedQuestionIds( srcDir ) ;
+            Set<String> assigned   =
+                    QuestionTopicAssociator.assignedTopicIds( srcDir ).keySet() ;
             int unassociated = 0 ;
 
             for( Map.Entry<String,List<File>> e : groups.entrySet() ) {
+                boolean isClassified = classified.contains( e.getKey() ) ;
+                boolean hasTopic     = assigned.contains( e.getKey() ) ;
+
                 r.questionsChecked++ ;
                 r.imagesChecked += e.getValue().size() ;
-                if( !classified.contains( e.getKey() ) ) unassociated++ ;
+                if( !isClassified || !hasTopic ) unassociated++ ;
+                if( isClassified && !hasTopic ) r.questionsWithoutTopic++ ;
             }
             r.questionsUnassociated += unassociated ;
             complete = unassociated == 0 ;
         }
+        record( srcName, listed, complete, updated, r ) ;
+    }
+
+    /** Add or remove the source as its completeness asks, and report it. */
+    private static void record( String srcName, boolean listed,
+                                boolean complete, Set<String> updated,
+                                Report r ) {
 
         if( complete && !listed ) {
             updated.add( srcName ) ;

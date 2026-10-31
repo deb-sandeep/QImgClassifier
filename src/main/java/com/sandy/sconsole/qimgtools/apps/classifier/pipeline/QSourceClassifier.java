@@ -9,8 +9,10 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Discovers the questions of one source folder. Classification is scheduled
@@ -32,7 +34,10 @@ public class QSourceClassifier {
 
     /**
      * Fire {@code taskDiscovered} for every question of this source (part
-     * images are folded into their parent question).
+     * images are folded into their parent question). A classified question
+     * with no topic in question-info.json (classified before association
+     * took every reply, or its topic lost to a QImgExtractor save) gets the
+     * topic chosen from its stored recommendations first, with no AI call.
      *
      * @return the tasks with no stored classification, in question order
      */
@@ -52,6 +57,10 @@ public class QSourceClassifier {
                 QuestionTopicAssociator.assignedTopicIds( srcDir ) ;
         ClassificationListener listener = classifier.getListener() ;
 
+        Set<String> classified = new HashSet<>( stored.keySet() ) ;
+        classified.retainAll( groups.keySet() ) ;
+        associateMissing( classified, assignedIds, aiTopicIds ) ;
+
         List<QTask> pending = new ArrayList<>() ;
         for( Map.Entry<String,List<File>> e : groups.entrySet() ) {
             String qId  = e.getKey() ;
@@ -68,5 +77,34 @@ public class QSourceClassifier {
         log.debug( "Source {} - {} of {} questions pending",
                    srcDir.getName(), pending.size(), groups.size() ) ;
         return pending ;
+    }
+
+    /**
+     * Associate the topic of each of {@code classified} that has none in
+     * {@code assignedIds}, adding the ones written to it.
+     */
+    private void associateMissing( Set<String> classified,
+                                   Map<String,Integer> assignedIds,
+                                   Map<String,Integer> aiTopicIds ) {
+
+        int associated = 0 ;
+        for( String qId : classified ) {
+            if( assignedIds.containsKey( qId ) ) continue ;
+
+            QuestionTopicAssociator.Outcome outcome =
+                    QuestionTopicAssociator.associate( srcDir, qId ) ;
+            if( outcome == QuestionTopicAssociator.Outcome.ASSOCIATED ) {
+                assignedIds.put( qId, aiTopicIds.get( qId ) ) ;
+                associated++ ;
+            }
+            else {
+                log.warn( "Source {} - {} is classified but has no topic: {}",
+                          srcDir.getName(), qId, outcome ) ;
+            }
+        }
+        if( associated > 0 ) {
+            log.info( "Source {} - associated the topics of {} classified " +
+                      "questions", srcDir.getName(), associated ) ;
+        }
     }
 }

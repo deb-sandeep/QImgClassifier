@@ -17,7 +17,7 @@ final class RepairProgressDialog extends JDialog {
 
     private final JProgressBar bar       = new JProgressBar() ;
     private final JLabel       current =
-            new JLabel( "Waiting for discovery to finish..." ) ;
+            new JLabel( "Starting..." ) ;
     private final JLabel       done      = new JLabel( "-" ) ;
     private final JLabel       remaining = new JLabel( "-" ) ;
     private final JLabel       questions = new JLabel( "-" ) ;

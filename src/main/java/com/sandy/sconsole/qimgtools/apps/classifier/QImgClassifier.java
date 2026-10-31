@@ -10,6 +10,9 @@ import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.QuestionClassifier;
 import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
 import com.sandy.sconsole.qimgtools.core.sequence.TopicSequenceGenerator;
 import com.sandy.sconsole.qimgtools.core.server.SConsoleServer;
+import com.sandy.sconsole.qimgtools.apps.classifier.model.TaskStatus;
+import com.sandy.sconsole.qimgtools.core.model.AIAgent;
+import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
 import com.sandy.sconsole.qimgtools.core.model.ProcessingState;
 import com.sandy.sconsole.qimgtools.core.model.QTask;
 import com.sandy.sconsole.qimgtools.core.model.RateLimitNotice;
@@ -37,21 +40,35 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.BlockingDeque;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
  * Application entry point and batch orchestrator.
  * <p>
- * Discovery walks the sources named in {@code qclassifier.sources.txt} (minus
- * those already in the processed list) and builds a plan of pending tasks per
- * source. Start queues every pending question of the plan with the
- * {@link TaskScheduler}, whose AI hub shares them out across the models of
- * the app's AI config by subject ({@link ClassifierRouting}), and waits on a
- * batch thread until they are done. Stop is
- * cooperative: running tasks finish, no new ones start.
+ * Loading and submitting are decoupled by a blocking queue. A loader thread
+ * discovers the sources named in {@code qclassifier.sources.txt} (minus those
+ * already in the processed list) one at a time, keeping at most
+ * {@link #MAX_LOADED_SOURCES} with unsettled questions, and puts their
+ * pending questions on {@link #ready}. Start runs a batch thread that takes
+ * them from there and hands them to the {@link TaskScheduler}, whose AI hub
+ * shares them out across the models of the app's AI config by subject
+ * ({@link ClassifierRouting}), keeping at most {@link #MAX_QUEUED_QUESTIONS}
+ * in the hub. A source is unloaded once each of its questions has finished
+ * (classified or failed), which lets the loader take the next. Stop is
+ * cooperative: running tasks finish, no new ones start, and the questions
+ * dropped unstarted go back to the front of {@link #ready}.
  * <p>
  * Runs with the {@link QClassifierFrame} UI, or with {@code --headless} to
  * process the whole backlog once and exit.
@@ -68,6 +85,15 @@ public class QImgClassifier implements QClassifierFrame.Controller {
 
     /** Classpath folder of the prompt templates and syllabus files. */
     private static final String PROMPT_DIR = "/apps/classifier/" ;
+
+    /** Most sources loaded with questions not yet finished. */
+    private static final int MAX_LOADED_SOURCES = 15 ;
+
+    /** Most batch questions queued or running in the AI hub. */
+    private static final int MAX_QUEUED_QUESTIONS = 50 ;
+
+    /** How long the batch thread waits on {@link #ready} at a time. */
+    private static final long POLL_MS = 500 ;
 
     private final QClassifierConfig  config ;
     private final ProcessedList      processedList ;
@@ -86,14 +112,43 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     private volatile boolean stopRequested = false ;
     private volatile Thread  batchThread ;
 
-    /**
-     * Pending work per source, in source-list order; null until discovery has
-     * run.
-     */
-    private volatile List<SourceWork> plan ;
+    /** Source names waiting for the loader, in source-list order. */
+    private final BlockingQueue<String> toLoad = new LinkedBlockingQueue<>() ;
 
-    /** A source and the tasks it had pending at discovery. */
-    private record SourceWork( QSourceClassifier sc, List<QTask> pending ) {}
+    /**
+     * Source names put on {@link #toLoad} whose questions are not yet all on
+     * {@link #ready}.
+     */
+    private final AtomicInteger namesPending = new AtomicInteger() ;
+
+    /**
+     * Pending questions of the loaded sources, waiting for the batch thread;
+     * the loader adds at the end, a stop puts dropped ones back at the front.
+     */
+    private final BlockingDeque<QTask> ready = new LinkedBlockingDeque<>() ;
+
+    /**
+     * Guards {@link #unsettled}, {@link #submitted}, {@link #seen} and
+     * {@link #sourceCount}; the loader waits on it for a free source slot.
+     */
+    private final Object loadLock = new Object() ;
+
+    /**
+     * Per loaded source, the ids of its pending questions not yet finished;
+     * a source leaves once none is left.
+     */
+    private final Map<File,Set<String>> unsettled = new HashMap<>() ;
+
+    /** Questions this batch handed to the scheduler, in order. */
+    private final List<QTask> submitted = new ArrayList<>() ;
+
+    /** Source names ever put on {@link #toLoad}. */
+    private final Set<String> seen = new HashSet<>() ;
+
+    private int sourceCount ;
+    private int sourcesLoaded ;
+
+    private volatile Thread loaderThread ;
 
     /** @param listener receives discovery and task events; may be null */
     public QImgClassifier( ClassificationListener listener,
@@ -108,7 +163,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
                                               : ClassificationListener.NOOP ;
         this.processedList = new ProcessedList( config.getProcessedListFile() ) ;
         this.classifier    = new QuestionClassifier(
-                this.listener, processedList,
+                new SettlingListener( this.listener ), processedList,
                 new TranscriptStore( config.getWorkspaceDir() ),
                 new UsageLog( config.getUsageLogFile() ),
                 config.getQuestionFilter() ) ;
@@ -171,6 +226,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
         if( headless ) {
             QImgClassifier app = new QImgClassifier( ClassificationListener.NOOP,
                                                      config ) ;
+            app.startLoading() ;
             app.startProcessing() ;
             app.awaitBatch() ;
             app.shutdown() ;
@@ -199,53 +255,138 @@ public class QImgClassifier implements QClassifierFrame.Controller {
             return ;
         }
 
-        // Populate the table with the current backlog; processing waits for
-        // Start.
-        new Thread( holder[0]::ensureDiscovered, "qclassifier-discover" ).start() ;
+        // Populate the table with the first sources of the backlog;
+        // processing waits for Start.
+        holder[0].startLoading() ;
     }
 
-    // ---- discovery ---------------------------------------------------
+    // ---- loading -----------------------------------------------------
 
     /**
-     * Build {@link #plan} once: discover every listed, not-yet-processed
-     * source.
+     * Queue every listed, not-yet-processed source for loading and start the
+     * loader thread. Call once.
      */
-    private synchronized void ensureDiscovered() {
+    private void startLoading() {
 
-        if( plan != null ) return ;
-
-        Set<String>  processed = processedList.load() ;
-        List<String> sources   = loadSourceNames() ;
-        List<SourceWork> p = new ArrayList<>() ;
-
-        for( int i = 0 ; i < sources.size() ; i++ ) {
-            String srcName = sources.get( i ) ;
-            listener.batchProgress( i + 1, sources.size(), srcName ) ;
-            if( processed.contains( srcName ) ) continue ;
-            SourceWork sw = discoverSource( srcName ) ;
-            if( sw != null ) p.add( sw ) ;
+        Set<String> processed = processedList.load() ;
+        for( String srcName : loadSourceNames() ) {
+            if( !processed.contains( srcName ) ) enqueueSource( srcName ) ;
         }
-        plan = p ;
-        int pendingCount = p.stream().mapToInt( sw -> sw.pending().size() ).sum() ;
+        loaderThread = new Thread( this::runLoader, "qclassifier-loader" ) ;
+        loaderThread.setDaemon( true ) ;
+        loaderThread.start() ;
+    }
 
-        log.info( "Discovered {} pending tasks across {} sources",
-                  pendingCount, p.size() ) ;
+    /** Put {@code srcName} on {@link #toLoad}, unless it was put there before. */
+    private void enqueueSource( String srcName ) {
+
+        synchronized( loadLock ) {
+            if( !seen.add( srcName ) ) return ;
+            sourceCount++ ;
+        }
+        namesPending.incrementAndGet() ;
+        toLoad.add( srcName ) ;
     }
 
     /**
-     * Locate and discover one source; null (and an error logged) if its folder
-     * cannot be found.
+     * Loader thread body: load each queued source in turn, once fewer than
+     * {@link #MAX_LOADED_SOURCES} are loaded. Runs until interrupted.
      */
-    private SourceWork discoverSource( String srcName ) {
+    private void runLoader() {
+
+        try {
+            while( true ) {
+                String srcName = toLoad.take() ;
+                try {
+                    awaitSourceSlot() ;
+                    loadSource( srcName ) ;
+                }
+                catch( RuntimeException e ) {
+                    log.error( "Error loading source {}", srcName, e ) ;
+                }
+                finally {
+                    namesPending.decrementAndGet() ;
+                }
+            }
+        }
+        catch( InterruptedException e ) {
+            Thread.currentThread().interrupt() ;
+        }
+    }
+
+    /** Block until fewer than {@link #MAX_LOADED_SOURCES} are loaded. */
+    private void awaitSourceSlot() throws InterruptedException {
+        synchronized( loadLock ) {
+            while( unsettled.size() >= MAX_LOADED_SOURCES ) loadLock.wait() ;
+        }
+    }
+
+    /**
+     * Discover one source and put its pending questions on {@link #ready}.
+     * A source that cannot be found is logged and skipped.
+     */
+    private void loadSource( String srcName ) {
+
+        int index, count ;
+        synchronized( loadLock ) {
+            index = ++sourcesLoaded ;
+            count = sourceCount ;
+        }
+        listener.batchProgress( index, count, srcName ) ;
 
         File srcDir = FileHelper.findDir( config.getQBankDir(), srcName ) ;
         if( srcDir == null ) {
             log.error( "Source directory {} not found under {}",
                        srcName, config.getQBankDir() ) ;
-            return null ;
+            return ;
         }
-        QSourceClassifier sc = new QSourceClassifier( srcDir, classifier ) ;
-        return new SourceWork( sc, sc.discover() ) ;
+        if( QuestionTopicAssociator.isServerSynced( srcDir ) ) {
+            log.info( "Source {} is synced to the server - marked processed, " +
+                      "not loaded", srcName ) ;
+            processedList.add( srcName ) ;
+            return ;
+        }
+        List<QTask> pending =
+                new QSourceClassifier( srcDir, classifier ).discover() ;
+
+        // Covers a source with nothing pending that was never listed.
+        classifier.markProcessedIfComplete( srcDir ) ;
+        if( pending.isEmpty() ) return ;
+
+        synchronized( loadLock ) {
+            unsettled.put( srcDir, pending.stream()
+                                          .map( QTask::getQuestionId )
+                                          .collect( Collectors.toSet() ) ) ;
+        }
+        ready.addAll( pending ) ;
+        log.info( "Loaded source {} ({} of {}) - {} questions pending",
+                  srcName, index, count, pending.size() ) ;
+    }
+
+    /**
+     * The task finished (or was associated by hand): off its source's
+     * unsettled questions, unloading the source once none is left.
+     */
+    private void settled( QTask task ) {
+
+        synchronized( loadLock ) {
+            Set<String> ids = unsettled.get( task.getSrcDir() ) ;
+            if( ids == null || !ids.remove( task.getQuestionId() ) ) return ;
+            if( ids.isEmpty() ) {
+                unsettled.remove( task.getSrcDir() ) ;
+                loadLock.notifyAll() ;
+                log.debug( "Source {} settled - unloaded",
+                           task.getSrcDir().getName() ) ;
+            }
+        }
+    }
+
+    /** True if {@code task} is pending in a loaded source. */
+    private boolean isUnsettled( QTask task ) {
+        synchronized( loadLock ) {
+            Set<String> ids = unsettled.get( task.getSrcDir() ) ;
+            return ids != null && ids.contains( task.getQuestionId() ) ;
+        }
     }
 
     /** True while a batch runs and no stop has been requested. */
@@ -260,7 +401,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
         if( !processing.compareAndSet( false, true ) ) return ;
         stopRequested = false ;
         listener.processingStateChanged( ProcessingState.RUNNING ) ;
-        batchThread = new Thread( this::runPlan, "qclassifier-batch" ) ;
+        batchThread = new Thread( this::runBatch, "qclassifier-batch" ) ;
         batchThread.start() ;
     }
 
@@ -276,32 +417,34 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     }
 
     /**
-     * Batch thread body: queue the still-unclassified questions of every
-     * planned source, then wait until they are done or the stop has wound
-     * them up.
+     * Batch thread body: take the loaded questions off {@link #ready} and
+     * hand them to the scheduler while fewer than
+     * {@link #MAX_QUEUED_QUESTIONS} are in it, until every source is loaded
+     * and its questions handed over, or a stop; then wait until they are
+     * done or the stop has wound them up, and put the ones dropped unstarted
+     * back at the front of {@link #ready}.
      */
-    private void runPlan() {
+    private void runBatch() {
 
         try {
-            ensureDiscovered() ;
-            List<SourceWork> p     = plan ;
-            List<QTask>      batch = new ArrayList<>() ;
+            while( scheduler.awaitBatchBelow( MAX_QUEUED_QUESTIONS,
+                                              this::isProcessing ) ) {
+                // Read before polling: once 0, every question is on ready
+                boolean allLoaded = namesPending.get() == 0 ;
+                QTask   task      = ready.poll( POLL_MS, TimeUnit.MILLISECONDS ) ;
 
-            for( SourceWork sw : p ) {
-                File        srcDir     = sw.sc().getSrcDir() ;
-                Set<String> classified =
-                        WorkspaceTopicMap.classifiedQuestionIds( srcDir ) ;
-
-                for( QTask t : sw.pending() ) {
-                    if( !classified.contains( t.getQuestionId() ) ) batch.add( t ) ;
+                if( task == null ) {
+                    if( allLoaded ) break ;
+                    continue ;
                 }
-                // Covers a source with nothing pending that was never listed.
-                classifier.markProcessedIfComplete( srcDir ) ;
+                // Finished meanwhile (a re-queue, a manual association)
+                if( !isUnsettled( task ) ) continue ;
+
+                synchronized( loadLock ) { submitted.add( task ) ; }
+                scheduler.submitBatch( List.of( task ), this::isProcessing ) ;
             }
-            listener.batchProgress( p.size(), p.size(),
-                                    batch.size() + " questions queued" ) ;
-            scheduler.submitBatch( batch, this::isProcessing ) ;
             scheduler.awaitBatch() ;
+            requeueDropped() ;
         }
         catch( InterruptedException e ) {
             Thread.currentThread().interrupt() ;
@@ -311,6 +454,22 @@ public class QImgClassifier implements QClassifierFrame.Controller {
             processing.set( false ) ;
             listener.processingStateChanged( ProcessingState.STOPPED ) ;
             log.info( "Processing stopped" ) ;
+        }
+    }
+
+    /**
+     * Put the questions handed over in this batch that have not finished
+     * (dropped by a stop, or held) back at the front of {@link #ready}, in
+     * their order, for the next Start.
+     */
+    private void requeueDropped() {
+
+        synchronized( loadLock ) {
+            for( int i = submitted.size() - 1 ; i >= 0 ; i-- ) {
+                QTask task = submitted.get( i ) ;
+                if( isUnsettled( task ) ) ready.addFirst( task ) ;
+            }
+            submitted.clear() ;
         }
     }
 
@@ -334,8 +493,9 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     /**
      * {@inheritDoc}
      * <p>
-     * Sources dropped from the list are discovered and appended to the plan, so
-     * their unclassified questions show up and are picked up by the next Start.
+     * Sources dropped from the list are queued for loading, unless they were
+     * before, so their unclassified questions show up and are picked up by
+     * the next Start.
      */
     @Override
     public synchronized ProcessedListRepair.Report repairProcessedList(
@@ -345,22 +505,11 @@ public class QImgClassifier implements QClassifierFrame.Controller {
             throw new IllegalStateException(
                     "Stop processing before repairing the processed list" ) ;
         }
-        ensureDiscovered() ;
         ProcessedListRepair.Report report = ProcessedListRepair.run(
                 config.getQBankDir(), loadSourceNames(), processedList,
                 config.getQuestionFilter(), progress ) ;
 
-        Set<String> planned = plan.stream()
-                                  .map( sw -> sw.sc().getSourceName() )
-                                  .collect( Collectors.toSet() ) ;
-        List<SourceWork> p = new ArrayList<>( plan ) ;
-
-        for( String srcName : report.getRemoved() ) {
-            if( planned.contains( srcName ) ) continue ;
-            SourceWork sw = discoverSource( srcName ) ;
-            if( sw != null ) p.add( sw ) ;
-        }
-        plan = p ;
+        report.getRemoved().forEach( this::enqueueSource ) ;
         return report ;
     }
 
@@ -414,6 +563,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
         QuestionTopicAssociator.Outcome outcome =
                 QuestionTopicAssociator.associateManual( srcDir, qId, topic ) ;
         classifier.markProcessedIfComplete( task.getSrcDir() ) ;
+        settled( task ) ;
         return outcome ;
     }
 
@@ -422,10 +572,73 @@ public class QImgClassifier implements QClassifierFrame.Controller {
 
         log.debug( "Shutting down the AI hub" ) ;
         stopRequested = true ;
+        Thread loader = loaderThread ;
+        if( loader != null ) loader.interrupt() ;
         scheduler.shutdown() ;
     }
 
     // ---- helpers -------------------------------------------------------
+
+    /**
+     * Forwards every event to the app's listener, and marks a finished task
+     * {@link #settled}.
+     */
+    private final class SettlingListener implements ClassificationListener {
+
+        private final ClassificationListener target ;
+
+        SettlingListener( ClassificationListener target ) {
+            this.target = target ;
+        }
+
+        @Override
+        public void taskDiscovered( QTask task, String storedResult ) {
+            target.taskDiscovered( task, storedResult ) ;
+        }
+
+        @Override
+        public void taskStarted( QTask task ) {
+            target.taskStarted( task ) ;
+        }
+
+        @Override
+        public void taskAttempt( QTask task, AIAgent agent, String model,
+                                 int attempt ) {
+            target.taskAttempt( task, agent, model, attempt ) ;
+        }
+
+        @Override
+        public void taskRequestSent( AttemptRequest request ) {
+            target.taskRequestSent( request ) ;
+        }
+
+        @Override
+        public void taskAttemptFinished( QTask task ) {
+            target.taskAttemptFinished( task ) ;
+        }
+
+        @Override
+        public void taskFinished( QTask task, TaskStatus status, int attempts,
+                                  String result ) {
+            try {
+                target.taskFinished( task, status, attempts, result ) ;
+            }
+            finally {
+                settled( task ) ;
+            }
+        }
+
+        @Override
+        public void batchProgress( int sourceIndex, int sourceCount,
+                                   String sourceName ) {
+            target.batchProgress( sourceIndex, sourceCount, sourceName ) ;
+        }
+
+        @Override
+        public void processingStateChanged( ProcessingState state ) {
+            target.processingStateChanged( state ) ;
+        }
+    }
 
     /**
      * Source names from {@link #SOURCES_RESOURCE}, skipping blanks and

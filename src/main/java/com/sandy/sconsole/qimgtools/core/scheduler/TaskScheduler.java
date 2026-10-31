@@ -185,6 +185,23 @@ public class TaskScheduler<R> {
         }
     }
 
+    /**
+     * Block while {@code limit} or more batch jobs are queued or running, as
+     * long as {@code keepGoing} holds.
+     *
+     * @return {@code keepGoing}'s last answer
+     */
+    public boolean awaitBatchBelow( int limit, BooleanSupplier keepGoing )
+            throws InterruptedException {
+
+        synchronized( lock ) {
+            while( batchOutstanding >= limit && keepGoing.getAsBoolean() ) {
+                lock.wait( MAX_WAIT_MS ) ;
+            }
+        }
+        return keepGoing.getAsBoolean() ;
+    }
+
     /** True while a batch job is queued or running. */
     public boolean hasBatchWork() {
         synchronized( lock ) {

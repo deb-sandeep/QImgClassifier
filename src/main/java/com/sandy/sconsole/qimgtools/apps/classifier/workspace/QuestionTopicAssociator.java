@@ -122,6 +122,39 @@ public final class QuestionTopicAssociator {
     }
 
     /**
+     * True if a question of the source has been synced to the SConsole server
+     * (a {@code devSyncInfo} or {@code prodSyncInfo} id other than -1 in its
+     * question-info.json). A synced source has a topic for every question
+     * and counts as processed whatever its topic map holds. False if the file
+     * does not exist or cannot be read.
+     */
+    public static boolean isServerSynced( File srcDir ) {
+
+        File file = infoFile( srcDir ) ;
+        if( !file.exists() ) return false ;
+
+        synchronized( JsonFiles.lockFor( file ) ) {
+            try {
+                JsonNode questions = JsonFiles.readObject( file ).path( "questions" ) ;
+                for( JsonNode q : questions ) {
+                    if( synced( q, "devSyncInfo" ) || synced( q, "prodSyncInfo" ) ) {
+                        return true ;
+                    }
+                }
+            }
+            catch( IOException e ) {
+                log.error( "Error reading {}", file, e ) ;
+            }
+        }
+        return false ;
+    }
+
+    /** True if the question's {@code syncInfo} entry has a server id. */
+    private static boolean synced( JsonNode question, String syncInfo ) {
+        return question.path( syncInfo ).path( "id" ).asInt( -1 ) != -1 ;
+    }
+
+    /**
      * Result-column suffix comparing the assigned topic with the AI's chosen
      * topic: {@link #MATCHES_AI_MARK}, {@link #DIFFERS_FROM_AI_MARK}, or ""
      * when no topic is assigned.

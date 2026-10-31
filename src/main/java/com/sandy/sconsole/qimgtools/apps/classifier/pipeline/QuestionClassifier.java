@@ -217,15 +217,25 @@ public class QuestionClassifier implements TaskOutcomes<List<Topic>> {
     }
 
     /**
-     * Add the source to the processed list if every one of its questions is
-     * classified.
+     * Add the source to the processed list if it has been synced to the
+     * server, or if every one of its questions is classified and has a topic
+     * in question-info.json.
      */
     public void markProcessedIfComplete( File srcDir ) {
 
+        if( QuestionTopicAssociator.isServerSynced( srcDir ) ) {
+            processedList.add( srcDir.getName() ) ;
+            return ;
+        }
         Map<String,List<File>> groups = questionImages( srcDir ) ;
         if( groups == null || groups.isEmpty() ) return ;
+
         Set<String> classified = WorkspaceTopicMap.classifiedQuestionIds( srcDir ) ;
-        if( classified.containsAll( groups.keySet() ) ) {
+        Set<String> assigned   =
+                QuestionTopicAssociator.assignedTopicIds( srcDir ).keySet() ;
+
+        if( classified.containsAll( groups.keySet() )
+            && assigned.containsAll( groups.keySet() ) ) {
             processedList.add( srcDir.getName() ) ;
         }
     }
