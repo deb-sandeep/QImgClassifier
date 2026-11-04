@@ -10,6 +10,7 @@ import com.sandy.sconsole.qimgtools.apps.tagger.model.TagItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagProposal;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TaggerStatus;
 import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerListener;
+import com.sandy.sconsole.qimgtools.apps.tagger.regression.TopicFileException;
 import com.sandy.sconsole.qimgtools.apps.tagger.server.RefreshResult;
 import com.sandy.sconsole.qimgtools.apps.tagger.ui.TagTableModel.Row;
 import com.sandy.sconsole.qimgtools.apps.tagger.workspace.PendingTagging;
@@ -89,6 +90,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -141,20 +143,29 @@ public class TaggerFrame extends JFrame
         /** True if questions can be sent to the models. */
         boolean canTag() ;
 
+        /** What the topic's model doesn't cover; null if nothing. */
+        String topicFilesNotice() ;
+
         /**
          * Use {@code scope} from now on, and save it. Blocking (it fetches
          * the topic's tags); called off the EDT.
          *
+         * @throws TopicFileException if its topic has no usable model or prompt:
+         *         no scope is in effect any more
          * @throws Exception if its topic has no tags, or the server can't be
-         *         reached
+         *         reached: the scope in effect stays
          */
         void setScope( Scope scope ) throws Exception ;
 
-        /** The syllabuses whose topics can be scoped. */
-        List<String> syllabusNames() ;
+        /**
+         * The topics that can be scoped, those with a regression model and an
+         * LLM prompt in the tag workspace now, by syllabus; a syllabus with
+         * none is left out.
+         */
+        Map<String,List<Topic>> scopeableTopics() ;
 
-        /** Every topic of syllabus {@code syllabusName}. */
-        List<Topic> topics( String syllabusName ) ;
+        /** Where the topics' models and prompts are looked for. */
+        File tagWorkspaceDir() ;
 
         /**
          * The next {@code limit} questions of the scope after its cursor
@@ -438,6 +449,9 @@ public class TaggerFrame extends JFrame
 
     /** True while the scope is being set (the topic's tags fetched). */
     private boolean scoping ;
+
+    /** The scope in effect before one was unloaded; null if none was. */
+    private Scope lastScope ;
 
     /**
      * The topic's questions awaiting tags on the server, as of the last
@@ -1054,8 +1068,9 @@ public class TaggerFrame extends JFrame
     // ---- scope ---------------------------------------------------------
 
     /**
-     * Let the user choose the scope, then put it in effect off the EDT; a
-     * scope that can't be used is reported and asked for again. Not while a
+     * Let the user choose the scope among the topics that have their files,
+     * then put it in effect off the EDT; a scope that can't be used is
+     * reported and asked for again. Not while a
      * run is going; asks before losing unsaved decisions, and clears the
      * table.
      *
@@ -1067,15 +1082,29 @@ public class TaggerFrame extends JFrame
             || procState != ProcessingState.STOPPED ) return ;
         if( problem == null && !discardUnsaved( "Scope" ) ) return ;
 
-        Scope chosen = ScopeDialog.ask( this, controller.scope(), problem,
-                                        controller.syllabusNames(),
-                                        controller::topics ) ;
+        Map<String,List<Topic>> offered = controller.scopeableTopics() ;
+        if( offered.isEmpty() ) {
+            JOptionPane.showMessageDialog( this, "No topic has a regression " +
+                    "model and an LLM prompt in\n" +
+                    controller.tagWorkspaceDir(), "Scope",
+                    JOptionPane.ERROR_MESSAGE ) ;
+            return ;
+        }
+
+        Scope current = controller.scope() != null ? controller.scope()
+                                                   : lastScope ;
+        Scope chosen  = ScopeDialog.ask( this, current, problem, offered ) ;
         if( chosen == null ) return ;
         setScope( chosen ) ;
     }
 
-    /** Put {@code scope} in effect off the EDT; on failure ask again. */
+    /**
+     * Put {@code scope} in effect off the EDT. A topic that can't be tagged
+     * leaves no scope in effect; on any other failure ask again.
+     */
     private void setScope( Scope scope ) {
+
+        Scope before = controller.scope() ;
 
         scoping = true ;
         statusBar.setText( "Fetching the topic's tags…" ) ;
@@ -1088,12 +1117,40 @@ public class TaggerFrame extends JFrame
             clearTable() ;
             pending = -1 ;
             showScope() ;
-            statusBar.setText( "Scope set - press Load" ) ;
+            String notice = controller.topicFilesNotice() ;
+            statusBar.setText( "Scope set - press Load" +
+                               ( notice != null ? "   |   " + notice : "" ) ) ;
+            statusBar.setToolTipText( notice ) ;
         }, e -> {
             scoping = false ;
+            if( e instanceof TopicFileException ) {
+                scopeUnloaded( before, e.getMessage() ) ;
+                return ;
+            }
             updateControls() ;
             editScope( "That scope can't be used: " + e.getMessage() ) ;
         } ) ;
+    }
+
+    /**
+     * The topic chosen can't be tagged, so no scope is in effect now: leave
+     * nothing to load from, and say why.
+     *
+     * @param before the scope that was in effect, offered by the Scope dialog
+     *               next, so its batch size and cursor aren't lost
+     */
+    private void scopeUnloaded( Scope before, String why ) {
+
+        if( before != null ) lastScope = before ;
+        clearTable() ;
+        pending = -1 ;
+        showScope() ;
+        statusBar.setText( "No scope - choose one to load questions" ) ;
+        statusBar.setToolTipText( null ) ;
+
+        JOptionPane.showMessageDialog( this, why + "\n\nThis topic can't be " +
+                "tagged, so no scope is loaded. Choose another with Scope…",
+                "Scope unloaded", JOptionPane.ERROR_MESSAGE ) ;
     }
 
     /**
@@ -1999,7 +2056,12 @@ public class TaggerFrame extends JFrame
         if( pending >= 0 ) text += " · awaiting tags: " + pending ;
         // Running and queued counts are in the queue section on the right.
         if( procState == ProcessingState.STOPPING ) text += "   |   stopping" ;
+
+        String notice = controller == null ? null
+                                           : controller.topicFilesNotice() ;
+        if( notice != null ) text += "   |   " + notice ;
         statusBar.setText( text ) ;
+        statusBar.setToolTipText( notice ) ;
     }
 
     /**

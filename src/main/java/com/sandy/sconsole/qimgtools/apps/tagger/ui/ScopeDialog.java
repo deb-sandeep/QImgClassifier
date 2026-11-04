@@ -22,10 +22,10 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridLayout;
 import java.util.List;
-import java.util.function.Function;
+import java.util.Map;
 
 /**
- * Chooses the scope: one topic of a syllabus, and the batch size. With a
+ * Chooses the scope: one of the topics offered, and the batch size. With a
  * cursor on the topic in effect, it says where the next Load continues and
  * offers a way back to the first question.
  */
@@ -40,16 +40,16 @@ final class ScopeDialog {
      *
      * @param problem why a scope is asked for, shown on top; null if the
      *        user asked
+     * @param offered the topics to choose from, by syllabus
      * @return the scope chosen, keeping {@code current}'s cursor if its topic
      *         is unchanged and "Start from the first question" is not ticked;
      *         null if the user cancelled
      */
     static Scope ask( Component parent, Scope current, String problem,
-                      List<String> syllabusNames,
-                      Function<String,List<Topic>> topicsOf ) {
+                      Map<String,List<Topic>> offered ) {
 
         JComboBox<String> syllabus = new JComboBox<>(
-                syllabusNames.toArray( new String[0] ) ) ;
+                offered.keySet().toArray( new String[0] ) ) ;
         JList<Topic>      topics   = new JList<>() ;
         JSpinner          batch    = new JSpinner( new SpinnerNumberModel(
                 current != null ? current.batchSize() : 50, 1,
@@ -69,18 +69,18 @@ final class ScopeDialog {
             }
         } ) ;
         syllabus.addActionListener( e -> show(
-                topics, topicsOf.apply( (String) syllabus.getSelectedItem() ),
+                topics, offered.get( (String) syllabus.getSelectedItem() ),
                 null ) ) ;
 
         if( current != null ) {
-            for( String s : syllabusNames ) {
-                if( topicsOf.apply( s ).stream().anyMatch(
+            offered.forEach( ( name, ts ) -> {
+                if( ts.stream().anyMatch(
                         t -> t.getId() == current.topicId() ) ) {
-                    syllabus.setSelectedItem( s ) ;
+                    syllabus.setSelectedItem( name ) ;
                 }
-            }
+            } ) ;
         }
-        show( topics, topicsOf.apply( (String) syllabus.getSelectedItem() ),
+        show( topics, offered.get( (String) syllabus.getSelectedItem() ),
               current != null ? current.topicId() : null ) ;
 
         JPanel options = new JPanel( new FlowLayout( FlowLayout.LEFT, 8, 0 ) ) ;

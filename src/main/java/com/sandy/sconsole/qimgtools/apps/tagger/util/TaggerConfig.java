@@ -39,6 +39,12 @@ public final class TaggerConfig {
     /** Root folder searched (recursively) for the source folders. */
     private final File qBankDir ;
 
+    /**
+     * The tag workspace in the question-bank folder, where each topic's
+     * regression model and LLM prompt are read from; they aren't copied.
+     */
+    private final File tagWorkspaceDir ;
+
     /** Root of the tagger's files, and of its per-question transcripts. */
     private final File workspaceDir ;
 
@@ -79,6 +85,7 @@ public final class TaggerConfig {
         serverRequestTimeout = props.seconds( "server.request.timeout.seconds" ) ;
 
         qBankDir           = props.path( "question.bank.dir" ) ;
+        tagWorkspaceDir    = props.path( "tag.workspace.dir" ) ;
         workspaceDir       = props.workspaceDir( "workspace.dir" ) ;
         scopeFile          = props.workspacePath( "scope.file" ) ;
         pendingTaggingFile = props.workspacePath( "pending.tagging.file" ) ;

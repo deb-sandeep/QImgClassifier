@@ -14,6 +14,9 @@ import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply;
 import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerListener;
 import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerOutcomes;
 import com.sandy.sconsole.qimgtools.apps.tagger.prompt.TagPrompter;
+import com.sandy.sconsole.qimgtools.apps.tagger.regression.TopicFileException;
+import com.sandy.sconsole.qimgtools.apps.tagger.regression.TopicFileFinder;
+import com.sandy.sconsole.qimgtools.apps.tagger.regression.TopicFiles;
 import com.sandy.sconsole.qimgtools.apps.tagger.server.RefreshItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.server.RefreshResult;
 import com.sandy.sconsole.qimgtools.apps.tagger.server.TaggerServerClient;
@@ -62,9 +65,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * server ({@code POST /Master/TagAssociation/Refresh}) and recorded in the
  * {@link TagAuditLog}.
  * <p>
- * The models' side is not connected yet: {@link #canTag} is false until the
- * topic's regression model and LLM prompt are read, so for now questions can
- * only be loaded and looked at: they stay Pending, which can't be decided on.
+ * Setting a scope also reads the topic's regression model and LLM prompt from
+ * the tag workspace ({@link TopicFiles}); a topic without usable ones can't be
+ * scoped. They aren't used yet: {@link #canTag}
+ * is false, so for now questions can only be loaded and looked at, and they
+ * stay Pending, which can't be decided on.
  * Settings come from {@code qtagger.properties} ({@link TaggerConfig}).
  */
 @Slf4j
@@ -99,6 +104,12 @@ public class QTagger implements TaggerFrame.Controller {
 
     /** The scoped topic and its tags; null until a scope is set. */
     private volatile TagCatalogue catalogue ;
+
+    /** The scoped topic's model and prompt; null until a scope is set. */
+    private volatile TopicFiles topicFiles ;
+
+    /** What they don't cover; null if nothing, or there is no scope. */
+    private volatile String topicFilesNotice ;
 
     public QTagger( TaggerConfig config, TaggerServerClient server,
                     Map<String,List<Topic>> topics, TaggerFrame frame ) {
@@ -250,17 +261,26 @@ public class QTagger implements TaggerFrame.Controller {
     }
 
     /**
-     * False for now: true once the topic's regression model and LLM prompt
-     * are loaded, the next step of the rework.
+     * False for now, though a scope always has its {@link #topicFiles}: true
+     * once the prompter can ask the LLM, in a later step of the rework.
      */
     @Override
     public boolean canTag() {
         return false ;
     }
 
+    @Override
+    public String topicFilesNotice() {
+        return topicFilesNotice ;
+    }
+
     /**
-     * Use {@code s} from now on: fetch its topic's tags and save the scope.
+     * Use {@code s} from now on: fetch its topic's tags from the server, read
+     * its model and prompt from the tag workspace and save the scope.
      *
+     * @throws TopicFileException if the topic's files are missing or can't be
+     *         used: no scope is in effect any more, as questions that can't
+     *         be tagged are not to be loaded; the saved scope stays as it was
      * @throws Exception if the topic is unknown or has no tags, or the server
      *         could not be reached; the scope in effect stays
      */
@@ -277,12 +297,60 @@ public class QTagger implements TaggerFrame.Controller {
                                              " has no tags on the server" ) ;
         }
 
-        catalogue = new TagCatalogue( topic, tags ) ;
-        scope     = s ;
+        TagCatalogue c = new TagCatalogue( topic, tags ) ;
+        TopicFiles   files ;
+        try {
+            files = readTopicFiles( topic, c ) ;
+        }
+        catch( TopicFileException e ) {
+            log.warn( "{}: scope unloaded: {}", topic.getTopicName(),
+                      e.getMessage() ) ;
+            unloadScope() ;
+            throw e ;
+        }
+
+        catalogue        = c ;
+        topicFiles       = files ;
+        topicFilesNotice = notice( files, c ) ;
+        scope            = s ;
 
         saveScope() ;
-        log.info( "Scope: topic {} {}, {} per load, {} tags", topic.getId(),
-                  topic.getTopicName(), s.batchSize(), tags.size() ) ;
+        log.info( "Scope: topic {} {}, {} per load, {} tags, cycle {}",
+                  topic.getId(), topic.getTopicName(), s.batchSize(),
+                  tags.size(), files.cycle() ) ;
+    }
+
+    /** Read {@code topic}'s files and check them against the server's tags. */
+    private TopicFiles readTopicFiles( Topic topic, TagCatalogue tags )
+            throws TopicFileException {
+
+        TopicFiles   files   = TopicFiles.load( config.getTagWorkspaceDir(),
+                                                topic ) ;
+        List<String> missing = files.missingFrom( tags ) ;
+
+        if( !missing.isEmpty() ) {
+            throw new TopicFileException( "These tags are not on the server: " +
+                                          String.join( ", ", missing ) ) ;
+        }
+        return files ;
+    }
+
+    /** The server's tags the model can't propose, if any, as a note. */
+    private static String notice( TopicFiles files, TagCatalogue tags ) {
+
+        List<String> extra = files.notInModel( tags ) ;
+        if( extra.isEmpty() ) return null ;
+
+        String note = "The model can't propose: " + String.join( ", ", extra ) ;
+        log.warn( "{}: {}", tags.topic().getTopicName(), note ) ;
+        return note ;
+    }
+
+    private void unloadScope() {
+        scope            = null ;
+        catalogue        = null ;
+        topicFiles       = null ;
+        topicFilesNotice = null ;
     }
 
     private void saveScope() {
@@ -295,13 +363,22 @@ public class QTagger implements TaggerFrame.Controller {
     }
 
     @Override
-    public List<String> syllabusNames() {
-        return List.copyOf( topics.keySet() ) ;
+    public Map<String,List<Topic>> scopeableTopics() {
+
+        File                    dir    = config.getTagWorkspaceDir() ;
+        Map<String,List<Topic>> usable = new LinkedHashMap<>() ;
+
+        topics.forEach( ( syllabus, ts ) -> {
+            List<Topic> have = ts.stream()
+                    .filter( t -> TopicFileFinder.hasFiles( dir, t ) ).toList() ;
+            if( !have.isEmpty() ) usable.put( syllabus, have ) ;
+        } ) ;
+        return usable ;
     }
 
     @Override
-    public List<Topic> topics( String syllabusName ) {
-        return topics.getOrDefault( syllabusName, List.of() ) ;
+    public File tagWorkspaceDir() {
+        return config.getTagWorkspaceDir() ;
     }
 
     private Topic topic( int id ) {
@@ -624,16 +701,19 @@ public class QTagger implements TaggerFrame.Controller {
         return scheduler.nextRequestAt() ;
     }
 
-    /** "Laws of Motion (104), 50 per load - Nemotron @ server". */
+    /** "Kinematics (103), cycle 01-hand-review, 50 per load - Nemotron @ server". */
     @Override
     public String describe() {
 
         Scope s = scope ;
         if( s == null ) return "no scope" ;
-        Topic t = topic( s.topicId() ) ;
+        Topic      t = topic( s.topicId() ) ;
+        TopicFiles f = topicFiles ;
 
         return ( t != null ? t.getTopicName() : "topic" ) + " (" +
-               s.topicId() + "), " + s.batchSize() + " per load - " +
+               s.topicId() + "), " +
+               ( f != null ? "cycle " + f.cycle() + ", " : "" ) +
+               s.batchSize() + " per load - " +
                firstModel() + " @ " + config.getServerUrl() ;
     }
 
