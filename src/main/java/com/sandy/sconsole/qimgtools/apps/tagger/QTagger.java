@@ -14,6 +14,9 @@ import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply;
 import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerListener;
 import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerOutcomes;
 import com.sandy.sconsole.qimgtools.apps.tagger.prompt.TagPrompter;
+import com.sandy.sconsole.qimgtools.apps.tagger.ocr.QuestionOcr;
+import com.sandy.sconsole.qimgtools.apps.tagger.regression.Assessment;
+import com.sandy.sconsole.qimgtools.apps.tagger.regression.RegressionScorer;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.TopicFileException;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.TopicFileFinder;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.TopicFiles;
@@ -86,6 +89,7 @@ public class QTagger implements TaggerFrame.Controller {
     private final TaggerNotes             notes ;
     private final ScopeStore              scopeStore ;
     private final QuestionLocator         locator ;
+    private final QuestionOcr             ocr ;
     private final TaggerOutcomes          outcomes ;
     private final TaskScheduler<TagReply> scheduler ;
     private final TaggerListener          listener ;
@@ -123,6 +127,8 @@ public class QTagger implements TaggerFrame.Controller {
         this.notes      = new TaggerNotes( config.getTaggerNotesFile() ) ;
         this.scopeStore = new ScopeStore( config.getScopeFile() ) ;
         this.locator    = new QuestionLocator( config.getQBankDir() ) ;
+        this.ocr        = new QuestionOcr( config.getTesseractBin(),
+                                           config.getOcrTimeout() ) ;
 
         AIHub hub = AIHub.create( config.getAi(), new AIHub.Options(
                 config.getRequestHistoryFile(), RoutingPolicy.inOrder(),
@@ -157,6 +163,12 @@ public class QTagger implements TaggerFrame.Controller {
             return ;
         }
 
+        if( !config.getTesseractBin().canExecute() ) {
+            fail( "Tesseract", "Tesseract can't be run at " +
+                  config.getTesseractBin() + "\nCheck tesseract.bin", null ) ;
+            return ;
+        }
+
         File dir = config.getWorkspaceDir() ;
         if( !dir.isDirectory() && !dir.mkdirs() ) {
             log.error( "Could not create the workspace folder {}", dir ) ;
@@ -183,7 +195,8 @@ public class QTagger implements TaggerFrame.Controller {
             SwingUtilities.invokeAndWait( () -> {
                 frame[0] = new TaggerFrame(
                         new TranscriptStore( config.getWorkspaceDir() ),
-                        ModelNames.of( config.getAi() ) ) ;
+                        ModelNames.of( config.getAi() ),
+                        config.getOcrThreads() ) ;
                 app[0] = new QTagger( config, server, topics, frame[0] ) ;
                 frame[0].setController( app[0] ) ;
             } ) ;
@@ -267,6 +280,37 @@ public class QTagger implements TaggerFrame.Controller {
     @Override
     public boolean canTag() {
         return false ;
+    }
+
+    /**
+     * False until saving protects existing tags and stale rows, in a later
+     * step of the rework: rows the regression settled would otherwise be the
+     * first that could reach {@code /Refresh} without those guards.
+     */
+    @Override
+    public boolean canSave() {
+        return false ;
+    }
+
+    @Override
+    public Assessment assess( TagItem item ) {
+
+        TopicFiles files = topicFiles ;
+        if( files == null ) return Assessment.failed( "no scope in effect" ) ;
+        try {
+            QuestionOcr.Result text = ocr.read( item.task().getImgFiles() ) ;
+            if( text.failure() != null ) {
+                log.warn( "{}: {}", item, text.failure() ) ;
+                return Assessment.failed( text.failure() ) ;
+            }
+            return new Assessment( text.text(),
+                                   new RegressionScorer( files.model() )
+                                           .decide( text.text() ), null ) ;
+        }
+        catch( RuntimeException e ) {
+            log.error( "Could not assess {}", item, e ) ;
+            return Assessment.failed( "scoring failed: " + e.getMessage() ) ;
+        }
     }
 
     @Override

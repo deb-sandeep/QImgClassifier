@@ -22,7 +22,8 @@ public record TagDecision( List<String> tags, Source source, String model,
     /** What a decision's set started from. */
     public enum Source {
 
-        MODEL( "model" ), EXISTING( "existing" ), USER( "user" ) ;
+        REGRESSION( "regression" ), MODEL( "model" ), EXISTING( "existing" ),
+        USER( "user" ) ;
 
         private final String label ;
 
@@ -42,6 +43,11 @@ public record TagDecision( List<String> tags, Source source, String model,
     public static TagDecision of( TagProposal proposal, boolean human ) {
         return new TagDecision( proposal.reply().tags(), Source.MODEL,
                                 proposal.model(), false, human ) ;
+    }
+
+    /** The tags {@code tags} the regression settled on. */
+    public static TagDecision regression( List<String> tags ) {
+        return new TagDecision( tags, Source.REGRESSION, null, false, false ) ;
     }
 
     /** The tags {@code tags} already on the question. */

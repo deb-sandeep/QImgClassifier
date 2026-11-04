@@ -45,6 +45,15 @@ public final class TaggerConfig {
      */
     private final File tagWorkspaceDir ;
 
+    /** The tesseract executable. */
+    private final File tesseractBin ;
+
+    /** Questions read at once after a Load. */
+    private final int ocrThreads ;
+
+    /** How long tesseract may take over one image. */
+    private final Duration ocrTimeout ;
+
     /** Root of the tagger's files, and of its per-question transcripts. */
     private final File workspaceDir ;
 
@@ -93,6 +102,10 @@ public final class TaggerConfig {
         taggerNotesFile    = props.workspacePath( "tagger.notes.file" ) ;
         usageLogFile       = props.workspacePath( "usage.log.file" ) ;
         requestHistoryFile = props.workspacePath( "request.history.file" ) ;
+
+        tesseractBin = props.path( "tesseract.bin" ) ;
+        ocrThreads   = props.wholeNumber( "ocr.threads", 1, 16 ) ;
+        ocrTimeout   = props.seconds( "ocr.timeout.seconds" ) ;
 
         imagePrepWidth     = props.wholeNumber( "image.prep.width", 0 ) ;
         imagePrepGreyscale = props.bool( "image.prep.greyscale" ) ;

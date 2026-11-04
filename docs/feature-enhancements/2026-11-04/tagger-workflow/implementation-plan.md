@@ -61,13 +61,14 @@ The topic tag panel, existing tags and the tag IDs used for saving all come from
 
 | Layer | Work | Code |
 |---|---|---|
-| 3a. OCR | Tesseract `--psm 6` per image, in sequence, joined with newlines, with a timeout. Runs tesseract's own process per image, like `com.sandy.sconsole.nxr.Ocr`, which is package-private and uses other options, so it isn't reused | New `ocr.QuestionOcr` |
+| 3a. OCR | Tesseract `--psm 6` per image, in sequence, each followed by a newline, with `OMP_THREAD_LIMIT=1` and a timeout, as `start_cycle.py` runs it. Runs tesseract's own process per image, like `com.sandy.sconsole.nxr.Ocr`, which is package-private and uses other options, so it isn't reused | New `ocr.QuestionOcr` |
 | 3b. Terms | Lower-case, strip option markers, drop characters, drop short words, tokens, stop words, adjacent pairs formed after stop words are removed | New `regression.Terms` |
 | 3c. Scoring | TF-IDF weights, L2 norm, and the logistic score per `model` tag, keeping only the terms present in the question. Stateless, so the pool can share it | New `regression.RegressionScorer` |
 | 3d. Deciding | Accepted, undecided, triggered, then dropping implied parents in file order, then `llmIfAcceptedTogether`, and the route, with the reasons it went to the LLM and the scores | `regression.RegressionScorer.decide`, new `regression.Decision` |
 | 3e. Run on Load | After a Load, score each row on a small pool off the EDT, as `NXRFrame` does. Load and scope changes wait for it | `ui.TaggerFrame`, `QTagger` |
-| 3f. Row state | `Row.decision` from the regression on `apply`, with a new `TagDecision.Source.REGRESSION` and mark `[R]`. A marker for rows that need the LLM. *Needs human* for OCR failures | `ui.TagTableModel`, `model.TagDecision`, `model.TaggerStatus` |
-| 3g. Viewing | The regression's view on the selected question, and the OCR text | `ui.TagStrip` or a new panel |
+| 3f. Row state | `Row.assessment` holds the OCR text and decision, and `Row.proposed()` gives the regression's set on `apply` until a model's reply replaces it, with a new `TagDecision.Source.REGRESSION` and mark `[R]`. `[LLM]` marks rows that need the LLM, with a *For the LLM* filter and count. A new *Reading* status while it runs. *Needs human* for OCR failures | `ui.TagTableModel`, `model.TagDecision`, `model.TaggerStatus` |
+| 3g. Viewing | The regression's view on the selected question, and the OCR text | New `ui.RegressionPanel`, a *Regression* tab |
+| 3i. Saving held back | `Controller.canSave` stays false until step 5. Settled rows would otherwise be the first that could reach `/Refresh`, without step 5's guards | `QTagger`, `ui.TaggerFrame` |
 | 3h. Settings | `tesseract.bin`, `ocr.threads`, `ocr.timeout.seconds` | `util.TaggerConfig` |
 
 Settled rows become decidable here, which also removes the limit noted after step 1, where *Pending* rows couldn't be decided on.
@@ -78,8 +79,19 @@ Against the reference, with `input/ocr-text.json` of both cycles:
 
 - **Scorer:** Java and `score_regression.py` give the same scores to within 1e-9, and the same four lists, for every text in the file.
 - **OCR:** Java's OCR of the same questions' images, compared with the file. Differences are counted and reported to the owner, not assumed harmless. Local tesseract is 5.5.1, and the build used in training needs to be confirmed.
-- **Routing:** the split on the training questions is compared with `crossValidatedRouting`. It should be close but not equal, because that figure is held out.
-- **On dev:** the split on the eligible Kinematics questions, compared with the estimate of about 49%.
+- **Routing:** the split on the training questions is compared with `crossValidatedRouting`. Scoring a model on its own training questions settles far more than the held-out figure (Kinematics 467 against 265, Ray Optics 183 against 121), so this is not the useful comparison: the split on dev is.
+- **On dev:** the split on the eligible questions, compared with the estimates.
+
+### Results
+
+| Check | Kinematics | Ray Optics |
+|---|---|---|
+| Scorer against `score_regression.py`, on every training text | 537 questions, worst difference 2.8e-16, no list or route differs | 326 questions, worst difference 2.2e-16, no list or route differs |
+| OCR against `ocr-text.json`, byte for byte | 537 of 537 identical (560 images) | 326 of 326 identical (340 images) |
+| Route, Java against Python, on the dev questions | 0 of 160 differ | 0 of 371 differ |
+| Settled on dev, against the estimate | 77 of 160 (48%), estimate 49% | **48 of 371 (13%), estimate 37%** |
+
+Ray Optics' shortfall is in the model, not the port. On its untagged questions nothing is accepted for 57% (16% on its training questions), and something is undecided for 70% (29%). The questions come largely from the same sources and are of similar length. So about 323 questions go to the LLM rather than about 234, which step 4's cost figures need to allow for.
 
 ## Step 4: The LLM
 
@@ -164,13 +176,13 @@ No app imports another, so the new OCR and regression code stays in `apps.tagger
 
 ### Step 3: OCR and scorer
 
-- [ ] `QuestionOcr`
-- [ ] Terms, scoring, deciding
-- [ ] Scorer matches the reference on both cycles
-- [ ] OCR compared with `ocr-text.json`, and the result reported
-- [ ] Scoring on Load, with *Accepted* and needs-the-LLM rows
-- [ ] Regression's view shown
-- [ ] Split on dev compared with the estimate
+- [x] `QuestionOcr`
+- [x] Terms, scoring, deciding
+- [x] Scorer matches the reference on both cycles
+- [x] OCR compared with `ocr-text.json`, and the result reported
+- [x] Scoring on Load, with *Accepted* and needs-the-LLM rows
+- [x] Regression's view shown
+- [x] Split on dev compared with the estimate
 
 ### Step 4: The LLM
 
@@ -208,3 +220,4 @@ No app imports another, so the new OCR and regression code stays in `apps.tagger
 | 3 | 2026-11-05 | Step 2 done. `TopicFiles` lives in `regression`, not `model`, and the frame asks only for `Controller.topicFilesNotice`. Server tags the model has no entry for are a note, not a refusal |
 | 4 | 2026-11-05 | Owner's change: a topic without usable files is refused with a dialog and the scope unloaded, instead of a status bar notice with its questions still loadable |
 | 5 | 2026-11-05 | Owner's change: the Scope dialog offers only the topics with both files. The refusal stays for files that are there but can't be used |
+| 6 | 2026-11-05 | Step 3 done, with results. Saving held back until step 5. Ray Optics settles 13% on dev against an estimate of 37% |

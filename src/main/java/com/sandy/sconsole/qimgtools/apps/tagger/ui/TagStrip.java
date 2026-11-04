@@ -1,7 +1,6 @@
 package com.sandy.sconsole.qimgtools.apps.tagger.ui;
 
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagDecision;
-import com.sandy.sconsole.qimgtools.apps.tagger.model.TagProposal;
 import com.sandy.sconsole.qimgtools.apps.tagger.ui.TagTableModel.Row;
 import com.sandy.sconsole.qimgtools.core.util.ModelNames;
 
@@ -22,9 +21,9 @@ import java.util.function.IntConsumer;
 
 /**
  * The selected question's tags side by side, so they can be compared at a
- * glance: the topic's tags already on it, and those the model proposes, as
- * badges. The part the chosen set started from is framed. Blank unless
- * exactly one question is selected. Clicking the model's part chooses its
+ * glance: the topic's tags already on it, and those the regression or the model
+ * proposes, as badges. The part the chosen set started from is framed. Blank unless
+ * exactly one question is selected. Clicking the proposed part chooses its
  * tags, as key 1 does. Each tag can be dragged to the chosen set
  * ({@link TagBadge}). Use on the EDT.
  */
@@ -82,21 +81,24 @@ final class TagStrip extends JPanel {
         }
 
         TagDecision d = row.chosen() ;
-        TagProposal p = row.proposal ;
+        TagDecision p = row.proposed() ;
 
         existing.set( EXISTING + "  ·  " + row.item.type(),
                       d != null && d.source() == TagDecision.Source.EXISTING ) ;
         existing.tags( row.existing, "no tags" ) ;
 
         if( p == null ) {
-            proposed.set( PROPOSED, false ) ;
+            proposed.set( PROPOSED + ( row.needsLlm() ? "  ·  needs the LLM" : "" ),
+                          false ) ;
             proposed.clickable( null ) ;
             return ;
         }
-        proposed.set( PROPOSED + "  ·  " + names.of( p.model() ),
-                      d != null && d.source() == TagDecision.Source.MODEL ) ;
-        proposed.tags( p.reply().tags(), "no tags" ) ;
-        proposed.clickable( "Click to use the model's tags (1)" ) ;
+        proposed.set( PROPOSED + "  ·  " + ( p.model() != null
+                                             ? names.of( p.model() )
+                                             : "Regression" ),
+                      d != null && d.source() == p.source() ) ;
+        proposed.tags( p.tags(), "no tags" ) ;
+        proposed.clickable( "Click to use the proposed tags (1)" ) ;
     }
 
     /** Re-show the row shown if it is {@code changed}. */

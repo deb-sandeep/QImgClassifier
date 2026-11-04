@@ -10,6 +10,7 @@ import com.sandy.sconsole.qimgtools.apps.tagger.model.TagItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagProposal;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TaggerStatus;
 import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerListener;
+import com.sandy.sconsole.qimgtools.apps.tagger.regression.Assessment;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.TopicFileException;
 import com.sandy.sconsole.qimgtools.apps.tagger.server.RefreshResult;
 import com.sandy.sconsole.qimgtools.apps.tagger.ui.TagTableModel.Row;
@@ -100,6 +101,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -142,6 +148,15 @@ public class TaggerFrame extends JFrame
 
         /** True if questions can be sent to the models. */
         boolean canTag() ;
+
+        /** True if decisions can be saved on the server. */
+        boolean canSave() ;
+
+        /**
+         * Read {@code item}'s text and score it. Blocking, thread-safe and
+         * never throws; called off the EDT with a scope in effect.
+         */
+        Assessment assess( TagItem item ) ;
 
         /** What the topic's model doesn't cover; null if nothing. */
         String topicFilesNotice() ;
@@ -297,6 +312,7 @@ public class TaggerFrame extends JFrame
     /** Row background per status; a status not listed keeps the table's. */
     private static final Map<TaggerStatus,Color> STATUS_BG =
             new EnumMap<>( Map.ofEntries(
+                    Map.entry( TaggerStatus.READING,     new Color( 0xEEF4FA ) ),
                     Map.entry( TaggerStatus.QUEUED,      new Color( 0xEEF4FA ) ),
                     Map.entry( TaggerStatus.RUNNING,     new Color( 0xFFFAD9 ) ),
                     Map.entry( TaggerStatus.ACCEPTED,    new Color( 0xE2F1E3 ) ),
@@ -339,6 +355,7 @@ public class TaggerFrame extends JFrame
         ALL       ( "All questions",   r -> true ),
         HAND_OFFS ( "To decide",       r -> r.status == TaggerStatus.NEEDS_HUMAN ),
         ACCEPTED  ( "Accepted",        r -> r.status.isAccepted() ),
+        FOR_LLM   ( "For the LLM",     Row::needsLlm ),
         UNSAVED   ( "Unsaved",         r -> r.status == TaggerStatus.DECIDED ),
         DEFERRED  ( "Deferred",        r -> r.status == TaggerStatus.DEFERRED ),
         PROBLEMS  ( "Failed / errors", r -> r.status == TaggerStatus.FAILED
@@ -367,6 +384,7 @@ public class TaggerFrame extends JFrame
     private final TableRowSorter<TagTableModel> sorter ;
     private final HeaderFilterController<Row> headerFilters ;
     private final TranscriptPanel  transcriptPanel ;
+    private final RegressionPanel  regressionPanel = new RegressionPanel() ;
     private final ModelsPanel      modelsPanel = new ModelsPanel(
             "Question", ( id, on ) -> setPassthrough( id, on ),
             this::abortRequest ) ;
@@ -450,6 +468,12 @@ public class TaggerFrame extends JFrame
     /** True while the scope is being set (the topic's tags fetched). */
     private boolean scoping ;
 
+    /** True while the questions loaded are being read and scored. */
+    private boolean assessing ;
+
+    /** The threads questions are read and scored on. */
+    private final ExecutorService assessPool ;
+
     /** The scope in effect before one was unloaded; null if none was. */
     private Scope lastScope ;
 
@@ -472,8 +496,10 @@ public class TaggerFrame extends JFrame
     /**
      * @param transcripts source of the transcripts shown on the right
      * @param names       the names models are shown by
+     * @param ocrThreads  questions read at once after a Load
      */
-    public TaggerFrame( TranscriptStore transcripts, ModelNames names ) {
+    public TaggerFrame( TranscriptStore transcripts, ModelNames names,
+                        int ocrThreads ) {
 
         super( title( null ) ) ;
         this.names           = names ;
@@ -488,6 +514,7 @@ public class TaggerFrame extends JFrame
                                                   t -> editChosen( t, false ) ) ;
         this.rateLimitStrip  = new RateLimitStrip( names ) ;
         this.tagStrip     = new TagStrip( names, this::decideByClick ) ;
+        this.assessPool   = assessPool( ocrThreads ) ;
 
         buildTable() ;
 
@@ -955,7 +982,8 @@ public class TaggerFrame extends JFrame
                 fillSendTo( sendTo ) ;
                 updateSelectionActions() ;
                 save.setText( "Save " + plural( savable, "question" ) ) ;
-                save.setEnabled( savable > 0 && controller != null ) ;
+                save.setEnabled( savable > 0 && controller != null
+                                 && controller.canSave() ) ;
                 clear.setText( "Clear " + plural( clearable, "decision" ) ) ;
                 clear.setEnabled( clearable > 0 ) ;
                 menu.show( table, e.getX(), e.getY() ) ;
@@ -1240,11 +1268,102 @@ public class TaggerFrame extends JFrame
         clearTable() ;
         model.setRows( rows( loaded.items() ) ) ;
         restore( model.rows() ) ;
-        updateControls() ;
-        // Every question already judged: start on the first to decide.
-        if( model.rows().stream().noneMatch( TaggerFrame::isPending ) ) {
-            selectFirstToDecide() ;
+        assess( model.rows() ) ;
+    }
+
+    /** A pool of {@code threads} daemon threads to read and score on. */
+    private static ExecutorService assessPool( int threads ) {
+
+        AtomicInteger n = new AtomicInteger() ;
+        return Executors.newFixedThreadPool( threads, r -> {
+            Thread t = new Thread( r, "qtagger-assess-" + n.incrementAndGet() ) ;
+            t.setDaemon( true ) ;
+            return t ;
+        } ) ;
+    }
+
+    /**
+     * Read and score those of {@code rows} with images off the EDT, several at
+     * once, showing each result as it comes; Load and the scope wait for it.
+     * A row an earlier run has already judged keeps where it stands.
+     */
+    private void assess( List<Row> rows ) {
+
+        List<Row> todo = rows.stream().filter( r -> r.item.hasImages() ).toList() ;
+
+        for( Row row : todo ) {
+            if( row.status == TaggerStatus.PENDING ) {
+                row.status = TaggerStatus.READING ;
+            }
         }
+        model.changedAll() ;
+        assessing = !todo.isEmpty() ;
+        updateControls() ;
+        if( todo.isEmpty() ) return ;
+
+        new SwingWorker<Void,Assessed>() {
+            @Override protected Void doInBackground() throws Exception {
+
+                CompletionService<Assessed> done =
+                        new ExecutorCompletionService<>( assessPool ) ;
+
+                for( Row row : todo ) {
+                    done.submit( () -> new Assessed(
+                            row, controller.assess( row.item ) ) ) ;
+                }
+                for( int i = 0 ; i < todo.size() ; i++ ) {
+                    publish( done.take().get() ) ;
+                }
+                return null ;
+            }
+
+            @Override protected void process( List<Assessed> results ) {
+                results.forEach( a -> assessed( a.row(), a.assessment() ) ) ;
+                refreshStatusBar() ;
+            }
+
+            @Override protected void done() {
+
+                assessing = false ;
+                try {
+                    get() ;
+                }
+                catch( Exception e ) {
+                    log.error( "Reading the questions failed", e ) ;
+                }
+                updateControls() ;
+                // Only a selection the user hasn't made is moved.
+                if( table.getSelectedRowCount() == 0 ) {
+                    select( nextToDecide( List.of() ) ) ;
+                    table.requestFocusInWindow() ;
+                }
+            }
+        }.execute() ;
+    }
+
+    /** A row and what reading and scoring it gave. */
+    private record Assessed( Row row, Assessment assessment ) {}
+
+    /** Note {@code a} on {@code row}, which then stands on it if it was read. */
+    private void assessed( Row row, Assessment a ) {
+
+        row.assessment = a ;
+        if( row.status == TaggerStatus.READING ) {
+            if( a.failure() != null ) {
+                row.status  = TaggerStatus.NEEDS_HUMAN ;
+                row.message = a.failure() ;
+            }
+            else if( a.isSettled() ) {
+                row.status  = TaggerStatus.ACCEPTED ;
+                row.message = null ;
+            }
+            else {
+                row.status  = TaggerStatus.PENDING ;
+                row.message = "Needs the LLM: " +
+                              String.join( "; ", a.decision().llmWhy() ) ;
+            }
+        }
+        rowChanged( row ) ;
     }
 
     /** Empty the table and what shows its selection. */
@@ -1253,6 +1372,7 @@ public class TaggerFrame extends JFrame
         model.setRows( List.of() ) ;
         pinned.clear() ;
         tagStrip.show( null ) ;
+        regressionPanel.show( null ) ;
         showChosen() ;
         showDetail( null ) ;
         preview.show( null ) ;
@@ -1389,10 +1509,10 @@ public class TaggerFrame extends JFrame
      */
     private void save( List<Row> rows, JButton button, Runnable after ) {
 
-        if( controller == null ) return ;
+        if( controller == null || !controller.canSave() ) return ;
         for( Row row : rows ) {
             if( !row.status.isAccepted() ) continue ;
-            decide( row, TagDecision.of( row.proposal, false ) ) ;
+            decide( row, row.proposed() ) ;
         }
 
         List<Row> held = rows.stream()
@@ -1482,7 +1602,7 @@ public class TaggerFrame extends JFrame
     /** Give the rows the model's tags. */
     private void useProposal( List<Row> rows ) {
         decide( rows, Row::canUseProposal,
-                r -> TagDecision.of( r.proposal, true ) ) ;
+                r -> r.proposed().asHuman() ) ;
     }
 
     /** Keep the rows' existing tags. */
@@ -1902,6 +2022,10 @@ public class TaggerFrame extends JFrame
                 for( Row row : model.rows() ) {
                     if( row.status != TaggerStatus.QUEUED ) continue ;
                     if( row.proposal != null ) accept( row, row.proposal ) ;
+                    else if( row.proposed() != null ) {
+                        row.status  = TaggerStatus.ACCEPTED ;
+                        row.message = null ;
+                    }
                     else {
                         row.status  = TaggerStatus.PENDING ;
                         row.message = null ;
@@ -1939,6 +2063,7 @@ public class TaggerFrame extends JFrame
 
         model.changed( row ) ;
         tagStrip.refresh( row ) ;
+        regressionPanel.refresh( row ) ;
         if( table.getSelectedRowCount() == 1 && selectedRow() == row ) {
             showDetail( row ) ;
         }
@@ -1961,6 +2086,7 @@ public class TaggerFrame extends JFrame
         }
         showChosen() ;
         tagStrip.show( one ) ;
+        regressionPanel.show( one ) ;
         showDetail( one ) ;
         preview.show( row != null && row.item.hasImages()
                       ? row.item.task().getImgFiles() : null ) ;
@@ -2021,17 +2147,19 @@ public class TaggerFrame extends JFrame
         boolean saving  = model.count( TaggerStatus.SAVING ) > 0 ;
         boolean scoped  = controller != null && controller.catalogue() != null ;
         boolean savable = model.rows().stream().anyMatch( Row::isSavable ) ;
-        boolean idle    = stopped && !loading && !saving && !scoping ;
+        boolean idle    = stopped && !loading && !saving && !scoping
+                          && !assessing ;
 
         scopeAction.setEnabled( idle && controller != null ) ;
         loadAction.setEnabled( idle && scoped ) ;
         loadFromStartAction.setEnabled( idle && scoped ) ;
-        startAction.setEnabled( stopped && !loading && canSend()
+        startAction.setEnabled( stopped && !loading && !assessing && canSend()
                                 && model.rows().stream().anyMatch(
                                         TaggerFrame::isPending ) ) ;
         stopAction.setEnabled( procState == ProcessingState.RUNNING ) ;
         // Its icon is red while enabled, i.e. while decisions wait.
-        saveAction.setEnabled( savable && controller != null ) ;
+        saveAction.setEnabled( savable && controller != null
+                               && controller.canSave() ) ;
         clearAction.setEnabled( model.count( TaggerFrame::isClearable ) > 0 ) ;
         requeueFailedAction.setEnabled( canSend()
                 && model.count( TaggerStatus.FAILED ) > 0 ) ;
@@ -2043,10 +2171,13 @@ public class TaggerFrame extends JFrame
     private void refreshStatusBar() {
 
         String text = String.format(
-                "%d loaded · %d accepted · %d to decide · " +
+                "%d loaded · %d reading · %d accepted · %d for the LLM · " +
+                "%d to decide · " +
                 "%d decided · %d saved · %d deferred · %d failed · %d errors",
                 model.getRowCount(),
+                model.count( TaggerStatus.READING ),
                 model.count( r -> r.status.isAccepted() ),
+                model.count( Row::needsLlm ),
                 model.count( TaggerStatus.NEEDS_HUMAN ),
                 model.count( TaggerStatus.DECIDED ),
                 model.count( TaggerStatus.SAVED ),
@@ -2118,7 +2249,8 @@ public class TaggerFrame extends JFrame
         JTabbedPane tabs = new JTabbedPane() ;
         tabs.addTab( "Transcripts", transcriptPanel ) ;
         tabs.addTab( "Models", modelsPanel ) ;
-        tabs.setSelectedComponent( modelsPanel ) ;
+        tabs.addTab( "Regression", regressionPanel ) ;
+        tabs.setSelectedComponent( regressionPanel ) ;
         tabs.addChangeListener( e -> refreshModels() ) ;
         return tabs ;
     }

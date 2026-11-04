@@ -67,7 +67,8 @@ that aren't awaiting topic review, and `totalResults` ignores the cursor.
 ### 2. OCR
 
 Tesseract with `--psm 6` and no language option, on **each image separately**,
-in the server's `sequence` order, with the results joined by newlines. The model
+in the server's `sequence` order, each result followed by a newline, with
+`OMP_THREAD_LIMIT=1`. The model
 learned tesseract's output, so these settings must match training exactly. The
 image order puts an LCT passage first, as training had it.
 
@@ -270,7 +271,7 @@ Calls made while removing the old logic, for the owner to confirm:
 |---|---|---|
 | The prompt has never been tried on a model | Replies may be poor, or the free model may not suit it | Step 4 tries it on a few questions before the pilot. The result may send work back to `enhance-tagset` |
 | Tagged questions may not represent untagged ones | Real settle rates and accuracy could be below the estimates | The pilot measures them |
-| A different tesseract build from training | Slightly different text, so different scores | The port's check compares OCR with the cycle's `input/ocr-text.json` |
+| A different tesseract build from training | Slightly different text, so different scores | The port's check compares OCR with the cycle's `input/ocr-text.json`: identical for every question of both cycles on 5.5.1 |
 | The owner hasn't validated the hints and thresholds | A systematic error would affect a whole topic | The pilot comes before any whole-topic run |
 | Running on production before the check with the driver | The server's phase 3 is on dev only | The pilot on dev completes the server plan's last check, and only then is phase 3 deployed to the Pi |
 
@@ -283,6 +284,7 @@ indicative only.
 |---|---|---|
 | Questions eligible on dev | 160 | 371 |
 | Settled by the regression (estimate) | 49%, about 78 | 37%, about 137 |
+| Settled by the regression (measured on dev, 2026-11-05) | 48%, 77 of 160 | 13%, 48 of 371 |
 | Sent to the LLM | about 82 | about 234 |
 
 ## Revision log
@@ -293,3 +295,4 @@ indicative only.
 | 2 | 2026-11-05 | Owner's decision 7: topic files are read directly from the question-bank folder, with nothing copied, and the tag list comes from the server at each scope. Added decision 10 |
 | 3 | 2026-11-05 | Owner's change: a topic without usable files is refused with a dialog and the scope unloaded |
 | 4 | 2026-11-05 | Owner's change: the Scope dialog offers only the topics with both files |
+| 5 | 2026-11-05 | Step 3 measured: OCR identical to training, and Ray Optics settles far fewer than estimated |

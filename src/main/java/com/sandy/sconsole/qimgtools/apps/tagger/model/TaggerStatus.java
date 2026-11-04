@@ -8,6 +8,9 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum TaggerStatus {
 
+    /** Its text is being read and scored. */
+    READING( "Reading" ),
+
     /** Loaded; not sent to the models yet. */
     PENDING( "Pending" ),
 
@@ -19,10 +22,10 @@ public enum TaggerStatus {
     /** A request to a model is in flight, or about to be. */
     RUNNING( "Running" ),
 
-    /** The model's tags are staged, to be saved. */
+    /** The regression's or the model's tags are staged, to be saved. */
     ACCEPTED( "Accepted" ),
 
-    /** Handed to the user: the model's replies could not be used. */
+    /** Handed to the user: OCR failed, or the model's replies were no use. */
     NEEDS_HUMAN( "Needs human" ),
 
     /** The user has decided; not sent to the server yet. */

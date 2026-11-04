@@ -4,6 +4,7 @@ import com.sandy.sconsole.qimgtools.apps.tagger.model.TagDecision;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagProposal;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TaggerStatus;
+import com.sandy.sconsole.qimgtools.apps.tagger.regression.Assessment;
 import com.sandy.sconsole.qimgtools.core.ui.HeaderFilterController;
 
 import javax.swing.table.AbstractTableModel;
@@ -45,6 +46,9 @@ final class TagTableModel extends AbstractTableModel
         final List<String> existing ;
 
         TaggerStatus status ;
+
+        /** The OCR text and the regression's decision; null until read. */
+        Assessment assessment ;
 
         /** What the model proposed; null until it has replied. */
         TagProposal proposal ;
@@ -97,8 +101,25 @@ final class TagTableModel extends AbstractTableModel
         TagDecision chosen() {
 
             if( decision != null ) return decision ;
-            return status.isAccepted() && proposal != null
-                   ? TagDecision.of( proposal, false ) : null ;
+            return status.isAccepted() ? proposed() : null ;
+        }
+
+        /**
+         * The set proposed for it: the model's, else the one the regression
+         * settled on; null if neither.
+         */
+        TagDecision proposed() {
+
+            if( proposal != null ) return TagDecision.of( proposal, false ) ;
+            return assessment != null && assessment.isSettled()
+                   ? TagDecision.regression( assessment.decision().accepted() )
+                   : null ;
+        }
+
+        /** True if it waits for the LLM: the regression didn't settle it. */
+        boolean needsLlm() {
+            return status == TaggerStatus.PENDING && assessment != null
+                   && assessment.needsLlm() ;
         }
 
         /**
@@ -111,7 +132,7 @@ final class TagTableModel extends AbstractTableModel
 
         /** True if it may take the model's tags. */
         boolean canUseProposal() {
-            return isOpen() && proposal != null ;
+            return isOpen() && proposed() != null ;
         }
 
         /** True if it has existing tags to keep. */
@@ -266,7 +287,9 @@ final class TagTableModel extends AbstractTableModel
 
     /**
      * "[M] a, b": the chosen set, marked with where it started from
-     * ({@link #sourceMark}), else the model's proposal, in parentheses.
+     * ({@link #sourceMark}), else the model's proposal, in parentheses, or
+     * "[LLM] (a, b)" for a question waiting for the LLM, with the tags the
+     * regression accepted so far.
      */
     private static String tagsText( Row row ) {
 
@@ -276,20 +299,26 @@ final class TagTableModel extends AbstractTableModel
                    ( d.tags().isEmpty() ? "no tags"
                                         : String.join( ", ", d.tags() ) ) ;
         }
+        if( row.needsLlm() ) {
+            List<String> sofar = row.assessment.decision().accepted() ;
+            return "[LLM]" + ( sofar.isEmpty() ? ""
+                               : " (" + String.join( ", ", sofar ) + ")" ) ;
+        }
         return row.proposal == null ? ""
                : "(" + String.join( ", ", row.proposal.reply().tags() ) + ")" ;
     }
 
     /**
-     * "M" (the model's), "E" (the existing tags) or "U" (the user's own
-     * set), with a "*" once edited.
+     * "R" (the regression's), "M" (the model's), "E" (the existing tags) or
+     * "U" (the user's own set), with a "*" once edited.
      */
     static String sourceMark( TagDecision d ) {
 
         String s = switch( d.source() ) {
-            case MODEL    -> "M" ;
-            case EXISTING -> "E" ;
-            case USER     -> "U" ;
+            case REGRESSION -> "R" ;
+            case MODEL      -> "M" ;
+            case EXISTING   -> "E" ;
+            case USER       -> "U" ;
         } ;
         return d.edited() && d.source() != TagDecision.Source.USER ? s + "*"
                                                                     : s ;
@@ -297,6 +326,6 @@ final class TagTableModel extends AbstractTableModel
 
     /** True if {@code row}'s Tags cell shows a proposal, not a chosen set. */
     static boolean showsProposal( Row row ) {
-        return row.chosen() == null && row.proposal != null ;
+        return row.chosen() == null && ( row.proposal != null || row.needsLlm() ) ;
     }
 }
