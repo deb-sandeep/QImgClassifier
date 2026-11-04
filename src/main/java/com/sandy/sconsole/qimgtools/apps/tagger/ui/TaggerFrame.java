@@ -8,11 +8,13 @@ import com.sandy.sconsole.qimgtools.apps.tagger.model.TagCatalogue;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagDecision;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagProposal;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TaggerStatus;
 import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerListener;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.Assessment;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.TopicFileException;
 import com.sandy.sconsole.qimgtools.apps.tagger.server.RefreshResult;
+import com.sandy.sconsole.qimgtools.apps.tagger.ui.TagTableModel.Llm;
 import com.sandy.sconsole.qimgtools.apps.tagger.ui.TagTableModel.Row;
 import com.sandy.sconsole.qimgtools.apps.tagger.workspace.PendingTagging;
 import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
@@ -113,21 +115,23 @@ import java.util.function.Predicate;
 /**
  * The tagger's window, the reviewer's in layout and habits. The table lists
  * the scoped topic's questions pending auto tagging, with the tags already on
- * each and the model's proposal; Load fetches the next ones after the scope's
- * cursor (Load from start brings back every one still pending), Start sends
- * those not yet judged to the model, and Stop winds that down. The user
- * decides with keys 1-4, the {@link TagStrip} or the row menu. Each row has a
- * chosen set, the tags it is to be saved with: a choice sets it whole (the
- * model's tags, the existing ones), and the {@link ChosenTagsBar} edits it a
- * tag at a time, dragged from the strip or the {@link TopicTagsPanel} (or
- * clicked there, a chosen one taken out again) and taken out with a ×, for
- * every selected row at once. Decisions stay in the table until Save sends
+ * each and what the regression made of it; Load fetches the next ones after
+ * the scope's cursor (Load from start brings back every one still pending).
+ * The LLM gives only an opinion, shown beside the proposal: Invoke LLM asks
+ * for one question's, Start for all those the regression didn't settle, and
+ * Stop winds that down. The user decides with keys 1-4, the {@link TagStrip}
+ * or the row menu. Each row has a chosen set, the tags it is to be saved with:
+ * a choice sets it whole (the regression's tags, the existing ones), the
+ * ticks on an undecided tag put it in or turn it down, and the
+ * {@link ChosenTagsBar} edits it a tag at a time, dragged from the strip or
+ * the {@link TopicTagsPanel} (or clicked there or among the LLM's tags, a
+ * chosen one taken out again) and taken out with a ×, for every selected
+ * row at once. Decisions stay in the table until Save sends
  * them to the server off the EDT. Every command is an {@code Action} on the
  * menu bar, the main ones also as icon buttons ({@link ToolIcon}) on the
  * toolbar.
  * <p>
- * Start and sending to a model stay disabled while
- * {@link Controller#canTag} is false.
+ * Start and sending to a model need a scope ({@link Controller#canTag}).
  * <p>
  * Implements {@link TaggerListener}; its calls arrive on worker threads and
  * are moved to the EDT, where all row state lives.
@@ -148,9 +152,6 @@ public class TaggerFrame extends JFrame
 
         /** True if questions can be sent to the models. */
         boolean canTag() ;
-
-        /** True if decisions can be saved on the server. */
-        boolean canSave() ;
 
         /**
          * Read {@code item}'s text and score it. Blocking, thread-safe and
@@ -188,6 +189,15 @@ public class TaggerFrame extends JFrame
          * Blocking; called off the EDT.
          */
         Loaded load( int limit, boolean fromStart ) throws Exception ;
+
+        /**
+         * The scoped topic's escalated questions awaiting the user's tags.
+         * Blocking; called off the EDT. The cursor stays where it is.
+         */
+        Loaded loadEscalated() throws Exception ;
+
+        /** How many of the scoped topic's questions are escalated. */
+        int escalatedCount() ;
 
         /**
          * The reply stored for {@code item} by an earlier run, if its topic
@@ -266,7 +276,8 @@ public class TaggerFrame extends JFrame
     public record Loaded( List<TagItem> items, int pending ) {}
 
     /** A question to save and the decision to save on it. */
-    public record SaveItem( TagItem item, TagDecision decision ) {}
+    public record SaveItem( TagItem item, TagDecision decision,
+                            Assessment assessment, TagProposal proposal ) {}
 
     private static final double SPLIT_RATIO          = 0.64 ;
     private static final int    PREVIEW_PANEL_HEIGHT = 300 ;
@@ -313,15 +324,15 @@ public class TaggerFrame extends JFrame
     private static final Map<TaggerStatus,Color> STATUS_BG =
             new EnumMap<>( Map.ofEntries(
                     Map.entry( TaggerStatus.READING,     new Color( 0xEEF4FA ) ),
-                    Map.entry( TaggerStatus.QUEUED,      new Color( 0xEEF4FA ) ),
-                    Map.entry( TaggerStatus.RUNNING,     new Color( 0xFFFAD9 ) ),
                     Map.entry( TaggerStatus.ACCEPTED,    new Color( 0xE2F1E3 ) ),
+                    Map.entry( TaggerStatus.PARTIALLY_UNDECIDED,
+                               new Color( 0xFFF3D1 ) ),
                     Map.entry( TaggerStatus.NEEDS_HUMAN, new Color( 0xFFE6CC ) ),
+                    Map.entry( TaggerStatus.ESCALATED,   new Color( 0xFFD9B3 ) ),
                     Map.entry( TaggerStatus.DECIDED,     new Color( 0xF6E0EA ) ),
                     Map.entry( TaggerStatus.DEFERRED,    new Color( 0xFCEFC5 ) ),
                     Map.entry( TaggerStatus.SAVING,      new Color( 0xE8E3F2 ) ),
                     Map.entry( TaggerStatus.SAVED,       new Color( 0xD8E8F7 ) ),
-                    Map.entry( TaggerStatus.FAILED,      new Color( 0xF9E6E8 ) ),
                     Map.entry( TaggerStatus.ERROR,       new Color( 0xF4D2D2 ) ),
                     Map.entry( TaggerStatus.NO_IMAGES,   new Color( 0xEEEEEE ) ) ) ) ;
 
@@ -353,12 +364,18 @@ public class TaggerFrame extends JFrame
     private enum Show {
 
         ALL       ( "All questions",   r -> true ),
-        HAND_OFFS ( "To decide",       r -> r.status == TaggerStatus.NEEDS_HUMAN ),
+        HAND_OFFS ( "To decide",       r -> r.status == TaggerStatus.NEEDS_HUMAN
+                                            || r.status == TaggerStatus.PARTIALLY_UNDECIDED ),
         ACCEPTED  ( "Accepted",        r -> r.status.isAccepted() ),
-        FOR_LLM   ( "For the LLM",     Row::needsLlm ),
+        PARTIAL   ( "Partially undecided",
+                    r -> r.status == TaggerStatus.PARTIALLY_UNDECIDED ),
+        FOR_LLM   ( "Not asked the LLM", Row::needsLlm ),
+        LOW       ( "Low confidence",  Row::isLowConfidence ),
+        ESCALATED ( "Escalated",       r -> r.status == TaggerStatus.ESCALATED ),
+        EXISTING  ( "Has existing tags", r -> !r.existing.isEmpty() ),
         UNSAVED   ( "Unsaved",         r -> r.status == TaggerStatus.DECIDED ),
         DEFERRED  ( "Deferred",        r -> r.status == TaggerStatus.DEFERRED ),
-        PROBLEMS  ( "Failed / errors", r -> r.status == TaggerStatus.FAILED
+        PROBLEMS  ( "Failed / errors", r -> r.llmFailure != null
                                             || r.status == TaggerStatus.ERROR
                                             || r.status == TaggerStatus.NO_IMAGES ) ;
 
@@ -415,26 +432,31 @@ public class TaggerFrame extends JFrame
                     | InputEvent.SHIFT_DOWN_MASK ),
             "Fetch the first questions awaiting tags, those handed over " +
             "before included", () -> load( true ) ) ;
+    private final Action loadEscalatedAction = action( "Load escalated",
+            null, null, "Fetch the questions no tag fits, to tag by hand",
+            this::loadEscalated ) ;
     private final Action startAction = action( "Start", ToolIcon.START,
-            shortcut( KeyEvent.VK_R ), "Send the pending questions to the " +
-            "model (right-click rows to send those)", this::start ) ;
+            shortcut( KeyEvent.VK_R ), "Ask the LLM about the questions the " +
+            "regression didn't settle (Invoke LLM asks about one)",
+            this::start ) ;
     private final Action stopAction = action( "Stop", ToolIcon.STOP,
-            shortcut( KeyEvent.VK_PERIOD ), "Stop sending questions to the " +
-            "models; requests under way finish", this::stop ) ;
-    private final Action sendAction = action( "Send selected to the model",
-            null, null, "Send the selected questions that are pending, " +
-            "failed or undecided to the model", this::sendSelected ) ;
+            shortcut( KeyEvent.VK_PERIOD ), "Stop asking the LLM; requests " +
+            "under way finish", this::stop ) ;
+    private final Action sendAction = action( "Ask the LLM about the selected",
+            null, null, "Get the LLM's opinion on the selected questions",
+            this::sendSelected ) ;
     private final Action requeueFailedAction = action(
             "Re-queue failed questions", ToolIcon.REQUEUE, null,
-            "Send every failed question to the model again",
+            "Ask the LLM again about every question it failed on",
             this::requeueFailed ) ;
     private final Action saveAction = action( "Save", ToolIcon.SAVE,
             shortcut( KeyEvent.VK_S ), "Send the accepted tags and the " +
-            "decisions made to the server (red while any wait)",
+            "decisions made to the server, leaving out questions with " +
+            "undecided tags (red while any wait)",
             this::saveAll ) ;
     private final Action clearAction = action( "Clear decisions…",
             ToolIcon.CLEAR, null, "Forget the unsaved decisions; the " +
-            "models' replies stay", this::clearAll ) ;
+            "LLM's opinions stay", this::clearAll ) ;
     private final Action selectAllAction = action( "Select all shown rows",
             null, shortcut( KeyEvent.VK_A ), null, this::selectAllRows ) ;
 
@@ -513,7 +535,7 @@ public class TaggerFrame extends JFrame
         this.chosenBar       = new ChosenTagsBar( t -> editChosen( t, true ),
                                                   t -> editChosen( t, false ) ) ;
         this.rateLimitStrip  = new RateLimitStrip( names ) ;
-        this.tagStrip     = new TagStrip( names, this::decideByClick ) ;
+        this.tagStrip     = new TagStrip( names, stripActions() ) ;
         this.assessPool   = assessPool( ocrThreads ) ;
 
         buildTable() ;
@@ -708,6 +730,7 @@ public class TaggerFrame extends JFrame
         file.add( scopeAction ) ;
         file.add( loadAction ) ;
         file.add( loadFromStartAction ) ;
+        file.add( loadEscalatedAction ) ;
         file.addSeparator() ;
         file.add( exit ) ;
 
@@ -817,6 +840,34 @@ public class TaggerFrame extends JFrame
     private void decideByClick( int n ) {
         pressKey( n ) ;
         table.requestFocusInWindow() ;
+    }
+
+    /** What the tag strip's clicks do; each gives the table the focus back. */
+    private TagStrip.Actions stripActions() {
+        return new TagStrip.Actions() {
+            @Override public void decide( int key ) {
+                decideByClick( key ) ;
+            }
+
+            @Override public void resolve( String tag, boolean accept ) {
+                resolveUndecided( tag, accept ) ;
+                table.requestFocusInWindow() ;
+            }
+
+            @Override public void toggle( String tag, boolean add ) {
+                editChosen( tag, add ) ;
+                table.requestFocusInWindow() ;
+            }
+
+            @Override public void invokeLlm( Row row ) {
+                if( row.canAskLlm() ) send( List.of( row ) ) ;
+                table.requestFocusInWindow() ;
+            }
+
+            @Override public boolean canInvokeLlm( Row row ) {
+                return canSend() && row.canAskLlm() ;
+            }
+        } ;
     }
 
     /**
@@ -940,7 +991,7 @@ public class TaggerFrame extends JFrame
 
         JPopupMenu menu   = new JPopupMenu() ;
         JMenuItem  send   = new JMenuItem() ;
-        JMenu      sendTo = new JMenu( "Send to model" ) ;
+        JMenu      sendTo = new JMenu( "Ask model" ) ;
         JMenuItem  save   = new JMenuItem() ;
         JMenuItem  clear  = new JMenuItem() ;
 
@@ -976,14 +1027,13 @@ public class TaggerFrame extends JFrame
                 int       clearable = count( sel, TaggerFrame::isClearable ) ;
                 int       savable   = count( sel, Row::isSavable ) ;
 
-                send.setText( "Send " + plural( n, "question" ) +
-                              " to the model" ) ;
+                send.setText( "Ask the LLM about " +
+                              plural( n, "question" ) ) ;
                 send.setEnabled( n > 0 && canSend() ) ;
                 fillSendTo( sendTo ) ;
                 updateSelectionActions() ;
                 save.setText( "Save " + plural( savable, "question" ) ) ;
-                save.setEnabled( savable > 0 && controller != null
-                                 && controller.canSave() ) ;
+                save.setEnabled( savable > 0 && controller != null ) ;
                 clear.setText( "Clear " + plural( clearable, "decision" ) ) ;
                 clear.setEnabled( clearable > 0 ) ;
                 menu.show( table, e.getX(), e.getY() ) ;
@@ -1050,10 +1100,7 @@ public class TaggerFrame extends JFrame
 
     /** The selected rows that may be sent to the model, in table order. */
     private List<Row> sendableSelection() {
-        return selectedRows().stream()
-                             .filter( r -> r.item.isSendable()
-                                           && r.status.isRunnable() )
-                             .toList() ;
+        return selectedRows().stream().filter( Row::canAskLlm ).toList() ;
     }
 
     /**
@@ -1229,23 +1276,31 @@ public class TaggerFrame extends JFrame
             return ;
         }
         if( !discardUnsaved( fromStart ? "Load from start" : "Load" ) ) return ;
-        fetch( controller.scope().batchSize(), fromStart, this::showItems ) ;
+        int batch = controller.scope().batchSize() ;
+
+        fetch( () -> controller.load( batch, fromStart ), this::showItems ) ;
+    }
+
+    /** Show the scoped topic's escalated questions, to tag by hand. */
+    private void loadEscalated() {
+
+        if( controller == null || loading ) return ;
+        if( !discardUnsaved( "Load escalated" ) ) return ;
+        fetch( controller::loadEscalated, this::showItems ) ;
     }
 
     /**
-    /**
-     * Fetch {@code limit} questions without asking about unsaved decisions
+     * Fetch questions with {@code work} without asking about unsaved decisions
      * and hand them to {@code onLoaded}; a failure is reported instead.
      */
-    private void fetch( int limit, boolean fromStart,
-                        Consumer<Loaded> onLoaded ) {
+    private void fetch( Callable<Loaded> work, Consumer<Loaded> onLoaded ) {
 
         loading = true ;
         statusBar.setText( "Loading the questions awaiting tags…" ) ;
         Spinner.busy( loadButton ) ;
         updateControls() ;
 
-        background( () -> controller.load( limit, fromStart ), loaded -> {
+        background( work, loaded -> {
             loading = false ;
             Spinner.idle( loadButton ) ;
             updateControls() ;
@@ -1353,17 +1408,23 @@ public class TaggerFrame extends JFrame
                 row.status  = TaggerStatus.NEEDS_HUMAN ;
                 row.message = a.failure() ;
             }
-            else if( a.isSettled() ) {
-                row.status  = TaggerStatus.ACCEPTED ;
-                row.message = null ;
-            }
             else {
-                row.status  = TaggerStatus.PENDING ;
-                row.message = "Needs the LLM: " +
-                              String.join( "; ", a.decision().llmWhy() ) ;
+                row.status  = standing( a ) ;
+                row.message = whyNotSettled( a ) ;
             }
         }
         rowChanged( row ) ;
+    }
+
+    /** Where the regression leaves a question it has scored. */
+    private static TaggerStatus standing( Assessment a ) {
+        return a.isSettled() ? TaggerStatus.ACCEPTED
+                             : TaggerStatus.PARTIALLY_UNDECIDED ;
+    }
+
+    /** Why the regression didn't settle it; null if it did. */
+    private static String whyNotSettled( Assessment a ) {
+        return a.isSettled() ? null : String.join( "; ", a.decision().llmWhy() ) ;
     }
 
     /** Empty the table and what shows its selection. */
@@ -1395,7 +1456,7 @@ public class TaggerFrame extends JFrame
             PendingTagging.Stored st = controller.stored( row.item ) ;
             if( st == null ) continue ;
 
-            accept( row, st.proposal() ) ;
+            replied( row, st.proposal() ) ;
             if( st.deferral() != null ) {
                 row.undecidedStatus  = row.status ;
                 row.undecidedMessage = row.message ;
@@ -1407,21 +1468,15 @@ public class TaggerFrame extends JFrame
         }
     }
 
-    /** Send every pending row (sendable, never sent) to the model. */
+    /** Ask the LLM about every row the regression didn't settle. */
     private void start() {
 
-        List<Row> rows = model.rows().stream()
-                              .filter( TaggerFrame::isPending )
-                              .toList() ;
+        List<Row> rows = model.rows().stream().filter( Row::needsLlm ).toList() ;
         if( rows.isEmpty() ) {
-            statusBar.setText( "Nothing to send to the models" ) ;
+            statusBar.setText( "Nothing to ask the LLM" ) ;
             return ;
         }
         send( rows ) ;
-    }
-
-    private static boolean isPending( Row row ) {
-        return row.item.isSendable() && row.status == TaggerStatus.PENDING ;
     }
 
     /** Wind the run down: no new requests, running ones finish. */
@@ -1430,14 +1485,14 @@ public class TaggerFrame extends JFrame
     }
 
     /**
-     * Send every failed row to the model again, in the table's order; also
-     * while a run is going, which takes them in after the rows it has.
+     * Ask the LLM again about every row it failed on, in the table's order;
+     * also while a run is going, which takes them in after the rows it has.
      */
     private void requeueFailed() {
 
         List<Row> failed = model.rows().stream()
-                                .filter( r -> r.status == TaggerStatus.FAILED
-                                              && r.item.isSendable() )
+                                .filter( r -> r.llmFailure != null
+                                              && r.canAskLlm() )
                                 .toList() ;
         log.info( "Re-queueing {} failed questions", failed.size() ) ;
         send( failed ) ;
@@ -1460,8 +1515,8 @@ public class TaggerFrame extends JFrame
     /**
      * Queue {@code rows} in the order the table shows them (rows filtered out
      * last, in load order), so they are taken top down; on {@code modelId}
-     * alone if not null. Their replies stay till new ones come; an unsaved
-     * decision or a deferral is dropped.
+     * alone if not null. Their opinions stay till new ones come; nothing else
+     * about them changes, so the user can go on deciding meanwhile.
      */
     private void send( List<Row> rows, String modelId ) {
 
@@ -1470,17 +1525,11 @@ public class TaggerFrame extends JFrame
                    .toList() ;
 
         for( Row row : rows ) {
-            if( row.status == TaggerStatus.DEFERRED ) {
-                controller.undefer( row.item ) ;
-            }
-            row.status    = TaggerStatus.QUEUED ;
-            row.message   = null ;
-            row.decision  = null ;
-            row.base      = null ;
-            row.deferNote = null ;
+            row.llm        = Llm.QUEUED ;
+            row.llmFailure = null ;
+            tagStrip.refresh( row ) ;
         }
         model.changedAll() ;
-        showChosen() ;
 
         List<TagItem> items = rows.stream().map( r -> r.item ).toList() ;
         if( modelId == null ) controller.start( items ) ;
@@ -1504,19 +1553,20 @@ public class TaggerFrame extends JFrame
      * Save the decisions of {@code rows} on the server, then run
      * {@code after} (at once if there are none); {@code button}, if not
      * null, spins meanwhile. Each accepted row among them is first decided
-     * on the proposed tags. A set with no tags is held back, and says so:
-     * saving it would clear the question's tags on the server.
+     * on the proposed tags; a row with tags still undecided is left out. A set
+     * with no tags is held back, and says so: saving it would clear the
+     * question's tags on the server.
      */
     private void save( List<Row> rows, JButton button, Runnable after ) {
 
-        if( controller == null || !controller.canSave() ) return ;
+        if( controller == null ) return ;
         for( Row row : rows ) {
             if( !row.status.isAccepted() ) continue ;
-            decide( row, row.proposed() ) ;
+            decide( row, row.proposedSet() ) ;
         }
 
         List<Row> held = rows.stream()
-                             .filter( r -> r.isUnsaved()
+                             .filter( r -> r.isReady()
                                            && r.decision.tags().isEmpty() )
                              .toList() ;
         for( Row row : held ) {
@@ -1529,10 +1579,11 @@ public class TaggerFrame extends JFrame
         }
 
         List<SaveItem> items = rows.stream()
-                                   .filter( r -> r.isUnsaved()
+                                   .filter( r -> r.isReady()
                                                  && !held.contains( r ) )
-                                   .map( r -> new SaveItem( r.item,
-                                                            r.decision ) )
+                                   .map( r -> new SaveItem(
+                                           r.item, r.decision, r.assessment,
+                                           r.proposal ) )
                                    .toList() ;
         if( items.isEmpty() ) {
             after.run() ;
@@ -1555,14 +1606,15 @@ public class TaggerFrame extends JFrame
 
         int answer = JOptionPane.showConfirmDialog( this,
                 "Clear " + plural( (int) n, "decision" ) +
-                " (deferrals included)?\nThe models' replies stay.",
+                " (deferrals included)?\nThe LLM's opinions stay.",
                 "Clear decisions", JOptionPane.OK_CANCEL_OPTION ) ;
         if( answer == JOptionPane.OK_OPTION ) clear( model.rows() ) ;
     }
 
     /**
      * Forget the unsaved decisions and the deferrals of {@code rows}: each
-     * goes back to what it was before, with its replies.
+     * goes back to what it was before, its undecided tags open again and
+     * the LLM's opinion kept.
      */
     private void clear( List<Row> rows ) {
 
@@ -1576,8 +1628,10 @@ public class TaggerFrame extends JFrame
             row.decision  = null ;
             row.base      = null ;
             row.deferNote = null ;
+            row.rejected.clear() ;
 
             model.changed( row ) ;
+            tagStrip.refresh( row ) ;
         }
         showChosen() ;
         updateControls() ;
@@ -1599,16 +1653,19 @@ public class TaggerFrame extends JFrame
 
     // ---- decisions -----------------------------------------------------
 
-    /** Give the rows the model's tags. */
+    /**
+     * Settle the rows on the proposed tags (those chosen so far if some are
+     * still undecided): the undecided tags left out are turned down.
+     */
     private void useProposal( List<Row> rows ) {
         decide( rows, Row::canUseProposal,
-                r -> r.proposed().asHuman() ) ;
+                r -> r.settleOn( r.proposedChoice() ) ) ;
     }
 
     /** Keep the rows' existing tags. */
     private void keepExisting( List<Row> rows ) {
         decide( rows, Row::canKeepExisting,
-                r -> TagDecision.existing( r.existing ) ) ;
+                r -> r.settleOn( TagDecision.existing( r.existing ) ) ) ;
     }
 
     /**
@@ -1691,10 +1748,47 @@ public class TaggerFrame extends JFrame
         }
         row.base     = base ;
         row.decision = d ;
-        row.status   = TaggerStatus.DECIDED ;
-        row.message  = "Decided: " + describe( d ) ;
 
+        List<String> open = row.unresolved() ;
+
+        row.status  = open.isEmpty() ? TaggerStatus.DECIDED
+                                     : TaggerStatus.PARTIALLY_UNDECIDED ;
+        row.message = open.isEmpty() ? "Decided: " + describe( d )
+                                     : "Undecided: " + String.join( ", ", open ) ;
         model.changed( row ) ;
+    }
+
+    /**
+     * An undecided tag's tick on the row shown: put {@code tag} in its chosen
+     * set, or ({@code accept} false) turn it down, taking it out if it is in.
+     */
+    private void resolveUndecided( String tag, boolean accept ) {
+
+        TagCatalogue c = controller == null ? null : controller.catalogue() ;
+        if( c == null ) return ;
+
+        for( Row row : editableSelection() ) {
+            TagDecision  base = baseOf( row ) ;
+            TagDecision  now  = row.chosen() != null ? row.chosen() : base ;
+            List<String> next = withTag( now.tags(), tag, accept, c ) ;
+
+            if( accept ) row.rejected.remove( tag ) ;
+            else row.rejected.add( tag ) ;
+
+            stage( row, base, TagDecision.edited(
+                    base, next != null ? next : now.tags() ) ) ;
+            pinned.add( row ) ;
+        }
+        showChosen() ;
+        tagStrip.refresh( selectedRow() ) ;
+        updateControls() ;
+    }
+
+    /** The set {@code row}'s edits start from. */
+    private static TagDecision baseOf( Row row ) {
+        return row.base != null     ? row.base
+             : row.chosen() != null ? row.chosen()
+             : row.startingSet() ;
     }
 
     /**
@@ -1710,12 +1804,14 @@ public class TaggerFrame extends JFrame
         int edited = 0 ;
 
         for( Row row : editableSelection() ) {
-            TagDecision  base = row.base != null    ? row.base
-                              : row.chosen() != null ? row.chosen()
-                              : TagDecision.empty() ;
+            TagDecision  base = baseOf( row ) ;
             TagDecision  now  = row.chosen() != null ? row.chosen() : base ;
             List<String> next = withTag( now.tags(), tag, add, c ) ;
             if( next == null ) continue ;
+
+            // Taken out by hand, an undecided tag is turned down.
+            if( add ) row.rejected.remove( tag ) ;
+            else if( row.undecided().contains( tag ) ) row.rejected.add( tag ) ;
 
             stage( row, base, TagDecision.edited( base, next ) ) ;
             pinned.add( row ) ;
@@ -1777,7 +1873,7 @@ public class TaggerFrame extends JFrame
         List<String> tags = null ;
         for( Row row : rows ) {
             TagDecision  d = row.chosen() ;
-            List<String> t = d == null ? List.of() : d.tags() ;
+            List<String> t = d == null ? row.startingSet().tags() : d.tags() ;
             tags = tags == null ? t
                                 : tags.stream().filter( t::contains ).toList() ;
         }
@@ -1791,34 +1887,22 @@ public class TaggerFrame extends JFrame
     }
 
     /**
-     * "model (Nemotron), edited · user": where {@code row}'s chosen set came
-     * from and who it is credited to.
+     * "regression, edited": where {@code row}'s chosen set came from.
      */
     private String provenance( Row row ) {
 
         TagDecision d = row.chosen() ;
         if( d == null ) return "Nothing chosen yet" ;
 
-        TagDecision base = row.base != null ? row.base : d ;
-        return d.source() + ( base.model() != null
-                              ? " (" + names.of( base.model() ) + ")" : "" ) +
-               ( d.edited() ? ", edited" : "" ) + "  ·  " +
-               credit( d.model() ) ;
-    }
-
-    /** "AI (Nemotron)" for a model, else "user". */
-    private String credit( String model ) {
-        return model != null ? "AI (" + names.of( model ) + ")" : "user" ;
+        return d.source() + ( d.edited() ? ", edited" : "" ) ;
     }
 
     /**
-     * "[model, Nemotron, edited] a, b": the tags and where they come from.
+     * "[regression, edited] a, b": the tags and where they come from.
      */
     private String describe( TagDecision d ) {
 
-        String from = d.source() + ( d.model() != null
-                                     ? ", " + names.of( d.model() ) : "" ) +
-                      ( d.edited() ? ", edited" : "" ) ;
+        String from = d.source() + ( d.edited() ? ", edited" : "" ) ;
         return "[" + from + "] " + ( d.tags().isEmpty()
                                      ? "no tags" : String.join( ", ", d.tags() ) ) ;
     }
@@ -1847,7 +1931,9 @@ public class TaggerFrame extends JFrame
     }
 
     private static boolean toDecide( Row row ) {
-        return row.status == TaggerStatus.NEEDS_HUMAN ;
+        return row.status == TaggerStatus.PARTIALLY_UNDECIDED
+               || row.status == TaggerStatus.NEEDS_HUMAN
+               || row.status == TaggerStatus.ESCALATED ;
     }
 
     /** Select the first row shown to decide, if any. */
@@ -1952,18 +2038,16 @@ public class TaggerFrame extends JFrame
 
     @Override
     public void itemStarted( TagItem item ) {
-        onRow( item, row -> row.status = TaggerStatus.RUNNING ) ;
+        onRow( item, row -> row.llm = Llm.ASKING ) ;
     }
 
     @Override
     public void itemAttempt( TagItem item, String model, int attempt ) {
         onRow( item, row -> {
-            row.status   = TaggerStatus.RUNNING ;
+            row.llm      = Llm.ASKING ;
             row.model    = model ;
             row.attempts = attempt ;
             row.inFlight = true ;
-            row.message  = "Asking the model, attempt " + attempt + " on " +
-                           names.of( model ) ;
         } ) ;
     }
 
@@ -1983,28 +2067,28 @@ public class TaggerFrame extends JFrame
     public void proposed( TagItem item, TagProposal proposal ) {
         onRow( item, row -> {
             row.inFlight = false ;
-            accept( row, proposal ) ;
+            replied( row, proposal ) ;
         } ) ;
     }
 
     @Override
     public void invalidOutput( TagItem item, int attempts, String reason ) {
         onRow( item, row -> {
-            row.inFlight = false ;
-            row.attempts = attempts ;
-            row.status   = TaggerStatus.NEEDS_HUMAN ;
-            row.message  = "Needs a human: " + reason ;
+            row.inFlight   = false ;
+            row.attempts   = attempts ;
+            row.llm        = Llm.IDLE ;
+            row.llmFailure = "Its reply could not be used: " + reason ;
         } ) ;
     }
 
     @Override
     public void itemFailed( TagItem item, int attempts, String reason ) {
         onRow( item, row -> {
-            row.status   = TaggerStatus.FAILED ;
-            row.attempts = attempts ;
-            row.inFlight = false ;
-            row.message  = "Failed after " +
-                           plural( attempts, "attempt" ) + ": " + reason ;
+            row.attempts   = attempts ;
+            row.inFlight   = false ;
+            row.llm        = Llm.IDLE ;
+            row.llmFailure = "Failed after " +
+                             plural( attempts, "attempt" ) + ": " + reason ;
         } ) ;
     }
 
@@ -2017,24 +2101,15 @@ public class TaggerFrame extends JFrame
                 && controller.isRunning() ) return ;
             procState = state ;
             if( state == ProcessingState.STOPPED ) {
-                // Rows never started go back to what they were: unjudged,
-                // or judged before they were sent again.
+                // Rows never started are no longer waiting for the LLM.
                 for( Row row : model.rows() ) {
-                    if( row.status != TaggerStatus.QUEUED ) continue ;
-                    if( row.proposal != null ) accept( row, row.proposal ) ;
-                    else if( row.proposed() != null ) {
-                        row.status  = TaggerStatus.ACCEPTED ;
-                        row.message = null ;
-                    }
-                    else {
-                        row.status  = TaggerStatus.PENDING ;
-                        row.message = null ;
-                    }
+                    if( row.llm != Llm.IDLE ) row.llm = Llm.IDLE ;
                 }
                 model.changedAll() ;
                 // Only a selection the user hasn't made is moved.
                 if( table.getSelectedRowCount() == 0 ) selectFirstToDecide() ;
             }
+            tagStrip.refresh( selectedRow() ) ;
             updateControls() ;
         } ) ;
     }
@@ -2050,11 +2125,31 @@ public class TaggerFrame extends JFrame
         } ) ;
     }
 
-    /** Stage {@code p}'s tags on {@code row}, to be saved. */
-    private void accept( Row row, TagProposal p ) {
-        row.proposal = p ;
-        row.status   = TaggerStatus.ACCEPTED ;
-        row.message  = null ;
+    /**
+     * Note the LLM's opinion {@code p} on {@code row}, which is only shown:
+     * its tags reach the chosen set when the user puts them there. If it says
+     * no tag fits, a row with no decision is escalated, and comes back from
+     * that when a later reply names tags.
+     */
+    private void replied( Row row, TagProposal p ) {
+
+        TagReply r = p.reply() ;
+
+        row.proposal   = p ;
+        row.llm        = Llm.IDLE ;
+        row.llmFailure = null ;
+        if( row.decision != null || row.status == TaggerStatus.DEFERRED ) return ;
+
+        if( r.noTagFits() ) {
+            row.status  = TaggerStatus.ESCALATED ;
+            row.message = "No tag fits" + ( r.framing() != null
+                                            ? ": " + r.framing() : "" ) ;
+        }
+        else if( row.status == TaggerStatus.ESCALATED
+                 && row.assessment != null && row.assessment.decision() != null ) {
+            row.status  = standing( row.assessment ) ;
+            row.message = whyNotSettled( row.assessment ) ;
+        }
     }
 
     // ---- display -------------------------------------------------------
@@ -2114,11 +2209,8 @@ public class TaggerFrame extends JFrame
         detail.setCaretPosition( 0 ) ;
     }
 
-    /** The row's status, with the attempt number while running. */
     private static String statusLabel( Row row ) {
-        return row.status.isRunning() && row.attempts > 1
-               ? row.status.getLabel() + " (" + row.attempts + ")"
-               : row.status.getLabel() ;
+        return row.status.getLabel() ;
     }
 
     private Row selectedRow() {
@@ -2153,16 +2245,17 @@ public class TaggerFrame extends JFrame
         scopeAction.setEnabled( idle && controller != null ) ;
         loadAction.setEnabled( idle && scoped ) ;
         loadFromStartAction.setEnabled( idle && scoped ) ;
+        loadEscalatedAction.setEnabled( idle && scoped
+                                        && controller.escalatedCount() > 0 ) ;
         startAction.setEnabled( stopped && !loading && !assessing && canSend()
                                 && model.rows().stream().anyMatch(
-                                        TaggerFrame::isPending ) ) ;
+                                        Row::needsLlm ) ) ;
         stopAction.setEnabled( procState == ProcessingState.RUNNING ) ;
         // Its icon is red while enabled, i.e. while decisions wait.
-        saveAction.setEnabled( savable && controller != null
-                               && controller.canSave() ) ;
+        saveAction.setEnabled( savable && controller != null ) ;
         clearAction.setEnabled( model.count( TaggerFrame::isClearable ) > 0 ) ;
         requeueFailedAction.setEnabled( canSend()
-                && model.count( TaggerStatus.FAILED ) > 0 ) ;
+                && model.count( r -> r.llmFailure != null ) > 0 ) ;
         if( saving ) Spinner.spin( table ) ;
         else Spinner.halt( table ) ;
         if( !loading && !scoping ) refreshStatusBar() ;
@@ -2171,20 +2264,23 @@ public class TaggerFrame extends JFrame
     private void refreshStatusBar() {
 
         String text = String.format(
-                "%d loaded · %d reading · %d accepted · %d for the LLM · " +
-                "%d to decide · " +
+                "%d loaded · %d reading · %d accepted · " +
+                "%d partially undecided · %d to decide · " +
                 "%d decided · %d saved · %d deferred · %d failed · %d errors",
                 model.getRowCount(),
                 model.count( TaggerStatus.READING ),
                 model.count( r -> r.status.isAccepted() ),
-                model.count( Row::needsLlm ),
+                model.count( TaggerStatus.PARTIALLY_UNDECIDED ),
                 model.count( TaggerStatus.NEEDS_HUMAN ),
                 model.count( TaggerStatus.DECIDED ),
                 model.count( TaggerStatus.SAVED ),
                 model.count( TaggerStatus.DEFERRED ),
-                model.count( TaggerStatus.FAILED ),
+                model.count( r -> r.llmFailure != null ),
                 model.count( TaggerStatus.ERROR ) ) ;
         if( pending >= 0 ) text += " · awaiting tags: " + pending ;
+
+        int escalated = controller == null ? 0 : controller.escalatedCount() ;
+        if( escalated > 0 ) text += " · escalated: " + escalated ;
         // Running and queued counts are in the queue section on the right.
         if( procState == ProcessingState.STOPPING ) text += "   |   stopping" ;
 
@@ -2286,7 +2382,7 @@ public class TaggerFrame extends JFrame
 
     /**
      * Tints rows by status; the Tags cell of a chosen set (and a Decided
-     * row's Status cell) green, and a proposal's text grey; the Status cell
+     * row's Status cell) green, and the text of tags not settled grey; the Status cell
      * of a hand-off red; frames the Tags cell in red while a request is in
      * flight; spins in the Status cell of a row being saved; and shows the
      * last column as a dot: green once saved on the server, red until then.
@@ -2327,7 +2423,8 @@ public class TaggerFrame extends JFrame
             if( tags && TagTableModel.showsProposal( row ) ) {
                 c.setForeground( PROPOSAL_FG ) ;
             }
-            if( tags && row.chosen() != null ) {
+            if( tags && row.chosen() != null
+                && !TagTableModel.showsProposal( row ) ) {
                 c.setBackground( DECIDED_CELL_BG ) ;
                 c.setForeground( t.getForeground() ) ;
                 return c ;

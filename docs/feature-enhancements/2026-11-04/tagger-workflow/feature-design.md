@@ -42,17 +42,15 @@ LLM, the owner's review, saving, escalations, and the audit record.
 ## How a question is tagged
 
 ```
-Load ──> locate images ──> OCR each image ──> score ──┬─ settled ───────> Accepted
-                                                      │
-                                                      └─ needs the LLM ─> Start ─> LLM
-                                                                                    │
-         ┌────────────────────┬─────────────────────────┬──────────────────────────┤
-    tags, checked        no tag fits          bad reply, after a retry        no answer
-         │                    │                         │                          │
-      Accepted          Needs human,             Needs human                    Failed
-         │              held out locally                                    (re-queue)
-         v
-    Owner reviews ──> Save ──> /Refresh ──> AUTO_TAGGED on the server
+Load ──> locate images ──> OCR each image ──> score ──┬─ settled ──> Accepted ──────────┐
+                                                      │                                 │
+                                                      └─ not settled ──> Partially      │
+                                                           undecided                    │
+                                                              │                         v
+                 owner ticks or turns down the undecided tags ┘    Save ──> /Refresh ──> AUTO_TAGGED
+                 and may pick from the LLM's opinion ─────────────> Decided ──┘
+
+Invoke LLM (or Start, for all) ──> LLM's tags shown beside the proposal; nothing is chosen for the owner
 ```
 
 Nothing reaches the server until the owner presses Save.
@@ -88,7 +86,7 @@ lists: accepted, undecided, triggered and the route.
 | Result | Row becomes |
 |---|---|
 | Route `apply` | *Accepted*, on the regression's tags |
-| Route `llm` | *Pending*, marked as needing the LLM |
+| Route `llm` | *Partially undecided*, on the regression's accepted tags, with the undecided and triggered tags to resolve |
 | OCR failed, or gave no text | *Needs human*, with the reason |
 
 A tag whose `route` is `never` is never proposed by the regression or offered to
@@ -107,7 +105,10 @@ the reference on real data (see the plan):
 
 ### 4. The LLM
 
-Start sends the questions that need the LLM, in table order, through the
+The LLM gives an opinion, and only when asked: **Invoke LLM** in the strip asks
+about the selected question, and Start about every question not settled and not
+asked yet. Asking doesn't change where a question stands, so the owner can go on
+deciding meanwhile. Requests go in table order, through the
 existing `AIHub` and `TaskScheduler`, on the `llm` root (the free Nemotron,
 falling back to the paid one). Reasoning stays off, because the model reads and
 doesn't solve.
@@ -119,13 +120,13 @@ The reply is `{tags, confidence, noTagFits, framing, reason}`:
 
 | Reply | Result |
 |---|---|
-| Valid, with tags | *Accepted*, on the LLM's tags |
-| Valid, with `confidence` low | *Accepted*, and marked for the owner's attention (decision 5) |
-| `noTagFits` true | *Needs human*, showing `framing`, and held out (see [Escalations](#escalations)) |
-| Invalid JSON, or any tag not in the prompt's table | Rejected as a bad reply. One retry, then *Needs human*, with no tags applied (decision 5) |
+| Valid, with tags | Shown in the *LLM* part of the strip. Nothing else changes: the owner picks from them |
+| Valid, with `confidence` low | The same, with the confidence in the part's title and the *Low confidence* filter |
+| `noTagFits` true | *Escalated* if undecided, showing `framing`, and held out (see [Escalations](#escalations)) |
+| Invalid JSON, or any tag not in the prompt's table | Rejected as a bad reply. One retry, then the failure shows in the LLM part (decision 5) |
 | `noTagFits` false with no tags | Treated as a bad reply |
 | `noTagFits` true with tags | Treated as a bad reply |
-| No answer: rate limits, errors, timeouts | *Failed*, to re-queue |
+| No answer: rate limits, errors, timeouts | The failure shows in the LLM part, to re-queue |
 
 The tag check is strict, as the format requires: one unknown name rejects the
 whole answer. The old tagger's mending of replies is not brought back. The
@@ -137,8 +138,20 @@ The review surface is the existing one: the table, the image, `TagStrip` and
 `ChosenTagsBar`, with the decision keys. It gains:
 
 - **Where a tag set came from:** a new source, *regression*, so that the Tags
-  column reads `[R]`, `[M]` (LLM), `[E]` (existing) or `[U]` (user), with `*`
-  once edited.
+  column reads `[R]`, `[E]` (existing) or `[U]` (user), with `*` once edited,
+  followed by `? a, b` for tags still undecided.
+- **The tag strip has three parts:** Existing, Proposed and LLM.
+- **Undecided tags:** the regression's undecided and triggered tags show in
+  Proposed with a dotted red outline, a green tick on the left and a red cross on
+  the right. The tick puts the tag in the chosen set, and the cross turns it down.
+  Either can be clicked again to change it. A question stays *Partially undecided*,
+  and out of Save, until none is left open. Key 1 settles it on the tags chosen so
+  far, turning down the rest.
+- **A route `llm` question with nothing to resolve** (nothing accepted, or tags
+  accepted together that need a look) is also *Partially undecided*, until the
+  owner adds a tag or confirms with key 1.
+- **The LLM's tags:** a click puts one in the chosen set or takes it out, and they
+  can be dragged there. A set picked this way is credited to the owner.
 - **A filter on what needs a look:** low confidence, tags already on the
   question, and escalations.
 - **The regression's view on the selected question:** accepted, undecided and
@@ -159,10 +172,9 @@ set, so QTagger protects the data itself:
   that aren't the topic's, plus the decided tags.
 - **Empty sets are held back.** An empty `tagIds` clears the question's tags and
   sets it to null, which is never what a Save means.
-- **Tags already on a null question need approval.** A topic move can leave tags
-  on a null question. Such a row is flagged, and never counts as settled without
-  the owner seeing it (decision 4).
-- **A question that changed since Load is held back.** See decision 3.
+- **What's chosen at Save is what gets saved.** A question's existing tags of the
+  topic start in its chosen set alongside the proposed ones, and stay unless the
+  owner takes them out. One taken out is deleted (decision 4).
 
 ## Topic files
 
@@ -218,17 +230,18 @@ The files in the question-bank folder refer to tags by name only.
 ## Escalations
 
 The server has no escalated state, so an escalated question stays null and comes
-back in every fetch from the start. QTagger keeps a local list per topic: the
-question, its cycle, the `framing`, and the time.
+back in every fetch from the start. QTagger keeps the reply in
+`pending-tagging.json`, with its topic, cycle, `framing` and time, so the hold is
+that entry: it goes when the owner's tags are saved.
 
-- A held-out question shows as *Escalated*, isn't sent again, and isn't counted
-  as pending work.
-- The list can be read in the app, because the owner resolves each one by creating
-  a tag or subsuming the framing, as the workflow describes.
+- A held-out question shows as *Escalated*, isn't sent again, and is counted apart
+  in the status bar.
+- **Load escalated** brings just these questions into the table, for the owner to
+  tag by hand. The *Escalated* filter finds them among any other rows.
 - A new cycle releases the topic's hold-outs: the tag set or rules have changed,
   so the question deserves another try.
-- A question hand-tagged meanwhile stops being null, and leaves the fetch by
-  itself.
+- A question hand-tagged elsewhere stops being null, and leaves the fetch by
+  itself. The next Load escalated drops its hold.
 
 ## Audit record
 
@@ -248,14 +261,14 @@ Decisions 2 to 9 use the numbering from the original discussion.
 | # | Question | Position | Status |
 |---|---|---|---|
 | 1 | Rework QTagger or build a new app? | Rework in place, removing the old logic first | **Decided**, done |
-| 2 | How is each sync approved? | The owner presses Save for each batch. Nothing saves by itself, so unattended mode was removed. A later run that tags batches and stops before saving could return | Proposed. Removal was the implementer's call |
-| 3 | How are stale writes prevented? | Re-read the tags at Save, and hold back a question whose tags changed since Load. A topic move that leaves the tags alone needs its status or topic read too | Proposed. The API to use for that read is still to be confirmed |
-| 4 | What about tags already on a null question? | Keep other-topic tags, as the workflow says. Keep same-topic ones too, and flag the row for approval: the workflow doesn't cover a question moved away and back | Proposed |
-| 5 | What happens to bad or unsure LLM replies? | Unknown tag or invalid JSON: one retry, then the owner, with nothing applied. Low confidence: stage the tags and mark the row | Proposed |
-| 6 | How are escalations held out? | Locally, per topic and cycle, released by a new cycle | Proposed |
+| 2 | How is each sync approved? | The owner presses Save for each batch. Nothing saves by itself, so unattended mode stays removed | **Decided** by the owner |
+| 3 | How are stale writes prevented? | They aren't. The owner is the only tagger and tags in one place at a time, so nothing changes a question between Load and Save. The tags are still read at Save, to keep those of other topics | **Decided** by the owner |
+| 4 | What about tags already on a null question? | Other-topic tags are kept. The topic's own start in the chosen set with the proposed ones, and what the set holds at Save is saved, so one the owner takes out is deleted. No flag or approval step, as the owner revisits them | **Decided** by the owner |
+| 5 | What happens to bad or unsure LLM replies? | Unknown tag or invalid JSON: one retry, then the owner, with nothing applied. Low confidence: stage the tags and mark the row | **Decided** by the owner |
+| 6 | How are escalations held out? | Locally, per topic and cycle, until the owner tags them by hand. A new cycle releases them | **Decided** by the owner |
 | 7 | Where do the topic files come from? | Read directly from the question-bank folder at each scope, with nothing copied. The tag list comes from the server | **Decided** by the owner |
-| 8 | What does the LLM see, and is there a pilot? | The image as well as the text, because Ray Optics has questions where only the figure tells a lens from a mirror. A pilot of about 50 questions before a whole topic | Proposed. Both are also open in `workflow.md` |
-| 9 | What is recorded locally? | See [Audit record](#audit-record) | Proposed |
+| 8 | What does the LLM see, and is there a pilot? | The image as well as the text, because Ray Optics has questions where only the figure tells a lens from a mirror. A pilot of about 50 questions before a whole topic | Image: **Decided** by the owner. Pilot: proposed. `workflow.md` still lists both as open |
+| 9 | What is recorded locally? | See [Audit record](#audit-record) and [`tag-audit-format.md`](tag-audit-format.md) | **Decided** by the owner |
 | 10 | Does the tag panel show tags marked `never`? | Yes: it shows the server's list unchanged, as normal badges. Hiding them would stop a retired tag being applied by accident, but the model would then filter the server's list | Proposed |
 
 Calls made while removing the old logic, for the owner to confirm:
@@ -296,3 +309,7 @@ indicative only.
 | 3 | 2026-11-05 | Owner's change: a topic without usable files is refused with a dialog and the scope unloaded |
 | 4 | 2026-11-05 | Owner's change: the Scope dialog offers only the topics with both files |
 | 5 | 2026-11-05 | Step 3 measured: OCR identical to training, and Ray Optics settles far fewer than estimated |
+| 6 | 2026-11-05 | Owner's decision 5, and the image part of decision 8: as proposed |
+| 7 | 2026-11-05 | Owner's decision 3: no stale-write guard, as the owner is the only tagger |
+| 8 | 2026-11-05 | Owner's decisions 2, 4, 6 and 9. Decision 4 changed: existing tags start in the chosen set, with no approval step. Holds live in `pending-tagging.json` |
+| 9 | 2026-11-05 | Owner's change before the pilot: undecided tags are resolved by hand with ticks, and the LLM is invoked on request as an opinion the owner picks from |

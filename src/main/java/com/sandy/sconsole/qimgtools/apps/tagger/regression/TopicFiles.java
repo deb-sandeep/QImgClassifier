@@ -139,7 +139,8 @@ public record TopicFiles( File cycleDir, RegressionModel model,
         }
     }
 
-    private static String sha256( byte[] bytes ) {
+    /** The SHA-256 of {@code bytes}, in hex. */
+    public static String sha256( byte[] bytes ) {
         try {
             return HexFormat.of().formatHex(
                     MessageDigest.getInstance( "SHA-256" ).digest( bytes ) ) ;

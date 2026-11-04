@@ -5,6 +5,7 @@ import com.sandy.sconsole.qimgtools.apps.tagger.model.TagItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagProposal;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TaggerStatus;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.Assessment;
+import com.sandy.sconsole.qimgtools.apps.tagger.regression.Decision;
 import com.sandy.sconsole.qimgtools.core.ui.HeaderFilterController;
 
 import javax.swing.table.AbstractTableModel;
@@ -12,14 +13,17 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Predicate;
 
 /**
  * The tagger's table: one row per question loaded, with its tags (the chosen
- * set, else the model's proposal) and where it stands. All row state lives
- * here and is touched only on the EDT.
+ * set, and any undecided ones) and where it stands. The LLM's reply is an
+ * opinion kept beside them: only the user moves its tags into the chosen set.
+ * All row state lives here and is touched only on the EDT.
  */
 @SuppressWarnings( "serial" )
 final class TagTableModel extends AbstractTableModel
@@ -37,6 +41,9 @@ final class TagTableModel extends AbstractTableModel
             "Id", "Source", "Question", "Type", "Tags", "Status", ""
     } ;
 
+    /** Where a question stands with the LLM. */
+    enum Llm { IDLE, QUEUED, ASKING }
+
     /** One question and everything that has happened to it. */
     static final class Row {
 
@@ -50,30 +57,39 @@ final class TagTableModel extends AbstractTableModel
         /** The OCR text and the regression's decision; null until read. */
         Assessment assessment ;
 
-        /** What the model proposed; null until it has replied. */
+        /** The LLM's opinion; null until it has replied. */
         TagProposal proposal ;
+
+        /** Where it stands with the LLM. */
+        Llm llm = Llm.IDLE ;
+
+        /** Why the LLM gave no usable opinion the last time; null if it did. */
+        String llmFailure ;
 
         /** Model of the latest attempt, and the attempt's number. */
         String model ;
         int    attempts ;
 
+        /** The undecided tags the user has turned down. */
+        final Set<String> rejected = new HashSet<>() ;
+
         /** True while a request is in flight for it: its Tags cell is framed. */
         boolean inFlight ;
 
         /**
-         * What is going on or went wrong, for the detail area: the attempt
-         * under way, a failure, a server error, or the decision.
+         * What is going on or went wrong, for the detail area: why the
+         * regression didn't settle it, a server error, or the decision.
          */
         String message ;
 
         /**
-         * The tags to save, staged by the model or the user, until the
-         * server has taken them (kept if it refused them); null if none.
+         * The tags to save, staged by the user, until the server has taken
+         * them (kept if it refused them); null if none.
          */
         TagDecision decision ;
 
         /**
-         * The set {@link #decision} started from, as chosen (the model's
+         * The set {@link #decision} started from, as chosen (the regression's
          * tags, the existing ones, or none), before the user's edits; null
          * with no decision.
          */
@@ -95,44 +111,120 @@ final class TagTableModel extends AbstractTableModel
         }
 
         /**
-         * The chosen set: the decision, else the accepted proposal; null if
-         * nothing is chosen.
+         * The chosen set: the decision, else the regression's tags while it
+         * stands on them; null if nothing is chosen.
          */
         TagDecision chosen() {
 
             if( decision != null ) return decision ;
-            return status.isAccepted() ? proposed() : null ;
+            return status.isAccepted()
+                   || status == TaggerStatus.PARTIALLY_UNDECIDED
+                   ? proposedSet() : null ;
         }
 
         /**
-         * The set proposed for it: the model's, else the one the regression
-         * settled on; null if neither.
+         * The tags the regression couldn't settle, which the user is to
+         * resolve: those scored between their thresholds, and the
+         * {@code llm-only} ones whose pattern matched.
+         */
+        List<String> undecided() {
+
+            Decision d = assessment == null ? null : assessment.decision() ;
+            if( d == null ) return List.of() ;
+
+            List<String> tags = new ArrayList<>( d.undecided() ) ;
+            tags.addAll( d.triggered() ) ;
+            return tags ;
+        }
+
+        /** The undecided tags neither chosen nor turned down. */
+        List<String> unresolved() {
+
+            TagDecision  d      = chosen() ;
+            List<String> chosen = d == null ? List.of() : d.tags() ;
+
+            return undecided().stream()
+                              .filter( t -> !chosen.contains( t )
+                                            && !rejected.contains( t ) )
+                              .toList() ;
+        }
+
+        /** What the user settling on {@code d} says: the rest are turned down. */
+        TagDecision settleOn( TagDecision d ) {
+
+            for( String t : undecided() ) {
+                if( !d.tags().contains( t ) ) rejected.add( t ) ;
+            }
+            return d.asHuman() ;
+        }
+
+        /**
+         * The set key 1 chooses: while it is partly undecided the tags chosen
+         * so far, else the proposed ones.
+         */
+        TagDecision proposedChoice() {
+
+            return status == TaggerStatus.PARTIALLY_UNDECIDED
+                   && chosen() != null ? chosen() : proposedSet() ;
+        }
+
+        /**
+         * The set to save if the proposal is taken: the proposed tags and
+         * those already on the question, which stay unless taken out; null
+         * with no proposal.
+         */
+        TagDecision proposedSet() {
+
+            TagDecision p = proposed() ;
+            return p == null ? null : p.withExisting( existing ) ;
+        }
+
+        /** The set the user's edits start from with nothing chosen yet. */
+        TagDecision startingSet() {
+            return existing.isEmpty() ? TagDecision.empty()
+                                      : TagDecision.existing( existing ) ;
+        }
+
+        /** True if the LLM says it is unsure of the tags it gave. */
+        boolean isLowConfidence() {
+            return proposal != null && proposal.reply().isLowConfidence() ;
+        }
+
+        /**
+         * The set the regression accepted; null if it hasn't been scored.
          */
         TagDecision proposed() {
-
-            if( proposal != null ) return TagDecision.of( proposal, false ) ;
-            return assessment != null && assessment.isSettled()
-                   ? TagDecision.regression( assessment.decision().accepted() )
-                   : null ;
-        }
-
-        /** True if it waits for the LLM: the regression didn't settle it. */
-        boolean needsLlm() {
-            return status == TaggerStatus.PENDING && assessment != null
-                   && assessment.needsLlm() ;
+            return assessment == null || assessment.decision() == null ? null
+                   : TagDecision.regression( assessment.decision().accepted() ) ;
         }
 
         /**
-         * True if the user may decide on it: the models are done with it,
-         * it isn't being saved, and it isn't saved.
+         * True if Start asks the LLM about it: the regression didn't settle
+         * it, and the LLM hasn't given an opinion, or been asked.
+         */
+        boolean needsLlm() {
+            return canAskLlm() && llm == Llm.IDLE && proposal == null
+                   && decision == null && assessment.needsLlm() ;
+        }
+
+        /** True if the LLM may be asked about it now. */
+        boolean canAskLlm() {
+            return item.isSendable() && status.canAskLlm() && llm == Llm.IDLE
+                   && assessment != null && assessment.failure() == null ;
+        }
+
+        /**
+         * True if the user may decide on it: it has been read, it isn't being
+         * saved, and it isn't saved.
          */
         boolean isOpen() {
             return status.isDecidable() ;
         }
 
-        /** True if it may take the model's tags. */
+        /** True if key 1 has tags to choose for it. */
         boolean canUseProposal() {
-            return isOpen() && proposed() != null ;
+            return isOpen() && proposed() != null
+                   && !proposedChoice().tags().isEmpty() ;
         }
 
         /** True if it has existing tags to keep. */
@@ -141,11 +233,17 @@ final class TagTableModel extends AbstractTableModel
         }
 
         /**
-         * True if Save sends it: an accepted proposal (decided as the save
-         * starts), or a decision not saved yet.
+         * True if Save sends it: the regression's tags (decided as the save
+         * starts), or a decision not saved yet with nothing left undecided.
          */
         boolean isSavable() {
-            return status.isAccepted() || isUnsaved() ;
+            return status.isAccepted() || isReady() ;
+        }
+
+        /** True if it has a decision to send, with nothing left undecided. */
+        boolean isReady() {
+            return isUnsaved()
+                   && status != TaggerStatus.PARTIALLY_UNDECIDED ;
         }
 
         /** True if it has a decision not sent to the server yet. */
@@ -286,37 +384,34 @@ final class TagTableModel extends AbstractTableModel
     }
 
     /**
-     * "[M] a, b": the chosen set, marked with where it started from
-     * ({@link #sourceMark}), else the model's proposal, in parentheses, or
-     * "[LLM] (a, b)" for a question waiting for the LLM, with the tags the
-     * regression accepted so far.
+     * "[R] a, b": the chosen set, marked with where it started from
+     * ({@link #sourceMark}), followed by "? c, d" for the tags still undecided.
      */
     private static String tagsText( Row row ) {
 
-        TagDecision d = row.chosen() ;
+        TagDecision  d    = row.chosen() ;
+        List<String> open = row.unresolved() ;
+        String       more = open.isEmpty() ? ""
+                            : "? " + String.join( ", ", open ) ;
+
         if( d != null ) {
+            if( d.tags().isEmpty() && !more.isEmpty() ) return more ;
             return "[" + sourceMark( d ) + "] " +
                    ( d.tags().isEmpty() ? "no tags"
-                                        : String.join( ", ", d.tags() ) ) ;
+                                        : String.join( ", ", d.tags() ) ) +
+                   ( more.isEmpty() ? "" : "  " + more ) ;
         }
-        if( row.needsLlm() ) {
-            List<String> sofar = row.assessment.decision().accepted() ;
-            return "[LLM]" + ( sofar.isEmpty() ? ""
-                               : " (" + String.join( ", ", sofar ) + ")" ) ;
-        }
-        return row.proposal == null ? ""
-               : "(" + String.join( ", ", row.proposal.reply().tags() ) + ")" ;
+        return row.status == TaggerStatus.ESCALATED ? "(no tag fits)" : more ;
     }
 
     /**
-     * "R" (the regression's), "M" (the model's), "E" (the existing tags) or
+     * "R" (the regression's), "E" (the existing tags) or
      * "U" (the user's own set), with a "*" once edited.
      */
     static String sourceMark( TagDecision d ) {
 
         String s = switch( d.source() ) {
             case REGRESSION -> "R" ;
-            case MODEL      -> "M" ;
             case EXISTING   -> "E" ;
             case USER       -> "U" ;
         } ;
@@ -324,8 +419,9 @@ final class TagTableModel extends AbstractTableModel
                                                                     : s ;
     }
 
-    /** True if {@code row}'s Tags cell shows a proposal, not a chosen set. */
+    /** True if {@code row}'s Tags cell shows tags not settled on yet. */
     static boolean showsProposal( Row row ) {
-        return row.chosen() == null && ( row.proposal != null || row.needsLlm() ) ;
+        return row.status == TaggerStatus.PARTIALLY_UNDECIDED
+               || row.status == TaggerStatus.ESCALATED ;
     }
 }

@@ -16,6 +16,7 @@ import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerOutcomes;
 import com.sandy.sconsole.qimgtools.apps.tagger.prompt.TagPrompter;
 import com.sandy.sconsole.qimgtools.apps.tagger.ocr.QuestionOcr;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.Assessment;
+import com.sandy.sconsole.qimgtools.apps.tagger.regression.Decision;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.RegressionScorer;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.TopicFileException;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.TopicFileFinder;
@@ -70,9 +71,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>
  * Setting a scope also reads the topic's regression model and LLM prompt from
  * the tag workspace ({@link TopicFiles}); a topic without usable ones can't be
- * scoped. They aren't used yet: {@link #canTag}
- * is false, so for now questions can only be loaded and looked at, and they
- * stay Pending, which can't be decided on.
+ * scoped. The LLM's reply is only an opinion, kept for the user to pick from.
  * Settings come from {@code qtagger.properties} ({@link TaggerConfig}).
  */
 @Slf4j
@@ -90,6 +89,7 @@ public class QTagger implements TaggerFrame.Controller {
     private final ScopeStore              scopeStore ;
     private final QuestionLocator         locator ;
     private final QuestionOcr             ocr ;
+    private final TagPrompter             prompter ;
     private final TaggerOutcomes          outcomes ;
     private final TaskScheduler<TagReply> scheduler ;
     private final TaggerListener          listener ;
@@ -137,13 +137,13 @@ public class QTagger implements TaggerFrame.Controller {
         ImagePrep prep = new ImagePrep( config.getImagePrepWidth(),
                                         config.isImagePrepGreyscale() ) ;
 
+        this.prompter  = new TagPrompter( prep ) ;
         this.outcomes  = new TaggerOutcomes(
                 frame, pending, audit,
                 new TranscriptStore( config.getWorkspaceDir() ),
                 new UsageLog( config.getUsageLogFile() ),
-                () -> scope.topicId() ) ;
-        this.scheduler = new TaskScheduler<>( hub, new TagPrompter( prep ),
-                                              outcomes ) ;
+                () -> scope.topicId(), () -> topicFiles.cycle() ) ;
+        this.scheduler = new TaskScheduler<>( hub, prompter, outcomes ) ;
     }
 
     public static void main( String[] args ) {
@@ -274,22 +274,12 @@ public class QTagger implements TaggerFrame.Controller {
     }
 
     /**
-     * False for now, though a scope always has its {@link #topicFiles}: true
-     * once the prompter can ask the LLM, in a later step of the rework.
+     * True with a scope in effect, as a scope always has its
+     * {@link #topicFiles}.
      */
     @Override
     public boolean canTag() {
-        return false ;
-    }
-
-    /**
-     * False until saving protects existing tags and stale rows, in a later
-     * step of the rework: rows the regression settled would otherwise be the
-     * first that could reach {@code /Refresh} without those guards.
-     */
-    @Override
-    public boolean canSave() {
-        return false ;
+        return topicFiles != null ;
     }
 
     @Override
@@ -303,9 +293,13 @@ public class QTagger implements TaggerFrame.Controller {
                 log.warn( "{}: {}", item, text.failure() ) ;
                 return Assessment.failed( text.failure() ) ;
             }
-            return new Assessment( text.text(),
-                                   new RegressionScorer( files.model() )
-                                           .decide( text.text() ), null ) ;
+            Decision d = new RegressionScorer( files.model() )
+                                 .decide( text.text() ) ;
+
+            prompter.track( item.task(), new TagPrompter.Context(
+                    files.prompt(), item.question().getQuestionId(),
+                    text.text(), d ) ) ;
+            return new Assessment( text.text(), d, null ) ;
         }
         catch( RuntimeException e ) {
             log.error( "Could not assess {}", item, e ) ;
@@ -442,6 +436,8 @@ public class QTagger implements TaggerFrame.Controller {
     @Override
     public Loaded load( int limit, boolean fromStart ) throws Exception {
 
+        prompter.clear() ;
+
         Scope s = fromStart ? scope.fromStart() : scope ;
         int   n = Math.min( Math.max( limit, 1 ),
                             TaggerServerClient.MAX_LIMIT ) ;
@@ -449,17 +445,7 @@ public class QTagger implements TaggerFrame.Controller {
         PendingResult        found = server.pending( s.topicId(), n,
                                                      s.afterId() ) ;
         List<ServerQuestion> qs    = found.getQuestions() ;
-
-        Map<Integer,List<ServerTag>> tags = server.questionTags(
-                qs.stream().map( ServerQuestion::getId ).toList() ) ;
-
-        List<TagItem> items = new ArrayList<>() ;
-        for( ServerQuestion q : qs ) {
-            QuestionLocator.Located l = locator.locate( q ) ;
-            items.add( new TagItem( q, l.task(), l.problem(),
-                                    tags.getOrDefault( q.getId(),
-                                                       List.of() ) ) ) ;
-        }
+        List<TagItem>        items = items( qs ) ;
 
         scope = s.withCursor( qs.stream().map( ServerQuestion::getId )
                                 .max( Integer::compare )
@@ -471,10 +457,77 @@ public class QTagger implements TaggerFrame.Controller {
         return new Loaded( items, found.getTotalResults() ) ;
     }
 
+    /**
+     * The escalated questions still awaiting tags, found by walking the
+     * topic's whole queue, as the server has no read by id for them. One no
+     * longer in the queue has been tagged elsewhere, so its hold is dropped.
+     */
+    @Override
+    public Loaded loadEscalated() throws Exception {
+
+        prompter.clear() ;
+
+        Scope        s    = scope ;
+        Set<Integer> held = pending.escalated( s.topicId(),
+                                               topicFiles.cycle() ) ;
+
+        List<ServerQuestion> found = new ArrayList<>() ;
+        Integer              after = null ;
+        int                  total ;
+
+        while( true ) {
+            PendingResult page = server.pending(
+                    s.topicId(), TaggerServerClient.MAX_LIMIT, after ) ;
+            List<ServerQuestion> qs = page.getQuestions() ;
+
+            total = page.getTotalResults() ;
+            for( ServerQuestion q : qs ) {
+                if( held.remove( q.getId() ) ) found.add( q ) ;
+            }
+            if( held.isEmpty() || qs.isEmpty() ) break ;
+            after = qs.stream().map( ServerQuestion::getId )
+                      .max( Integer::compare ).orElseThrow() ;
+        }
+        if( !held.isEmpty() ) {
+            log.info( "Dropping the hold on {}: no longer awaiting tags", held ) ;
+            pending.removeIds( held ) ;
+        }
+        log.info( "Loaded {} escalated questions", found.size() ) ;
+        return new Loaded( items( found ), total ) ;
+    }
+
+    @Override
+    public int escalatedCount() {
+
+        TopicFiles files = topicFiles ;
+        Scope      s     = scope ;
+
+        return s == null || files == null
+               ? 0 : pending.escalated( s.topicId(), files.cycle() ).size() ;
+    }
+
+    /** Each of {@code qs} with its local images and its tags on the server. */
+    private List<TagItem> items( List<ServerQuestion> qs ) throws ServerException {
+
+        Map<Integer,List<ServerTag>> tags = server.questionTags(
+                qs.stream().map( ServerQuestion::getId ).toList() ) ;
+
+        List<TagItem> items = new ArrayList<>() ;
+        for( ServerQuestion q : qs ) {
+            QuestionLocator.Located l = locator.locate( q ) ;
+            items.add( new TagItem( q, l.task(), l.problem(),
+                                    tags.getOrDefault( q.getId(),
+                                                       List.of() ) ) ) ;
+        }
+        return items ;
+    }
+
     @Override
     public PendingTagging.Stored stored( TagItem item ) {
-        return scope == null ? null
-                             : pending.stored( item.question(), scope.topicId() ) ;
+        TopicFiles files = topicFiles ;
+        return scope == null || files == null
+               ? null
+               : pending.stored( item.question(), scope.topicId(), files.cycle() ) ;
     }
 
     // ---- running -------------------------------------------------------
@@ -648,7 +701,8 @@ public class QTagger implements TaggerFrame.Controller {
 
             saved.add( s.item().question() ) ;
             try {
-                audit.decision( s.item().question(), sc, s.decision(),
+                audit.decision( s.item().question(), sc, topicFiles,
+                                s.decision(), s.assessment(), s.proposal(),
                                 sent.get( i ), r ) ;
             }
             catch( Exception e ) {
@@ -668,7 +722,8 @@ public class QTagger implements TaggerFrame.Controller {
 
     /**
      * The refresh of one question: its explicit tags now ({@code tags}) that
-     * are not the scoped topic's, kept, and the decided tags.
+     * are not the scoped topic's, kept, and the decided tags. A tag of the
+     * topic the decision leaves out is taken off the question.
      */
     private static RefreshItem refreshItem( SaveItem s, TagCatalogue c,
                                             List<ServerTag> tags ) {

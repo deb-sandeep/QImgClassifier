@@ -17,16 +17,23 @@ public enum TaggerStatus {
     /** The question's images are not in the question bank. */
     NO_IMAGES( "No local images" ),
 
-    QUEUED ( "Queued" ),
-
-    /** A request to a model is in flight, or about to be. */
-    RUNNING( "Running" ),
-
-    /** The regression's or the model's tags are staged, to be saved. */
+    /** The regression settled it: its tags are staged, to be saved. */
     ACCEPTED( "Accepted" ),
 
-    /** Handed to the user: OCR failed, or the model's replies were no use. */
+    /**
+     * The regression didn't settle it: the user is to resolve its undecided
+     * tags or confirm its tags. Save leaves it out meanwhile.
+     */
+    PARTIALLY_UNDECIDED( "Partially undecided" ),
+
+    /** Handed to the user: its text could not be read. */
     NEEDS_HUMAN( "Needs human" ),
+
+    /**
+     * The model says no tag fits: held out for the user to tag by hand, and
+     * not sent to the models again in this cycle.
+     */
+    ESCALATED( "Escalated" ),
 
     /** The user has decided; not sent to the server yet. */
     DECIDED( "Decided" ),
@@ -40,9 +47,6 @@ public enum TaggerStatus {
     /** The server applied the tags. */
     SAVED  ( "Saved" ),
 
-    /** The models gave no usable answer (infrastructure). */
-    FAILED ( "Failed" ),
-
     /** The server refused the save, or could not be reached. */
     ERROR  ( "Error" ) ;
 
@@ -53,27 +57,19 @@ public enum TaggerStatus {
         return this == ACCEPTED ;
     }
 
-    /** True while a model is working on the question. */
-    public boolean isRunning() {
-        return this == QUEUED || this == RUNNING ;
-    }
-
-    /**
-     * True if the user may decide (or decide again) on the question: it has
-     * the model's reply, or none could be had.
-     */
+    /** True if the user may decide (or decide again) on the question. */
     public boolean isDecidable() {
-        return isAccepted() || this == NEEDS_HUMAN || this == DECIDED
+        return isAccepted() || this == PARTIALLY_UNDECIDED
+               || this == NEEDS_HUMAN || this == ESCALATED || this == DECIDED
                || this == DEFERRED || this == ERROR ;
     }
 
     /**
-     * True if the question may be sent to the models: not yet sent, failed,
-     * or judged but not decided (to judge it again).
+     * True if the LLM's opinion may be asked for: it has been read, and isn't
+     * being saved or saved. Asking changes nothing about where it stands.
      */
-    public boolean isRunnable() {
-        return this == PENDING || this == FAILED || isAccepted()
-               || this == NEEDS_HUMAN || this == DEFERRED ;
+    public boolean canAskLlm() {
+        return isDecidable() ;
     }
 
     @Override

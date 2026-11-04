@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -74,6 +75,28 @@ public final class TopicPrompt {
     /** The text to send, with its placeholders still in it. */
     public String text() {
         return text ;
+    }
+
+    /**
+     * The text to send about one question. In one pass, so nothing in the OCR
+     * text is taken for a placeholder.
+     */
+    public String fill( String questionId, String ocrText, List<String> accepted,
+                        List<String> undecided, List<String> triggered ) {
+
+        Map<String,String> values = Map.of(
+                QUESTION_ID, questionId,
+                OCR_TEXT,    ocrText.strip(),
+                ACCEPTED,    names( accepted ),
+                UNDECIDED,   names( undecided ),
+                TRIGGERED,   names( triggered ) ) ;
+
+        return ANY_PLACEHOLDER.matcher( text ).replaceAll(
+                m -> Matcher.quoteReplacement( values.get( m.group() ) ) ) ;
+    }
+
+    private static String names( List<String> tags ) {
+        return tags.isEmpty() ? "none" : String.join( ", ", tags ) ;
     }
 
     /** The tags of its table, in order. */

@@ -34,6 +34,13 @@ final class TagBadge extends JLabel {
     private static final float BADGE_PT = 11.5f ;
     private static final int   ARC      = 10 ;
 
+    /** The width of a coloured outline. */
+    private static final float OUTLINE_WIDTH = 1.5f ;
+
+    private static final BasicStroke DOTTED = new BasicStroke(
+            OUTLINE_WIDTH, BasicStroke.CAP_BUTT, BasicStroke.JOIN_ROUND, 1f,
+            new float[]{ 2f, 2.5f }, 0f ) ;
+
     /** Pixels the mouse must move with its button down to start a drag. */
     private static final int DRAG_SLOP = 3 ;
 
@@ -42,6 +49,12 @@ final class TagBadge extends JLabel {
 
     /** Painted faded: e.g. a tag already chosen. */
     private boolean dimmed ;
+
+    /** The colour of its outline; null for the usual one. */
+    private Color outline ;
+
+    /** The outline is dotted. */
+    private boolean dotted ;
 
     TagBadge( String text, String tip ) {
 
@@ -145,6 +158,13 @@ final class TagBadge extends JLabel {
         return this ;
     }
 
+    /** Outline the badge in {@code color}, dotted or not. */
+    TagBadge outlined( Color color, boolean dotted ) {
+        this.outline = color ;
+        this.dotted  = dotted ;
+        return this ;
+    }
+
     /** True if the badge is painted faded. */
     boolean isDimmed() {
         return dimmed ;
@@ -193,8 +213,9 @@ final class TagBadge extends JLabel {
                              RenderingHints.VALUE_ANTIALIAS_ON ) ;
         g2.setColor( dimmed ? blend( FILL, Color.WHITE ) : FILL ) ;
         g2.fillRoundRect( 0, 0, w, h, ARC, ARC ) ;
-        g2.setColor( dimmed ? FILL : LINE ) ;
-        g2.setStroke( new BasicStroke( 1f ) ) ;
+        g2.setColor( outline != null ? outline : dimmed ? FILL : LINE ) ;
+        g2.setStroke( outline == null ? new BasicStroke( 1f )
+                      : dotted ? DOTTED : new BasicStroke( OUTLINE_WIDTH ) ) ;
         g2.drawRoundRect( 0, 0, w, h, ARC, ARC ) ;
         g2.dispose() ;
         super.paintComponent( g ) ;

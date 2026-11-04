@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntSupplier;
+import java.util.function.Supplier;
 
 /**
  * What happens to a question of the tagger around its AI attempts:
@@ -44,12 +45,16 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
     /** The scoped topic's id, for what is stored. */
     private final IntSupplier scopeTopic ;
 
+    /** The cycle of the scoped topic's files, for what is stored. */
+    private final Supplier<String> scopeCycle ;
+
     /** The item each submitted task belongs to. */
     private final Map<QTask,TagItem> items = new ConcurrentHashMap<>() ;
 
     public TaggerOutcomes( TaggerListener listener, PendingTagging pending,
                            TagAuditLog audit, TranscriptStore transcripts,
-                           UsageLog usageLog, IntSupplier scopeTopic ) {
+                           UsageLog usageLog, IntSupplier scopeTopic,
+                           Supplier<String> scopeCycle ) {
 
         this.listener    = listener ;
         this.pending     = pending ;
@@ -57,6 +62,7 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
         this.transcripts = transcripts ;
         this.usageLog    = usageLog ;
         this.scopeTopic  = scopeTopic ;
+        this.scopeCycle  = scopeCycle ;
     }
 
     /** Remember which item {@code item.task()} belongs to; call on submit. */
@@ -89,21 +95,23 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
         TagItem     item     = items.get( task ) ;
         TagProposal proposal = new TagProposal( model, reply ) ;
         int         scope    = scopeTopic.getAsInt() ;
+        String      cycle    = scopeCycle.get() ;
 
         try {
-            pending.save( item.question(), scope, proposal ) ;
+            pending.save( item.question(), scope, cycle, proposal ) ;
         }
         catch( Exception e ) {
             log.error( "[{}] Could not store the reply", task, e ) ;
         }
         try {
-            audit.reply( item.question(), scope, proposal ) ;
+            audit.reply( item.question(), scope, cycle, proposal ) ;
         }
         catch( Exception e ) {
             log.error( "[{}] Could not record the reply in the audit log",
                        task, e ) ;
         }
-        log.info( "[{}] {}: {}", task, model, reply.tags() ) ;
+        log.info( "[{}] {}: {} ({}{})", task, model, reply.tags(),
+                  reply.confidence(), reply.noTagFits() ? ", no tag fits" : "" ) ;
         listener.proposed( item, proposal ) ;
         return true ;
     }

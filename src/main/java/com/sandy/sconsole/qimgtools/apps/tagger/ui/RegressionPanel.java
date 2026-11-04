@@ -1,5 +1,7 @@
 package com.sandy.sconsole.qimgtools.apps.tagger.ui;
 
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagProposal;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.Assessment;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.Decision;
 import com.sandy.sconsole.qimgtools.apps.tagger.ui.TagTableModel.Row;
@@ -14,9 +16,9 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * The regression's view of the selected question: where it routes it and why,
- * the accepted, undecided and triggered tags with their scores, and the OCR
- * text it read. Blank unless exactly one question is selected. Use on the EDT.
+ * The local view of the selected question: the LLM's reply if it has one, where
+ * the regression routes it and why, the accepted, undecided and triggered tags
+ * with their scores, and the OCR text it read. Blank unless exactly one question is selected. Use on the EDT.
  */
 @SuppressWarnings( "serial" )
 final class RegressionPanel extends JPanel {
@@ -61,9 +63,11 @@ final class RegressionPanel extends JPanel {
         Decision      d = a.decision() ;
         StringBuilder b = new StringBuilder() ;
 
+        if( row.proposal != null ) reply( b, row.proposal ) ;
+
         if( d.isSettled() ) b.append( "Settled: the regression applies its tags\n" ) ;
         else {
-            b.append( "Needs the LLM\n" ) ;
+            b.append( "Not settled\n" ) ;
             d.llmWhy().forEach( w -> b.append( "  " ).append( w ).append( '\n' ) ) ;
         }
         scored( b, "Accepted", d.accepted(), d ) ;
@@ -75,6 +79,23 @@ final class RegressionPanel extends JPanel {
         }
         return b.append( "\nOCR text\n\n" ).append( a.ocrText().strip() )
                 .toString() ;
+    }
+
+    private static void reply( StringBuilder b, TagProposal p ) {
+
+        TagReply r = p.reply() ;
+        b.append( "LLM reply: " ).append( p.model() )
+         .append( ", confidence " ).append( r.confidence() ).append( '\n' ) ;
+        if( r.noTagFits() ) b.append( "  no tag fits\n" ) ;
+        else b.append( "  " ).append( String.join( ", ", r.tags() ) )
+              .append( '\n' ) ;
+        if( r.framing() != null ) {
+            b.append( "  framing: " ).append( r.framing() ).append( '\n' ) ;
+        }
+        if( r.reason() != null ) {
+            b.append( "  reason: " ).append( r.reason() ).append( '\n' ) ;
+        }
+        b.append( '\n' ) ;
     }
 
     private static void scored( StringBuilder b, String title, List<String> tags,

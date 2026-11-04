@@ -14,7 +14,10 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The model's replies on questions whose tags are not saved on the server
@@ -22,13 +25,13 @@ import java.util.List;
  * by the question's numeric server id:
  * <pre>
  * "6120" : {
- *   "questionId", "sourceId", "time", "topicId", "scopeTopicId",
- *   "model", "tags" : [ ... ],
+ *   "questionId", "sourceId", "time", "topicId", "scopeTopicId", "cycle",
+ *   "model", "tags" : [ ... ], "confidence", "noTagFits", "framing", "reason",
  *   "deferred" : { "note", "time" }
  * }
  * </pre>
- * The replies are reused only while the question's topic and the scope it was
- * run for are as they were. {@code deferred} is set once the question was put
+ * The replies are reused only while the question's topic, and the scope and
+ * cycle it was run for, are as they were. {@code deferred} is set once the question was put
  * off. An entry goes once its save is applied, so the file holds only the
  * unsaved backlog; the full history is in {@link TagAuditLog}.
  * <p>
@@ -75,14 +78,18 @@ public final class PendingTagging {
     }
 
     /**
-     * What is stored for {@code q} run under topic {@code scopeTopicId}, if
-     * stored while its topic was what it is now; null otherwise.
+     * What is stored for {@code q} run under topic {@code scopeTopicId} and
+     * {@code cycle}, if stored while its topic was what it is now; null
+     * otherwise. A new cycle's tags and rules may differ, so its replies don't
+     * carry over.
      */
-    public synchronized Stored stored( ServerQuestion q, int scopeTopicId ) {
+    public synchronized Stored stored( ServerQuestion q, int scopeTopicId,
+                                       String cycle ) {
 
         JsonNode e = root.path( key( q ) ) ;
         if( !e.isObject() || !e.path( "tags" ).isArray()
             || e.path( "scopeTopicId" ).asInt( -1 ) != scopeTopicId
+            || !cycle.equals( e.path( "cycle" ).asText() )
             || q.getTopicId() == null
             || e.path( "topicId" ).asInt( -1 ) != q.getTopicId() ) {
             return null ;
@@ -92,15 +99,23 @@ public final class PendingTagging {
         e.path( "tags" ).forEach( t -> tags.add( t.asText() ) ) ;
 
         JsonNode d = e.get( "deferred" ) ;
+        TagReply reply = new TagReply(
+                tags,
+                TagReply.Confidence.of( e.path( "confidence" ).asText( "" ) ),
+                e.path( "noTagFits" ).asBoolean(),
+                e.path( "framing" ).asText( null ),
+                e.path( "reason" ).asText( null ) ) ;
+
         return new Stored( new TagProposal( e.path( "model" ).asText( null ),
-                                            new TagReply( tags ) ),
+                                            reply ),
                            d != null && d.isObject()
                            ? d.path( "note" ).asText( "" ) : null ) ;
     }
 
     /** Store the reply on {@code q}, replacing anything stored. */
     public synchronized void save( ServerQuestion q, int scopeTopicId,
-                                   TagProposal p ) throws IOException {
+                                   String cycle, TagProposal p )
+            throws IOException {
 
         ObjectNode e = root.putObject( key( q ) ) ;
         e.put( "questionId", q.getQuestionId() ) ;
@@ -108,8 +123,13 @@ public final class PendingTagging {
         e.put( "time", Instant.now().toString() ) ;
         e.put( "topicId", q.getTopicId() ) ;
         e.put( "scopeTopicId", scopeTopicId ) ;
+        e.put( "cycle", cycle ) ;
         e.put( "model", p.model() ) ;
         p.reply().tags().forEach( e.putArray( "tags" )::add ) ;
+        e.put( "confidence", String.valueOf( p.reply().confidence() ) ) ;
+        e.put( "noTagFits", p.reply().noTagFits() ) ;
+        e.put( "framing", p.reply().framing() ) ;
+        e.put( "reason", p.reply().reason() ) ;
         write() ;
     }
 
@@ -127,6 +147,38 @@ public final class PendingTagging {
              .put( "time", Instant.now().toString() ) ;
         }
         write() ;
+    }
+
+    /**
+     * The server ids of the questions the model said no tag fits, under topic
+     * {@code scopeTopicId} and {@code cycle}: they are held out until tagged.
+     * The set is the caller's to change.
+     */
+    public synchronized Set<Integer> escalated( int scopeTopicId, String cycle ) {
+
+        Set<Integer> ids = new LinkedHashSet<>() ;
+        for( Iterator<String> it = root.fieldNames() ; it.hasNext() ; ) {
+            String   id = it.next() ;
+            JsonNode e  = root.get( id ) ;
+
+            if( e.path( "noTagFits" ).asBoolean()
+                && e.path( "scopeTopicId" ).asInt( -1 ) == scopeTopicId
+                && cycle.equals( e.path( "cycle" ).asText() ) ) {
+                ids.add( Integer.valueOf( id ) ) ;
+            }
+        }
+        return ids ;
+    }
+
+    /** Drop the entries of the questions {@code ids}; one write for them all. */
+    public synchronized void removeIds( Collection<Integer> ids )
+            throws IOException {
+
+        boolean changed = false ;
+        for( Integer id : ids ) {
+            changed |= root.remove( String.valueOf( id ) ) != null ;
+        }
+        if( changed ) write() ;
     }
 
     /** Drop the entries of {@code questions}; one write for them all. */

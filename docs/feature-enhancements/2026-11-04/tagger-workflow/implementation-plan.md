@@ -12,7 +12,7 @@ The design and its reasons are in [feature-design.md](feature-design.md). Packag
 | 2. Topic files | The topic's model and prompt read from the question-bank folder and checked at each scope | 7 (settled) | No | No |
 | 3. OCR and scorer | Every loaded question scored and routed | None | No | No |
 | 4. The LLM | Prompt, reply reading, tag check, escalation | 5, 8 | Yes | No |
-| 5. Saving | Approval, guards, hold-outs, audit record | 2, 3, 4, 6, 9 | Yes | Dev only |
+| 5. Saving | Approval, existing tags, hold-outs, audit record | 2, 4, 6, 9 | Yes | Dev only |
 | 6. Pilot | About 50 Kinematics questions, reviewed | 8 | Yes | Dev only |
 
 Three choices shape the order:
@@ -113,15 +113,34 @@ A JSON schema (`TaskPrompter.responseSchema`) isn't used at first. Restricting t
 - A Ray Optics lens-and-mirror question, with and without the image, as evidence for decision 8.
 - Cost per question from `token-usage.csv`, projected for the eligible questions.
 
+### Results
+
+All on the free model, pinned, so nothing was charged. Nothing was saved on the server.
+
+| Check | Result |
+|---|---|
+| Canned replies, each row of the design's table | 4 accepted and 9 rejected as they should be |
+| Five Kinematics questions | All accepted on the first attempt, with the prompt's format followed. About 2,960 tokens in and 78 out, 1.6 to 14 s |
+| Eight Ray Optics questions whose text names no lens or mirror | All accepted on the first attempt. About 4,100 tokens in and 78 out |
+| The same eight without the image | 5 gave the same tags. 3 differed, see below |
+| A stored reply on the next Load | 5 of 5 restored, with no new request |
+| Start | Sends exactly the rows routed to the LLM |
+
+Without the image, `AITS-14-M-PT4://P/SCA/21` was tagged `refraction.sph-surface`, its reason citing a figure the model hadn't been given, though the surface is plane. `AITS-17-M-FT4://P/SCA/7` gained `plane-mirror.combination` with no mirror in the question. `AITS-15-M-CT3://P/SCA/29` lost `refraction.light-speed`, though the question asks for a traversal time. This supports sending the image, but it is a small sample, and none was the lens-or-mirror confusion decision 8 names.
+
+**Cost if every LLM question went to the paid model**, at $0.15 and $0.50 per million tokens with no caching: about $0.0005 a question and $0.04 for Kinematics' 83, about $0.00065 a question and $0.21 for Ray Optics' 323.
+
+**Prompt caching isn't confirmed (4f).** The free model reports no cached tokens, so this needs a few requests on the paid model, and matters little at these costs.
+
+These replies have not been judged for correctness: that is the pilot's job, in step 6.
+
 ## Step 5: Saving
 
 | Layer | Work | Code |
 |---|---|---|
-| 5a. Stale guard | Compare the tags read at Save with those at Load, and hold back a question that changed, saying why | `QTagger.saveBatch`, `ui.TaggerFrame` |
-| 5b. Topic moves | Detect a move that left the tags alone. **To confirm first:** which server read gives current status and topic for a list of questions. If none does, it's a request to the server | `server.TaggerServerClient`, `core.server.ServerQuestion` (`taggingStatus`) |
-| 5c. Existing tags | Flag rows that already carry tags, and require a deliberate decision on them | `ui.TagTableModel`, `ui.TaggerFrame` |
-| 5d. Hold-outs | Per-topic list, *Escalated* status, a way to read it, release on a new cycle | New `workspace.HoldOuts`, `ui.TaggerFrame` |
-| 5e. Audit | The design's fields, documented as a format | `workspace.TagAuditLog`, `workspace.PendingTagging` (adds `cycle` and the files' hashes to its validity) |
+| 5c. Existing tags | They start in the chosen set with the proposed ones, and what the set holds at Save is saved. The chosen tags bar shows them | `model.TagDecision.withExisting`, `ui.TagTableModel.Row.proposedSet`, `startingSet` |
+| 5d. Hold-outs | *Escalated* status, held by the reply stored in `pending-tagging.json` for the topic and cycle until the tags are saved. **Load escalated** walks the topic's queue for them, and drops the hold of one gone from it. A new cycle releases them | `workspace.PendingTagging`, `QTagger.loadEscalated`, `ui.TaggerFrame` |
+| 5e. Audit | The design's fields, documented in [`tag-audit-format.md`](tag-audit-format.md). Stored replies stay valid by cycle only, not by the files' hashes, so rebuilding a cycle doesn't silently lose its holds | `workspace.TagAuditLog` |
 | 5f. Review filter | Low confidence, existing tags, escalated | `ui.TaggerFrame.Show` |
 | 5g. Reply fields | `/Refresh` also returns `topicDependencies`, which is ignored | `server.RefreshResult` |
 
@@ -129,12 +148,55 @@ A JSON schema (`TaskPrompter.responseSchema`) isn't used at first. Restricting t
 
 All on dev, with the owner watching, on a few questions:
 
+Checked first against a stub for `/Refresh` alone, with every read going to dev (see Results). The real save is still to do:
+
 - **A real save:** the first in the new code. The status becomes `AUTO_TAGGED`, and the tags on the server are what was shown, with implied parents added by the server.
 - **Other-topic tags:** a question with one keeps it.
-- **Stale guard:** a hand edit between Load and Save holds the question back.
 - **Empty set:** held back, with no server call.
 - **Hold-outs:** an escalated question stays out of later Loads from the start, and a new cycle releases it.
 - **Audit:** every field is present and reads back.
+
+### Results
+
+Through the frame, off-screen, on Kinematics. Writes went to a stub, so nothing reached dev.
+
+| Check | Result |
+|---|---|
+| A same-topic tag already on a question | Starts in the chosen set: `[R] graph-of-motion, projectile-motion`, sent as both |
+| The owner deletes it | Sent without it: `[53]` |
+| An other-topic tag on a question | Kept: `[78, 55]`, and it doesn't show among the topic's tags |
+| An empty set | Held back with its message, and not sent |
+| A rejected item | *Error*, with the server's message and the decision kept |
+| No tag fits | *Escalated*, not sendable, and still decidable |
+| Load from start | Comes back *Escalated*, with no request |
+| Load escalated | Just that question |
+| Tagged by hand and saved | *Saved*, and the hold is gone |
+| A held question gone from the queue | The hold is dropped by the next Load escalated |
+| A new cycle | The hold is released, and the question goes back to `[LLM]` |
+| Audit | Every field present on the 4 decisions |
+
+**Real save on dev, by the owner.** Two regression-settled Kinematics questions, both *Saved*; the owner verified them on the server and the database agrees:
+
+| Question | Sent | On the server |
+|---|---|---|
+| 25612, `AL-M-21://P/SCA/13` | `linear-kinematics` | The same, `AUTO_TAGGED` |
+| 26395, `GMP-P://P/MCA/6` | `moving-medium` | That, plus `relative-motion` the server implied, `AUTO_TAGGED` |
+
+Their audit lines have every field, and the hashes match the files. A real save of an LLM reply, a deleted tag or another topic's tag hasn't happened yet: those were checked against the stub only, and the pilot will be the first to do them.
+
+## Changes before the pilot
+
+Asked for by the owner after step 5, changing what steps 4 and 5 built:
+
+| Change | Code |
+|---|---|
+| A route `llm` question is *Partially undecided*: Proposed shows the accepted tags and the undecided ones (triggered included), dotted red | `model.TaggerStatus`, `ui.TagTableModel.Row`, `ui.TagBadge.outlined` |
+| A green tick and a red cross on each undecided tag. Save leaves out a question with any open | `ui.TagStrip`, `ui.TaggerFrame.resolveUndecided` |
+| An LLM part with an **Invoke LLM** button. The reply is only shown, and clicks or drags move its tags to the chosen set | `ui.TagStrip`, `ui.TaggerFrame.replied` |
+| Asking is apart from the status, so *Queued*, *Running* and *Failed* are gone | `Row.llm`, `Row.llmFailure` |
+| The LLM no longer proposes a set, so the `MODEL` source and a decision's `model` are gone | `model.TagDecision` |
+
+Checked through the frame against the stub, with one real call to the free model: 29 of 40 Kinematics questions partial, ticks and clearing, Save leaving a partial row out, the reply leaving status and chosen set alone, and no tag fits followed by tags. The strip was rendered and looked at. It hasn't been used in the real window.
 
 ## Step 6: Pilot
 
@@ -186,22 +248,22 @@ No app imports another, so the new OCR and regression code stays in `apps.tagger
 
 ### Step 4: The LLM
 
-- [ ] Decisions 5 and 8 settled
-- [ ] Request and reply
-- [ ] Outcomes, each reply case checked
-- [ ] Start sends only LLM rows
-- [ ] First real replies read in the transcripts
-- [ ] Image comparison and cost reported
+- [x] Decision 5 and the image part of decision 8 settled, as proposed
+- [x] Request and reply
+- [x] Outcomes, each reply case checked
+- [x] Start sends only LLM rows
+- [x] First real replies read in the transcripts
+- [x] Image comparison and cost reported
 
 ### Step 5: Saving
 
-- [ ] Decisions 2, 3, 4, 6 and 9 settled
-- [ ] Server read for topic moves confirmed
-- [ ] Stale guard, and existing-tag flag
-- [ ] Hold-outs
-- [ ] Audit record, documented
-- [ ] Review filter
-- [ ] Real save verified on dev
+- [x] Decision 3 settled: no stale-write guard
+- [x] Decisions 2, 4, 6 and 9 settled
+- [x] Existing tags in the chosen set
+- [x] Hold-outs
+- [x] Audit record, documented
+- [x] Review filter
+- [x] Real save verified on dev
 
 ### Step 6: Pilot
 
@@ -221,3 +283,9 @@ No app imports another, so the new OCR and regression code stays in `apps.tagger
 | 4 | 2026-11-05 | Owner's change: a topic without usable files is refused with a dialog and the scope unloaded, instead of a status bar notice with its questions still loadable |
 | 5 | 2026-11-05 | Owner's change: the Scope dialog offers only the topics with both files. The refusal stays for files that are there but can't be used |
 | 6 | 2026-11-05 | Step 3 done, with results. Saving held back until step 5. Ray Optics settles 13% on dev against an estimate of 37% |
+| 7 | 2026-11-05 | Step 4 done, with results. Stored replies are tied to the cycle. Decisions 5 and 8 implemented as proposed, awaiting the owner. Prompt caching unconfirmed |
+| 8 | 2026-11-05 | Decision 5 and the image part of decision 8 settled by the owner, as proposed. The pilot part stays with step 6 |
+| 9 | 2026-11-05 | Decision 3 settled: layers 5a and 5b dropped, with their checks |
+| 10 | 2026-11-05 | Step 5 built and checked against a stub. Decision 4 changed: no flag, existing tags start in the chosen set. Hold-outs live in `pending-tagging.json`, so no new file. Saving enabled |
+| 11 | 2026-11-05 | Real save verified on dev by the owner, on two regression-settled questions |
+| 12 | 2026-11-05 | Owner's changes before the pilot: undecided tags by hand, the LLM on request |

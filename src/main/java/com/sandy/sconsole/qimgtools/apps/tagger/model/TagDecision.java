@@ -1,29 +1,27 @@
 package com.sandy.sconsole.qimgtools.apps.tagger.model;
 
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 /**
  * The tags a question is to be saved with: its chosen set. A choice (the
- * model's tags, the existing ones) sets it whole; the user then edits it a
- * tag at a time ({@link #edited}). It stays credited to the model while it
- * is as the model gave it.
+ * regression's tags, the existing ones) sets it whole; the user then edits it
+ * a tag at a time ({@link #edited}).
  *
  * @param tags   the topic's tags to put on it; its explicit tags of other
  *               topics are kept
  * @param source what the set started from
- * @param model  the model the tags are credited to; null for the user
  * @param edited true if the user changed the set since it was chosen
- * @param human  true if the user decided it; false if the model settled it
+ * @param human  true if the user decided it; false if the regression settled it
  */
-public record TagDecision( List<String> tags, Source source, String model,
-                           boolean edited, boolean human ) {
+public record TagDecision( List<String> tags, Source source, boolean edited,
+                           boolean human ) {
 
     /** What a decision's set started from. */
     public enum Source {
 
-        REGRESSION( "regression" ), MODEL( "model" ), EXISTING( "existing" ),
-        USER( "user" ) ;
+        REGRESSION( "regression" ), EXISTING( "existing" ), USER( "user" ) ;
 
         private final String label ;
 
@@ -39,25 +37,19 @@ public record TagDecision( List<String> tags, Source source, String model,
         tags = List.copyOf( tags ) ;
     }
 
-    /** The tags of {@code proposal}. */
-    public static TagDecision of( TagProposal proposal, boolean human ) {
-        return new TagDecision( proposal.reply().tags(), Source.MODEL,
-                                proposal.model(), false, human ) ;
-    }
-
     /** The tags {@code tags} the regression settled on. */
     public static TagDecision regression( List<String> tags ) {
-        return new TagDecision( tags, Source.REGRESSION, null, false, false ) ;
+        return new TagDecision( tags, Source.REGRESSION, false, false ) ;
     }
 
     /** The tags {@code tags} already on the question. */
     public static TagDecision existing( List<String> tags ) {
-        return new TagDecision( tags, Source.EXISTING, null, false, true ) ;
+        return new TagDecision( tags, Source.EXISTING, false, true ) ;
     }
 
     /** An empty set, for the user to fill. */
     public static TagDecision empty() {
-        return new TagDecision( List.of(), Source.USER, null, false, true ) ;
+        return new TagDecision( List.of(), Source.USER, false, true ) ;
     }
 
     /**
@@ -70,12 +62,25 @@ public record TagDecision( List<String> tags, Source source, String model,
                        && new HashSet<>( tags ).containsAll( base.tags ) ;
 
         return same ? base.asHuman()
-                    : new TagDecision( tags, base.source, null, true, true ) ;
+                    : new TagDecision( tags, base.source, true, true ) ;
+    }
+
+    /**
+     * This decision with {@code existing}, the tags already on the question,
+     * in front: they stay unless the user takes them out.
+     */
+    public TagDecision withExisting( List<String> existing ) {
+
+        if( new HashSet<>( tags ).containsAll( existing ) ) return this ;
+
+        LinkedHashSet<String> all = new LinkedHashSet<>( existing ) ;
+        all.addAll( tags ) ;
+        return new TagDecision( List.copyOf( all ), source, edited, human ) ;
     }
 
     /** This decision, as the user's. */
     public TagDecision asHuman() {
         return human ? this
-                     : new TagDecision( tags, source, model, edited, true ) ;
+                     : new TagDecision( tags, source, edited, true ) ;
     }
 }
