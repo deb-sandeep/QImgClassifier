@@ -49,30 +49,11 @@ public class ServerQuestion {
     private boolean topicReviewNeeded ;
 
     /**
-     * True while the question awaits the tagger's setup pass; set only by
-     * the server, cleared by a setup refresh.
-     */
-    private boolean autoSetupTaggingNeeded ;
-
-    /**
-     * True while the question awaits the tagger's concept pass, in an exam
-     * or not (the concept queue holds only those in an exam); set only by
-     * the server, cleared by a concept refresh.
-     */
-    private boolean autoConceptTaggingNeeded ;
-
-    /**
      * The question's NXR label: {@code N} (numeric), {@code X} (reasoning)
      * or {@code R} (recall); null until classified. Output only: set on the
      * server by its NXR endpoints, never sent back by this app.
      */
     private String nxrValue ;
-
-    /**
-     * The other topics of its syllabus the question's solution depends on;
-     * null where the server didn't load them (every fetch but the tagger's).
-     */
-    private List<TopicDependency> topicDependencies ;
 
     private List<ServerQuestionImage> questionImages = new ArrayList<>() ;
 

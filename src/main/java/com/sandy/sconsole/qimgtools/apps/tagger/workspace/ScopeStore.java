@@ -1,7 +1,6 @@
 package com.sandy.sconsole.qimgtools.apps.tagger.workspace;
 
 import com.sandy.sconsole.qimgtools.apps.tagger.model.Scope;
-import com.sandy.sconsole.qimgtools.apps.tagger.model.TagMode;
 import com.sandy.sconsole.qimgtools.core.workspace.JsonFiles;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -15,10 +14,9 @@ import java.time.Instant;
 /**
  * The scope last chosen, kept across restarts in the workspace:
  * <pre>
- * { "topicId", "batchSize", "mode" : "EXISTING_ONLY" | "REVIEW_GAPS",
- *   "ownAfterId", "depAfterId", "savedAt" }
+ * { "topicId", "batchSize", "afterId", "savedAt" }
  * </pre>
- * The cursors are null until a Load moves them. Thread-safe.
+ * The cursor is null until a Load moves it. Thread-safe.
  */
 @Slf4j
 public final class ScopeStore {
@@ -37,15 +35,15 @@ public final class ScopeStore {
             JsonNode n = JsonFiles.MAPPER.readTree( file ) ;
             if( !n.hasNonNull( "topicId" ) ) return null ;
 
-            int batch = Math.max( 1, Math.min( maxBatch,
-                                  n.path( "batchSize" ).asInt( 50 ) ) ) ;
+            int      batch = Math.max( 1, Math.min( maxBatch,
+                                       n.path( "batchSize" ).asInt( 50 ) ) ) ;
+            JsonNode after = n.get( "afterId" ) ;
+
             return new Scope( n.get( "topicId" ).asInt(), batch,
-                              TagMode.valueOf( n.path( "mode" ).asText(
-                                      TagMode.EXISTING_ONLY.name() ) ),
-                              intOrNull( n.get( "ownAfterId" ) ),
-                              intOrNull( n.get( "depAfterId" ) ) ) ;
+                              after == null || after.isNull()
+                              ? null : after.asInt() ) ;
         }
-        catch( IOException | IllegalArgumentException e ) {
+        catch( IOException e ) {
             log.error( "Could not read the saved scope {}", file, e ) ;
             return null ;
         }
@@ -56,9 +54,7 @@ public final class ScopeStore {
         ObjectNode n = JsonFiles.MAPPER.createObjectNode() ;
         n.put( "topicId", s.topicId() ) ;
         n.put( "batchSize", s.batchSize() ) ;
-        n.put( "mode", s.mode().name() ) ;
-        n.put( "ownAfterId", s.ownAfterId() ) ;
-        n.put( "depAfterId", s.depAfterId() ) ;
+        n.put( "afterId", s.afterId() ) ;
         n.put( "savedAt", Instant.now().toString() ) ;
 
         File dir = file.getParentFile() ;
@@ -68,9 +64,5 @@ public final class ScopeStore {
         synchronized( JsonFiles.lockFor( file ) ) {
             JsonFiles.writeAtomically( file, n ) ;
         }
-    }
-
-    private static Integer intOrNull( JsonNode n ) {
-        return n == null || n.isNull() ? null : n.asInt() ;
     }
 }

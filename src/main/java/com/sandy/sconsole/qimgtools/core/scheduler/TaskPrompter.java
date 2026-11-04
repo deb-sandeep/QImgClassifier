@@ -8,7 +8,7 @@ import java.io.IOException;
 /**
  * What the {@link TaskScheduler} asks a model about a question, and how it
  * reads the answer: the classifier's and the reviewer's topic question, the
- * tagger's blind solve. Implementations must be thread-safe.
+ * tagger's tag choice. Implementations must be thread-safe.
  *
  * @param <R> what a reply is read as
  */

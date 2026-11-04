@@ -1612,8 +1612,8 @@ public class NXRFrame extends JFrame
      * Loop until stopped, logging each step: load a batch, classify it, the
      * undecided going to the AI (Auto AI routing, turned on if off); each
      * time half the table is labelled, save those and fetch half a batch
-     * more ({@link #refillIfDue}), as the tagger does; once the classifier
-     * and the AI are done, save the rest and after
+     * more ({@link #refillIfDue}); once the classifier and the AI are done,
+     * save the rest and after
      * {@link #UNATTENDED_PAUSE_SECONDS} load the next. The loop ends by
      * itself once it has asked for as many batches as the user gives as it
      * starts (refills included), or when nothing awaits a label after the

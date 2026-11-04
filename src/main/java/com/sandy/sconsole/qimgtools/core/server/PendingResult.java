@@ -9,8 +9,8 @@ import java.util.List;
 /**
  * The first questions, by id, of one of the server's queues: the topic
  * review queue ({@code /Master/Question/TopicReview/Pending}) or the
- * tagger's ({@code /Master/Question/AutoTagging/Pending} and
- * {@code .../Dependents}), after the {@code afterId} asked for, if any.
+ * tagger's ({@code /Master/Question/AutoTagging/Pending}), after the
+ * {@code afterId} asked for, if any.
  */
 @Data
 public class PendingResult {

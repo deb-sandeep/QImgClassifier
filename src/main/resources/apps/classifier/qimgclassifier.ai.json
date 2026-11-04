@@ -71,7 +71,6 @@
       "reasoning"             : false,
       "promptCaching"         : true,
       "fallback"              : {
-        "rateLimitedRPD" : [ "nvidia/nemotron-3.5-super-vl" ],
         "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ]
       }
     },

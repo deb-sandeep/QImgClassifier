@@ -1,31 +1,23 @@
 package com.sandy.sconsole.qimgtools.apps.tagger.model;
 
 /**
- * What a run works on: one topic, how many questions a Load asks for, the
- * tag mode, and where the next Load starts in each of the topic's queues.
+ * What a run works on: one topic, how many questions a Load asks for, and
+ * where the next Load starts.
  *
- * @param topicId     the topic whose tags are offered
- * @param batchSize   questions per Load, 1-500
- * @param mode        whether gaps may be proposed
- * @param ownAfterId  the highest id of the topic's own questions loaded so
- *                    far; null to start from the first
- * @param depAfterId  the same for its dependents
+ * @param topicId   the topic whose questions are tagged
+ * @param batchSize questions per Load, 1-500
+ * @param afterId   the highest id of the questions loaded so far; null to
+ *                  start from the first
  */
-public record Scope( int topicId, int batchSize, TagMode mode,
-                     Integer ownAfterId, Integer depAfterId ) {
+public record Scope( int topicId, int batchSize, Integer afterId ) {
 
-    /** True if a Load has moved either cursor on from the start. */
-    public boolean hasCursors() {
-        return ownAfterId != null || depAfterId != null ;
-    }
-
-    /** This scope with both cursors back at the start. */
+    /** This scope with its cursor back at the start. */
     public Scope fromStart() {
-        return new Scope( topicId, batchSize, mode, null, null ) ;
+        return new Scope( topicId, batchSize, null ) ;
     }
 
-    /** This scope with its cursors moved on to {@code own} and {@code dep}. */
-    public Scope withCursors( Integer own, Integer dep ) {
-        return new Scope( topicId, batchSize, mode, own, dep ) ;
+    /** This scope with its cursor moved on to {@code afterId}. */
+    public Scope withCursor( Integer afterId ) {
+        return new Scope( topicId, batchSize, afterId ) ;
     }
 }
