@@ -113,8 +113,8 @@ the reference on real data (see the plan):
 ### 4. The LLM
 
 Questions *Awaiting LLM* go to it as soon as a Load has read them. The setting
-**Send questions to the LLM automatically** (File > Settings…, on by default,
-saved in `tagger-settings.json`) turns this off, and Start then sends them.
+**Send questions to the LLM automatically** (File > Settings…, *LLM* tab, on by
+default, saved in `tagger-settings.json`) turns this off, and Start then sends them.
 **Invoke LLM** in the strip asks about a selected question no model has answered.
 The row menu's **Send to model** asks a model of the owner's choice, which is how
 an answered question is asked again. It lists every model except the one behind
@@ -326,3 +326,4 @@ indicative only.
 | 9 | 2026-11-05 | Owner's change before the pilot: undecided tags are resolved by hand with ticks, and the LLM is invoked on request as an opinion the owner picks from |
 | 10 | 2026-11-05 | Owner's decision 11: accepted tags stand with undecided ones dropped, LLM tags are accepted, the LLM is called automatically by default, and a question is asked again only through another model |
 | 11 | 2026-11-05 | Owner's decision 8: no pilot |
+| 12 | 2026-11-05 | Owner's change: the Settings dialog has tabs, and the batch size moves there from the scope |

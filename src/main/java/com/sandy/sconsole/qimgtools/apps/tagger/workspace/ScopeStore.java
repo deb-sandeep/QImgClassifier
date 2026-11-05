@@ -14,7 +14,7 @@ import java.time.Instant;
 /**
  * The scope last chosen, kept across restarts in the workspace:
  * <pre>
- * { "topicId", "batchSize", "afterId", "savedAt" }
+ * { "topicId", "afterId", "savedAt" }
  * </pre>
  * The cursor is null until a Load moves it. Thread-safe.
  */
@@ -28,20 +28,35 @@ public final class ScopeStore {
     }
 
     /** The saved scope; null if there is none, or it can't be read. */
-    public synchronized Scope load( int maxBatch ) {
+    public synchronized Scope load() {
 
         if( !file.isFile() ) return null ;
         try {
             JsonNode n = JsonFiles.MAPPER.readTree( file ) ;
             if( !n.hasNonNull( "topicId" ) ) return null ;
 
-            int      batch = Math.max( 1, Math.min( maxBatch,
-                                       n.path( "batchSize" ).asInt( 50 ) ) ) ;
             JsonNode after = n.get( "afterId" ) ;
 
-            return new Scope( n.get( "topicId" ).asInt(), batch,
+            return new Scope( n.get( "topicId" ).asInt(),
                               after == null || after.isNull()
                               ? null : after.asInt() ) ;
+        }
+        catch( IOException e ) {
+            log.error( "Could not read the saved scope {}", file, e ) ;
+            return null ;
+        }
+    }
+
+    /**
+     * The batch size a scope file written before it moved to the settings
+     * still holds; null if it holds none.
+     */
+    public synchronized Integer oldBatchSize() {
+
+        if( !file.isFile() ) return null ;
+        try {
+            JsonNode b = JsonFiles.MAPPER.readTree( file ).get( "batchSize" ) ;
+            return b != null && b.isInt() ? b.asInt() : null ;
         }
         catch( IOException e ) {
             log.error( "Could not read the saved scope {}", file, e ) ;
@@ -53,7 +68,6 @@ public final class ScopeStore {
 
         ObjectNode n = JsonFiles.MAPPER.createObjectNode() ;
         n.put( "topicId", s.topicId() ) ;
-        n.put( "batchSize", s.batchSize() ) ;
         n.put( "afterId", s.afterId() ) ;
         n.put( "savedAt", Instant.now().toString() ) ;
 

@@ -14,6 +14,7 @@ import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerListener;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.Assessment;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.TopicFileException;
 import com.sandy.sconsole.qimgtools.apps.tagger.server.RefreshResult;
+import com.sandy.sconsole.qimgtools.apps.tagger.server.TaggerServerClient;
 import com.sandy.sconsole.qimgtools.apps.tagger.ui.TagTableModel.Llm;
 import com.sandy.sconsole.qimgtools.apps.tagger.ui.TagTableModel.Row;
 import com.sandy.sconsole.qimgtools.apps.tagger.workspace.PendingTagging;
@@ -431,8 +432,7 @@ public class TaggerFrame extends JFrame
     // The menus and the toolbar share these actions, and so their state.
 
     private final Action scopeAction = action( "Scope…", ToolIcon.CRITERIA,
-            shortcut( KeyEvent.VK_K ), "Choose the topic and the batch size " +
-            "(clears the table)", () -> editScope( null ) ) ;
+            shortcut( KeyEvent.VK_K ), "Choose the topic (clears the table)", () -> editScope( null ) ) ;
     private final Action loadAction = action( "Load", ToolIcon.LOAD,
             shortcut( KeyEvent.VK_L ), "Fetch the next questions awaiting " +
             "tags after those loaded before (replaces the table)",
@@ -1304,7 +1304,7 @@ public class TaggerFrame extends JFrame
             return ;
         }
         if( !discardUnsaved( fromStart ? "Load from start" : "Load" ) ) return ;
-        int batch = controller.scope().batchSize() ;
+        int batch = controller.settings().batchSize() ;
 
         fetch( () -> controller.load( batch, fromStart ), this::showItems ) ;
     }
@@ -1496,7 +1496,8 @@ public class TaggerFrame extends JFrame
     private void editSettings() {
 
         TaggerSettings now  = controller.settings() ;
-        TaggerSettings next = SettingsDialog.ask( this, now ) ;
+        TaggerSettings next = SettingsDialog.ask(
+                this, now, TaggerServerClient.MAX_LIMIT ) ;
         if( next == null || next.equals( now ) ) return ;
         try {
             controller.applySettings( next ) ;
@@ -1505,6 +1506,7 @@ public class TaggerFrame extends JFrame
             error( "Settings", "The settings apply until the tagger is " +
                    "closed, but could not be saved", e ) ;
         }
+        setTitle( title( controller.describe() ) ) ;
     }
 
     /** Wind the run down: no new requests, running ones finish. */

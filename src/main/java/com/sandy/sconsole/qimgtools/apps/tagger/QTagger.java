@@ -133,7 +133,8 @@ public class QTagger implements TaggerFrame.Controller {
         this.notes      = new TaggerNotes( config.getTaggerNotesFile() ) ;
         this.scopeStore = new ScopeStore( config.getScopeFile() ) ;
         this.settingsStore = new SettingsStore( config.getSettingsFile() ) ;
-        this.settings   = settingsStore.load() ;
+        this.settings   = settingsStore.load( TaggerServerClient.MAX_LIMIT,
+                                              scopeStore.oldBatchSize() ) ;
         this.locator    = new QuestionLocator( config.getQBankDir() ) ;
         this.ocr        = new QuestionOcr( config.getTesseractBin(),
                                            config.getOcrTimeout() ) ;
@@ -257,7 +258,7 @@ public class QTagger implements TaggerFrame.Controller {
      */
     String restoreScope() {
 
-        Scope saved = scopeStore.load( TaggerServerClient.MAX_LIMIT ) ;
+        Scope saved = scopeStore.load() ;
         if( saved == null ) return "No scope chosen yet" ;
         try {
             setScope( saved ) ;
@@ -375,9 +376,8 @@ public class QTagger implements TaggerFrame.Controller {
         scope            = s ;
 
         saveScope() ;
-        log.info( "Scope: topic {} {}, {} per load, {} tags, cycle {}",
-                  topic.getId(), topic.getTopicName(), s.batchSize(),
-                  tags.size(), files.cycle() ) ;
+        log.info( "Scope: topic {} {}, {} tags, cycle {}", topic.getId(),
+                  topic.getTopicName(), tags.size(), files.cycle() ) ;
     }
 
     /** Read {@code topic}'s files and check them against the server's tags. */
@@ -834,7 +834,7 @@ public class QTagger implements TaggerFrame.Controller {
         return ( t != null ? t.getTopicName() : "topic" ) + " (" +
                s.topicId() + "), " +
                ( f != null ? "cycle " + f.cycle() + ", " : "" ) +
-               s.batchSize() + " per load - " +
+               settings.batchSize() + " per load - " +
                firstModel() + " @ " + config.getServerUrl() ;
     }
 

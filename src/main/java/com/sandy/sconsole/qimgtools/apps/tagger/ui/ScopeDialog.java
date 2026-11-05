@@ -1,7 +1,6 @@
 package com.sandy.sconsole.qimgtools.apps.tagger.ui;
 
 import com.sandy.sconsole.qimgtools.apps.tagger.model.Scope;
-import com.sandy.sconsole.qimgtools.apps.tagger.server.TaggerServerClient;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 
 import javax.swing.DefaultListCellRenderer;
@@ -12,9 +11,7 @@ import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
-import javax.swing.JSpinner;
 import javax.swing.ListSelectionModel;
-import javax.swing.SpinnerNumberModel;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -25,7 +22,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Chooses the scope: one of the topics offered, and the batch size. With a
+ * Chooses the scope: one of the topics offered. With a
  * cursor on the topic in effect, it says where the next Load continues and
  * offers a way back to the first question.
  */
@@ -51,9 +48,6 @@ final class ScopeDialog {
         JComboBox<String> syllabus = new JComboBox<>(
                 offered.keySet().toArray( new String[0] ) ) ;
         JList<Topic>      topics   = new JList<>() ;
-        JSpinner          batch    = new JSpinner( new SpinnerNumberModel(
-                current != null ? current.batchSize() : 50, 1,
-                TaggerServerClient.MAX_LIMIT, 10 ) ) ;
 
         topics.setSelectionMode( ListSelectionModel.SINGLE_SELECTION ) ;
         topics.setCellRenderer( new DefaultListCellRenderer() {
@@ -83,14 +77,9 @@ final class ScopeDialog {
         show( topics, offered.get( (String) syllabus.getSelectedItem() ),
               current != null ? current.topicId() : null ) ;
 
-        JPanel options = new JPanel( new FlowLayout( FlowLayout.LEFT, 8, 0 ) ) ;
-        options.add( new JLabel( "Questions per load:" ) ) ;
-        options.add( batch ) ;
-
         // Where the next load continues, and a way back to the start.
         JCheckBox reset  = new JCheckBox( "Start from the first question" ) ;
         JPanel    bottom = new JPanel( new GridLayout( 0, 1, 0, 4 ) ) ;
-        bottom.add( options ) ;
         if( current != null && current.afterId() != null ) {
             JPanel cursor = new JPanel( new FlowLayout( FlowLayout.LEFT, 8, 0 ) ) ;
             cursor.add( new JLabel( "Topic " + current.topicId() +
@@ -131,8 +120,7 @@ final class ScopeDialog {
             boolean same = current != null && current.topicId() == t.getId()
                            && !reset.isSelected() ;
 
-            return new Scope( t.getId(), (Integer) batch.getValue(),
-                              same ? current.afterId() : null ) ;
+            return new Scope( t.getId(), same ? current.afterId() : null ) ;
         }
     }
 

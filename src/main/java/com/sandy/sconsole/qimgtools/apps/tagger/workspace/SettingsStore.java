@@ -13,7 +13,7 @@ import java.io.IOException;
 /**
  * The user's settings, kept across restarts in the workspace:
  * <pre>
- * { "autoSendToLlm" }
+ * { "autoSendToLlm", "batchSize" }
  * </pre>
  * A missing file or key reads as the default. Thread-safe.
  */
@@ -26,26 +26,52 @@ public final class SettingsStore {
         this.file = file ;
     }
 
-    /** The saved settings; the defaults if there are none or they can't be read. */
-    public synchronized TaggerSettings load() {
+    /**
+     * The saved settings; the defaults if there are none or they can't be
+     * read. A file with no batch size takes {@code oldBatch}, if any, and is
+     * written with it at once, as that value goes with the old scope file's
+     * next save.
+     *
+     * @param maxBatch the largest batch size allowed
+     * @param oldBatch the batch size the scope file held; null if none
+     */
+    public synchronized TaggerSettings load( int maxBatch, Integer oldBatch ) {
 
         TaggerSettings d = TaggerSettings.DEFAULT ;
-        if( !file.isFile() ) return d ;
+        JsonNode       n ;
         try {
-            JsonNode n = JsonFiles.MAPPER.readTree( file ) ;
-            return new TaggerSettings(
-                    n.path( "autoSendToLlm" ).asBoolean( d.autoSendToLlm() ) ) ;
+            n = file.isFile() ? JsonFiles.MAPPER.readTree( file )
+                              : JsonFiles.MAPPER.createObjectNode() ;
         }
         catch( IOException e ) {
             log.error( "Could not read the settings {}", file, e ) ;
             return d ;
         }
+
+        JsonNode saved = n.get( "batchSize" ) ;
+        int      batch = saved != null ? saved.asInt( d.batchSize() )
+                       : oldBatch != null ? oldBatch : d.batchSize() ;
+
+        TaggerSettings s = new TaggerSettings(
+                n.path( "autoSendToLlm" ).asBoolean( d.autoSendToLlm() ),
+                Math.max( 1, Math.min( maxBatch, batch ) ) ) ;
+
+        if( saved == null ) {
+            try {
+                save( s ) ;
+            }
+            catch( IOException e ) {
+                log.error( "Could not save the settings {}", file, e ) ;
+            }
+        }
+        return s ;
     }
 
     public synchronized void save( TaggerSettings s ) throws IOException {
 
         ObjectNode n = JsonFiles.MAPPER.createObjectNode() ;
         n.put( "autoSendToLlm", s.autoSendToLlm() ) ;
+        n.put( "batchSize", s.batchSize() ) ;
 
         File dir = file.getParentFile() ;
         if( dir != null && !dir.isDirectory() && !dir.mkdirs() ) {
