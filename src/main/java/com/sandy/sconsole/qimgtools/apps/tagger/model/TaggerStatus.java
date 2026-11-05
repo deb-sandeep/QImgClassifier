@@ -17,14 +17,17 @@ public enum TaggerStatus {
     /** The question's images are not in the question bank. */
     NO_IMAGES( "No local images" ),
 
-    /** The regression settled it: its tags are staged, to be saved. */
+    /**
+     * It has tags to save, whoever gave them: the regression, the LLM or the
+     * user. The table's From column says which.
+     */
     ACCEPTED( "Accepted" ),
 
     /**
-     * The regression didn't settle it: the user is to resolve its undecided
-     * tags or confirm its tags. Save leaves it out meanwhile.
+     * Nothing it could stand on yet: the LLM is to give it tags. Save leaves
+     * it out meanwhile.
      */
-    PARTIALLY_UNDECIDED( "Partially undecided" ),
+    AWAITING_LLM( "Awaiting LLM" ),
 
     /** Handed to the user: its text could not be read. */
     NEEDS_HUMAN( "Needs human" ),
@@ -34,9 +37,6 @@ public enum TaggerStatus {
      * not sent to the models again in this cycle.
      */
     ESCALATED( "Escalated" ),
-
-    /** The user has decided; not sent to the server yet. */
-    DECIDED( "Decided" ),
 
     /** Noted for later: stays pending on the server. */
     DEFERRED( "Deferred" ),
@@ -52,22 +52,19 @@ public enum TaggerStatus {
 
     private final String label ;
 
-    /** True for the state the automation settled: tags staged to save. */
+    /** True if it has tags to save. */
     public boolean isAccepted() {
         return this == ACCEPTED ;
     }
 
     /** True if the user may decide (or decide again) on the question. */
     public boolean isDecidable() {
-        return isAccepted() || this == PARTIALLY_UNDECIDED
-               || this == NEEDS_HUMAN || this == ESCALATED || this == DECIDED
+        return isAccepted() || this == AWAITING_LLM
+               || this == NEEDS_HUMAN || this == ESCALATED
                || this == DEFERRED || this == ERROR ;
     }
 
-    /**
-     * True if the LLM's opinion may be asked for: it has been read, and isn't
-     * being saved or saved. Asking changes nothing about where it stands.
-     */
+    /** True if the LLM may be asked: it has been read, and isn't saved. */
     public boolean canAskLlm() {
         return isDecidable() ;
     }

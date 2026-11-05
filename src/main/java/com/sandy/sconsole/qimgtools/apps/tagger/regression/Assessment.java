@@ -14,13 +14,8 @@ public record Assessment( String ocrText, Decision decision, String failure ) {
         return new Assessment( null, null, why ) ;
     }
 
-    /** True if the regression settles the question alone. */
-    public boolean isSettled() {
-        return decision != null && decision.isSettled() ;
-    }
-
-    /** True if the regression sends the question to the LLM. */
+    /** True if the question goes to the LLM. */
     public boolean needsLlm() {
-        return decision != null && !decision.isSettled() ;
+        return decision != null && decision.sendsToLlm() ;
     }
 }

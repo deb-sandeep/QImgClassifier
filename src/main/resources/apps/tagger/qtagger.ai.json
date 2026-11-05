@@ -9,11 +9,18 @@
 // (rateLimitedRPD), on a server error, or while it is set to pass its
 // questions through, the paid one does. A reply that can't be read is sent
 // once more (retries: 1).
+//
+// The "other" root is reached only by the row menu's Send to model, for a
+// second look by a different model: a question is pinned to the model chosen,
+// so these models take nothing by themselves.
 {
   "parent" : "classpath:/common/ai-model-config.json",
 
   "roots" : {
-    "llm" : [ "nvidia/nemotron-3.5-super-vl:free" ]
+    "llm"   : [ "nvidia/nemotron-3.5-super-vl:free" ],
+    "other" : [
+      "deepseek/deepseek-v4.1-flash"
+    ]
   },
 
   "models" : {
@@ -35,6 +42,33 @@
       "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 90,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "maxOutputTokens"       : 1500,
+      "promptCaching"         : true
+    },
+    "deepseek/deepseek-v4.1-flash" : {
+      "enabled"               : true,
+      "maxParallel"           : 3,
+      "requestTimeoutSeconds" : 120,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "maxOutputTokens"       : 1500,
+      "promptCaching"         : true
+    },
+    "anthropic/claude-haiku-5.5" : {
+      "enabled"               : true,
+      "maxParallel"           : 3,
+      "requestTimeoutSeconds" : 120,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "maxOutputTokens"       : 1500,
+      "promptCaching"         : true
+    },
+    "z-ai/glm-5.3-flash" : {
+      "enabled"               : true,
+      "maxParallel"           : 3,
+      "requestTimeoutSeconds" : 120,
       "retries"               : 1,
       "reasoning"             : false,
       "maxOutputTokens"       : 1500,

@@ -32,7 +32,7 @@ A decision the server applied. A decision the server refused isn't recorded: its
 | `modelHash`, `promptHash` | string | SHA-256 of `regression-model.json` and `llm-prompt.md` as read when the scope was set. They tell a cycle rebuilt under the same name. |
 | `ocrHash` | string or null | SHA-256 of the OCR text in UTF-8. Null if it was never read. |
 | `regression` | object or null | Null if the OCR failed or the question was never read. See below. |
-| `llm` | object or null | The LLM's opinion when this was saved, with the fields of `reply` from `model` on. The owner may have picked none of it. Null if the LLM wasn't asked. |
+| `llm` | object or null | The LLM's latest reply when this was saved, with the fields of `reply` from `model` on. Null if the LLM wasn't asked. |
 | `decision` | object | See below. |
 | `sent.tagIds` | array of numbers | Every explicit tag sent, other topics' included. |
 | `status` | string | The server's answer: `APPLIED`. |
@@ -42,15 +42,16 @@ A decision the server applied. A decision the server refused isn't recorded: its
 
 | Field | Type | Notes |
 |---|---|---|
-| `route` | string | `apply` or `llm`. |
+| `route` | string | The tagger's routing: `llm` if nothing was accepted or an `llmIfAcceptedTogether` rule applied, else `apply`. Lines written before 2026-11-05 hold the reference's route, which also sent undecided and triggered tags to the LLM. |
 | `accepted`, `undecided` | object | Tag name to score. Implied parents are already dropped from `accepted`. |
 | `triggered` | array of strings | `llm-only` tags whose pattern matched. They have no score. |
+| `dropped` | array of strings | Undecided and triggered tags not in the saved set. Absent from lines written before 2026-11-05. |
 
 `decision`:
 
 | Field | Type | Notes |
 |---|---|---|
 | `tags` | array of strings | The topic's tags on the question after saving. A tag of the topic left out here was taken off. |
-| `source` | string | Where the set started: `regression`, `existing` or `user`. |
+| `source` | string | Where the set started: `REGRESSION`, `LLM`, `EXISTING` or `USER`. |
 | `edited` | boolean | True if the owner changed the set after choosing it. |
-| `human` | boolean | True if the owner decided it. False if it was saved as the regression settled it. |
+| `human` | boolean | True if the owner decided it. False if it was saved as the regression or the LLM left it. |

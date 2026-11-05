@@ -6,14 +6,15 @@ import java.util.List;
 
 /**
  * The tags a question is to be saved with: its chosen set. A choice (the
- * regression's tags, the existing ones) sets it whole; the user then edits it
- * a tag at a time ({@link #edited}).
+ * regression's tags, the LLM's, the existing ones) sets it whole; the user then
+ * edits it a tag at a time ({@link #edited}).
  *
  * @param tags   the topic's tags to put on it; its explicit tags of other
  *               topics are kept
  * @param source what the set started from
  * @param edited true if the user changed the set since it was chosen
- * @param human  true if the user decided it; false if the regression settled it
+ * @param human  true if the user decided it; false if the regression or the
+ *               LLM settled it
  */
 public record TagDecision( List<String> tags, Source source, boolean edited,
                            boolean human ) {
@@ -21,7 +22,8 @@ public record TagDecision( List<String> tags, Source source, boolean edited,
     /** What a decision's set started from. */
     public enum Source {
 
-        REGRESSION( "regression" ), EXISTING( "existing" ), USER( "user" ) ;
+        REGRESSION( "regression" ), LLM( "LLM" ), EXISTING( "existing" ),
+        USER( "user" ) ;
 
         private final String label ;
 
@@ -40,6 +42,11 @@ public record TagDecision( List<String> tags, Source source, boolean edited,
     /** The tags {@code tags} the regression settled on. */
     public static TagDecision regression( List<String> tags ) {
         return new TagDecision( tags, Source.REGRESSION, false, false ) ;
+    }
+
+    /** The tags {@code tags} the LLM's reply leaves it with. */
+    public static TagDecision llm( List<String> tags ) {
+        return new TagDecision( tags, Source.LLM, false, false ) ;
     }
 
     /** The tags {@code tags} already on the question. */

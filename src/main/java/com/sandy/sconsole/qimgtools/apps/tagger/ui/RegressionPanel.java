@@ -10,6 +10,7 @@ import javax.swing.BorderFactory;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.ScrollPaneConstants;
 import java.awt.BorderLayout;
 import java.awt.Font;
 import java.util.List;
@@ -17,8 +18,10 @@ import java.util.Locale;
 
 /**
  * The local view of the selected question: the LLM's reply if it has one, where
- * the regression routes it and why, the accepted, undecided and triggered tags
- * with their scores, and the OCR text it read. Blank unless exactly one question is selected. Use on the EDT.
+ * it goes and why, the accepted, undecided and triggered tags with their scores,
+ * and the OCR text it read, under "--- title ---" headers. The lines wrap, so
+ * there is no sideways scrolling. Blank unless exactly one question is selected.
+ * Use on the EDT.
  */
 @SuppressWarnings( "serial" )
 final class RegressionPanel extends JPanel {
@@ -34,9 +37,14 @@ final class RegressionPanel extends JPanel {
 
         super( new BorderLayout() ) ;
         text.setEditable( false ) ;
+        text.setLineWrap( true ) ;
+        text.setWrapStyleWord( true ) ;
         text.setFont( new Font( Font.MONOSPACED, Font.PLAIN, FONT_PT ) ) ;
         text.setBorder( BorderFactory.createEmptyBorder( 6, 8, 6, 8 ) ) ;
-        add( new JScrollPane( text ), BorderLayout.CENTER ) ;
+        add( new JScrollPane( text,
+                              ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                              ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER ),
+             BorderLayout.CENTER ) ;
     }
 
     /** Show {@code row}'s assessment; null clears the panel. */
@@ -65,26 +73,39 @@ final class RegressionPanel extends JPanel {
 
         if( row.proposal != null ) reply( b, row.proposal ) ;
 
-        if( d.isSettled() ) b.append( "Settled: the regression applies its tags\n" ) ;
+        header( b, "Regression" ) ;
+        if( d.sendsToLlm() ) {
+            b.append( "Goes to the LLM: " ).append( d.llmReason() ).append( '\n' ) ;
+        }
+        else if( d.notAccepted().isEmpty() ) {
+            b.append( "Settled: the regression's tags are accepted\n" ) ;
+        }
         else {
-            b.append( "Not settled\n" ) ;
-            d.llmWhy().forEach( w -> b.append( "  " ).append( w ).append( '\n' ) ) ;
+            b.append( "Partial: the accepted tags stand, the others are " +
+                      "dropped\n" ) ;
         }
         scored( b, "Accepted", d.accepted(), d ) ;
         scored( b, "Undecided", d.undecided(), d ) ;
         if( !d.triggered().isEmpty() ) {
-            b.append( "\nTriggered\n" ) ;
+            b.append( '\n' ) ;
+            header( b, "Triggered" ) ;
             d.triggered().forEach( t -> b.append( "         " ).append( t )
                                          .append( '\n' ) ) ;
         }
-        return b.append( "\nOCR text\n\n" ).append( a.ocrText().strip() )
-                .toString() ;
+        b.append( '\n' ) ;
+        header( b, "OCR text" ) ;
+        return b.append( a.ocrText().strip() ).toString() ;
+    }
+
+    private static void header( StringBuilder b, String title ) {
+        b.append( "--- " ).append( title ).append( " ---\n" ) ;
     }
 
     private static void reply( StringBuilder b, TagProposal p ) {
 
         TagReply r = p.reply() ;
-        b.append( "LLM reply: " ).append( p.model() )
+        header( b, "LLM reply" ) ;
+        b.append( p.model() )
          .append( ", confidence " ).append( r.confidence() ).append( '\n' ) ;
         if( r.noTagFits() ) b.append( "  no tag fits\n" ) ;
         else b.append( "  " ).append( String.join( ", ", r.tags() ) )
@@ -102,7 +123,8 @@ final class RegressionPanel extends JPanel {
                                 Decision d ) {
 
         if( tags.isEmpty() ) return ;
-        b.append( '\n' ).append( title ).append( '\n' ) ;
+        b.append( '\n' ) ;
+        header( b, title ) ;
         for( String t : tags ) {
             b.append( String.format( Locale.ROOT, "  %.3f  %s%n",
                                      d.scores().get( t ), t ) ) ;

@@ -65,7 +65,7 @@ public final class TagAuditLog {
         line.put( "modelHash", files.modelHash() ) ;
         line.put( "promptHash", files.promptHash() ) ;
 
-        regression( line, a ) ;
+        regression( line, a, d ) ;
         llm( line, p ) ;
 
         ObjectNode dn = line.putObject( "decision" ) ;
@@ -82,8 +82,12 @@ public final class TagAuditLog {
         lines.append( line ) ;
     }
 
-    /** What the regression made of it; null values if it was never read. */
-    private static void regression( ObjectNode line, Assessment a ) {
+    /**
+     * What the regression made of it, and which of its tags the saved set
+     * {@code saved} leaves out; null values if it was never read.
+     */
+    private static void regression( ObjectNode line, Assessment a,
+                                    TagDecision saved ) {
 
         Decision d = a == null ? null : a.decision() ;
 
@@ -96,10 +100,13 @@ public final class TagAuditLog {
         }
 
         ObjectNode n = line.putObject( "regression" ) ;
-        n.put( "route", d.isSettled() ? "apply" : "llm" ) ;
+        n.put( "route", d.sendsToLlm() ? "llm" : "apply" ) ;
         scored( n.putObject( "accepted" ), d.accepted(), d ) ;
         scored( n.putObject( "undecided" ), d.undecided(), d ) ;
         d.triggered().forEach( n.putArray( "triggered" )::add ) ;
+        d.notAccepted().stream()
+         .filter( t -> !saved.tags().contains( t ) )
+         .forEach( n.putArray( "dropped" )::add ) ;
     }
 
     private static void scored( ObjectNode n, List<String> tags, Decision d ) {

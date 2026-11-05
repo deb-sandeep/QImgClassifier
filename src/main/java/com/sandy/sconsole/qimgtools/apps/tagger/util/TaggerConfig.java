@@ -60,6 +60,9 @@ public final class TaggerConfig {
     /** The scope last chosen, with its load cursor. */
     private final File scopeFile ;
 
+    /** The user's settings. */
+    private final File settingsFile ;
+
     /** The model's replies on questions not yet saved on the server. */
     private final File pendingTaggingFile ;
 
@@ -97,6 +100,7 @@ public final class TaggerConfig {
         tagWorkspaceDir    = props.path( "tag.workspace.dir" ) ;
         workspaceDir       = props.workspaceDir( "workspace.dir" ) ;
         scopeFile          = props.workspacePath( "scope.file" ) ;
+        settingsFile       = props.workspacePath( "settings.file" ) ;
         pendingTaggingFile = props.workspacePath( "pending.tagging.file" ) ;
         tagAuditFile       = props.workspacePath( "tag.audit.file" ) ;
         taggerNotesFile    = props.workspacePath( "tagger.notes.file" ) ;

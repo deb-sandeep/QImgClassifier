@@ -24,14 +24,15 @@ import java.util.List;
 
 /**
  * The selected question's tags side by side, so they can be compared at a
- * glance: the topic's tags already on it, those the regression proposes, and
- * the LLM's opinion, as badges. An undecided tag is drawn with a dotted red
- * outline between a green tick, which puts it in the chosen set, and a red
- * cross, which turns it down. The LLM's tags are only shown until a click
- * moves one into the chosen set; its button asks for the opinion. The part the
- * chosen set started from is framed. Blank unless exactly one question is
- * selected. Clicking the proposed part chooses its tags, as key 1 does, unless
- * tags are still undecided. Each tag can be dragged to the chosen set
+ * glance: the topic's tags already on it, those the regression accepted, and
+ * the LLM's reply, as badges. An undecided tag is left out, and drawn with a
+ * dotted red outline between a green tick, which puts it in the chosen set, and
+ * a red cross, which turns it down. The LLM's tags are in the chosen set when
+ * they arrive, and a click takes one out or puts it back; its button asks the
+ * LLM about a question no model has answered. The part the chosen set started
+ * from is framed. Blank unless exactly one question is selected. Clicking the
+ * proposed part chooses its tags, as key 1 does. Each tag can be dragged to the
+ * chosen set
  * ({@link TagBadge}). Use on the EDT.
  */
 @SuppressWarnings( "serial" )
@@ -156,15 +157,13 @@ final class TagStrip extends JPanel {
             return ;
         }
 
-        boolean open = !row.unresolved().isEmpty() ;
-
         proposed.set( PROPOSED + "  ·  Regression",
-                      !open && d != null && d.source() == p.source() ) ;
+                      d != null && d.source() == p.source() ) ;
         proposed.tags( p.tags(), undecided.isEmpty() ? "no tags" : null ) ;
         for( String t : undecided ) {
             proposed.body.add( undecidedTag( t, row, d ) ) ;
         }
-        proposed.clickable( open || p.tags().isEmpty() ? null
+        proposed.clickable( p.tags().isEmpty() ? null
                             : "Click to use the proposed tags (1)" ) ;
     }
 
@@ -232,7 +231,8 @@ final class TagStrip extends JPanel {
         TagReply r = row.proposal.reply() ;
 
         llm.set( LLM + "  ·  " + names.of( row.proposal.model() ) + "  ·  " +
-                 r.confidence(), false ) ;
+                 r.confidence(),
+                 d != null && d.source() == TagDecision.Source.LLM ) ;
         llm.setToolTipText( r.reason() ) ;
         if( r.noTagFits() ) {
             llm.note( "No tag fits" + ( r.framing() != null

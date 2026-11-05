@@ -11,6 +11,7 @@ import com.sandy.sconsole.qimgtools.apps.tagger.model.ServerTag;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagCatalogue;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TaggerSettings;
 import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerListener;
 import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerOutcomes;
 import com.sandy.sconsole.qimgtools.apps.tagger.prompt.TagPrompter;
@@ -30,6 +31,7 @@ import com.sandy.sconsole.qimgtools.apps.tagger.ui.TaggerFrame.SaveItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.util.TaggerConfig;
 import com.sandy.sconsole.qimgtools.apps.tagger.workspace.PendingTagging;
 import com.sandy.sconsole.qimgtools.apps.tagger.workspace.ScopeStore;
+import com.sandy.sconsole.qimgtools.apps.tagger.workspace.SettingsStore;
 import com.sandy.sconsole.qimgtools.apps.tagger.workspace.TagAuditLog;
 import com.sandy.sconsole.qimgtools.apps.tagger.workspace.TaggerNotes;
 import com.sandy.sconsole.qimgtools.core.model.ProcessingState;
@@ -71,7 +73,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>
  * Setting a scope also reads the topic's regression model and LLM prompt from
  * the tag workspace ({@link TopicFiles}); a topic without usable ones can't be
- * scoped. The LLM's reply is only an opinion, kept for the user to pick from.
+ * scoped. The tags of the LLM's reply are accepted, until the user changes them.
  * Settings come from {@code qtagger.properties} ({@link TaggerConfig}).
  */
 @Slf4j
@@ -87,6 +89,7 @@ public class QTagger implements TaggerFrame.Controller {
     private final TagAuditLog             audit ;
     private final TaggerNotes             notes ;
     private final ScopeStore              scopeStore ;
+    private final SettingsStore           settingsStore ;
     private final QuestionLocator         locator ;
     private final QuestionOcr             ocr ;
     private final TagPrompter             prompter ;
@@ -102,6 +105,9 @@ public class QTagger implements TaggerFrame.Controller {
 
     /** Set by {@link #stop()}; queued questions are then dropped. */
     private volatile boolean stopRequested ;
+
+    /** The user's settings. */
+    private volatile TaggerSettings settings ;
 
     /** The scope in effect, with its cursor; null until one is set. */
     private volatile Scope scope ;
@@ -126,6 +132,8 @@ public class QTagger implements TaggerFrame.Controller {
         this.audit      = new TagAuditLog( config.getTagAuditFile() ) ;
         this.notes      = new TaggerNotes( config.getTaggerNotesFile() ) ;
         this.scopeStore = new ScopeStore( config.getScopeFile() ) ;
+        this.settingsStore = new SettingsStore( config.getSettingsFile() ) ;
+        this.settings   = settingsStore.load() ;
         this.locator    = new QuestionLocator( config.getQBankDir() ) ;
         this.ocr        = new QuestionOcr( config.getTesseractBin(),
                                            config.getOcrTimeout() ) ;
@@ -259,6 +267,20 @@ public class QTagger implements TaggerFrame.Controller {
             log.warn( "Could not restore the saved scope: {}", e.getMessage() ) ;
             return "The saved scope can't be used: " + e.getMessage() ;
         }
+    }
+
+    // ---- settings ------------------------------------------------------
+
+    @Override
+    public TaggerSettings settings() {
+        return settings ;
+    }
+
+    @Override
+    public void applySettings( TaggerSettings s ) throws IOException {
+        settings = s ;
+        settingsStore.save( s ) ;
+        log.info( "Settings: {}", s ) ;
     }
 
     // ---- scope ---------------------------------------------------------

@@ -62,7 +62,17 @@ public final class RegressionScorer {
         return new Decision( accepted, undecided, triggered,
                              why.isEmpty() ? Decision.Route.APPLY
                                            : Decision.Route.LLM,
-                             why, scores ) ;
+                             why, suspect( accepted ), scores ) ;
+    }
+
+    /** The reason of each accepted-together rule {@code accepted} falls under. */
+    private List<String> suspect( List<String> accepted ) {
+        return model.acceptedTogether().stream()
+                    .filter( r -> !Collections.disjoint( accepted, r.anyOf() )
+                                  && !Collections.disjoint( accepted,
+                                                            r.withAnyOf() ) )
+                    .map( AcceptedTogether::why )
+                    .toList() ;
     }
 
     /** The score of every tag with a trained model, in file order. */

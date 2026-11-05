@@ -13,7 +13,6 @@ The design and its reasons are in [feature-design.md](feature-design.md). Packag
 | 3. OCR and scorer | Every loaded question scored and routed | None | No | No |
 | 4. The LLM | Prompt, reply reading, tag check, escalation | 5, 8 | Yes | No |
 | 5. Saving | Approval, existing tags, hold-outs, audit record | 2, 4, 6, 9 | Yes | Dev only |
-| 6. Pilot | About 50 Kinematics questions, reviewed | 8 | Yes | Dev only |
 
 Three choices shape the order:
 
@@ -104,7 +103,7 @@ Ray Optics' shortfall is in the model, not the port. On its untagged questions n
 | 4e. Showing | The reply's reason and confidence, a low-confidence mark, and `framing` for an escalation | `ui.TagStrip`, `ui.TagTableModel` |
 | 4f. Prompt caching | Confirm the prompt is a stable prefix with these placeholders. They sit near its end, so most of it should cache | `TagPrompter`, checked in the token log |
 
-A JSON schema (`TaskPrompter.responseSchema`) isn't used at first. Restricting the reply to the listed tags would hide the very failure the tag check exists to catch, and the pilot should see it.
+A JSON schema (`TaskPrompter.responseSchema`) isn't used at first. Restricting the reply to the listed tags would hide the very failure the tag check exists to catch, and that failure should stay visible.
 
 ### Verification
 
@@ -132,7 +131,7 @@ Without the image, `AITS-14-M-PT4://P/SCA/21` was tagged `refraction.sph-surface
 
 **Prompt caching isn't confirmed (4f).** The free model reports no cached tokens, so this needs a few requests on the paid model, and matters little at these costs.
 
-These replies have not been judged for correctness: that is the pilot's job, in step 6.
+These replies have not been judged for correctness.
 
 ## Step 5: Saving
 
@@ -182,9 +181,9 @@ Through the frame, off-screen, on Kinematics. Writes went to a stub, so nothing 
 | 25612, `AL-M-21://P/SCA/13` | `linear-kinematics` | The same, `AUTO_TAGGED` |
 | 26395, `GMP-P://P/MCA/6` | `moving-medium` | That, plus `relative-motion` the server implied, `AUTO_TAGGED` |
 
-Their audit lines have every field, and the hashes match the files. A real save of an LLM reply, a deleted tag or another topic's tag hasn't happened yet: those were checked against the stub only, and the pilot will be the first to do them.
+Their audit lines have every field, and the hashes match the files. A real save of an LLM reply, a deleted tag or another topic's tag hasn't happened yet: those were checked against the stub only.
 
-## Changes before the pilot
+## Changes after step 5
 
 Asked for by the owner after step 5, changing what steps 4 and 5 built:
 
@@ -198,15 +197,32 @@ Asked for by the owner after step 5, changing what steps 4 and 5 built:
 
 Checked through the frame against the stub, with one real call to the free model: 29 of 40 Kinematics questions partial, ticks and clearing, Save leaving a partial row out, the reply leaving status and chosen set alone, and no tag fits followed by tags. The strip was rendered and looked at. It hasn't been used in the real window.
 
-## Step 6: Pilot
+### Decision 11: routing and acceptance
 
-1. Back up the dev database, or confirm a copy can be restored.
-2. Run about 50 Kinematics questions through all steps, with the owner approving.
-3. Review them by hand, as step 6 of the workflow, and measure: settle rate, exact match by route, escalations, bad replies, cost and time.
-4. The owner decides among: go ahead with the topic, adjust thresholds, or fix the prompt through `enhance-tagset`.
-5. Tick "Verified with the driver, on one small batch" in the server's plan. Phase 3 can then be committed and deployed to the Pi.
+Replaces the *Partially undecided* flow above, and the LLM as an opinion.
 
-Tagging on production needs that deploy, a check that dev and production question IDs match, and `server.url` pointed back at the Pi.
+| Change | Code |
+|---|---|
+| The tagger's routing rule on top of the port, which is unchanged | `regression.Decision.sendsToLlm`, `RegressionScorer` |
+| *Partially undecided* and *Decided* go. *Awaiting LLM* is new, and everything with tags is *Accepted* | `model.TaggerStatus`, `ui.TagTableModel.Row.stand` |
+| A From column (PAR, LLM, USR), and only `[E]` and `? a, b` left in Tags | `ui.TagTableModel` |
+| LLM tags join the chosen set, and a new reply overrides the last | `Row.automaticSet`, `model.TagDecision.llm`, `ui.TaggerFrame.replied` |
+| Questions go to the LLM after a Load, with a saved setting to turn it off | `ui.SettingsDialog`, `model.TaggerSettings`, `workspace.SettingsStore` |
+| Send to model hides the model behind the current reply. DeepSeek, Haiku and GLM Flash added, on a root only the menu reaches | `Row.answeredBy`, `ui.TaggerFrame.fillSendTo`, `qtagger.ai.json` |
+| The audit's `route` is the tagger's, with a new `dropped` | `workspace.TagAuditLog` |
+| The Regression tab wraps, with `--- title ---` headers | `ui.RegressionPanel` |
+
+Checked through the frame against dev's questions, with saves stubbed and replies injected: routing, automatic sending and the setting, ticks and crosses, adding and overriding, a hand edit surviving a reply, no tag fits, stored replies, Save and the audit lines. Of the first 60 Kinematics questions, 44 are accepted and 16 await the LLM. Of the first 200 Ray Optics questions, 79 are accepted and 121 await it, 2 of those under the accepted-together rule.
+
+Not done yet: a real call to DeepSeek, Haiku or GLM Flash with reasoning off, a real save of LLM tags, and use in the real window.
+
+## Going to production
+
+The owner removed the pilot this plan used to end with. What it would have settled for production still stands:
+
+1. Tick "Verified with the driver, on one small batch" in the server's plan, once a batch has gone through on dev. Phase 3 can then be committed and deployed to the Pi.
+2. Check that dev and production question IDs match.
+3. Point `server.url` back at the Pi.
 
 ## Touch points outside the tagger
 
@@ -214,7 +230,7 @@ Tagging on production needs that deploy, a check that dev and production questio
 |---|---|---|
 | `core.server.ServerQuestion` | May gain `taggingStatus` (step 5) | No: an extra read-only field |
 | `core.scheduler`, `core.ui`, `core.review`, `com.sandy.sconsole.ai` | None planned | No |
-| `common/ai-model-config.json` | None planned | No |
+| `common/ai-model-config.json` | None | No |
 
 No app imports another, so the new OCR and regression code stays in `apps.tagger`, which leaves the NXR classifier untouched. `CLAUDE.md` is updated at each step. The AI hub's javadocs aren't regenerated, since nothing under `com/sandy/sconsole/ai/` changes.
 
@@ -265,13 +281,12 @@ No app imports another, so the new OCR and regression code stays in `apps.tagger
 - [x] Review filter
 - [x] Real save verified on dev
 
-### Step 6: Pilot
+### Going to production
 
-- [ ] Dev database backed up
-- [ ] About 50 Kinematics questions tagged and reviewed
-- [ ] Measurements reported
-- [ ] Owner's decision recorded
 - [ ] Server plan's driver check ticked
+- [ ] Phase 3 committed and deployed to the Pi
+- [ ] Dev and production question IDs match
+- [ ] `server.url` pointed back at the Pi
 
 ## Revision log
 
@@ -289,3 +304,5 @@ No app imports another, so the new OCR and regression code stays in `apps.tagger
 | 10 | 2026-11-05 | Step 5 built and checked against a stub. Decision 4 changed: no flag, existing tags start in the chosen set. Hold-outs live in `pending-tagging.json`, so no new file. Saving enabled |
 | 11 | 2026-11-05 | Real save verified on dev by the owner, on two regression-settled questions |
 | 12 | 2026-11-05 | Owner's changes before the pilot: undecided tags by hand, the LLM on request |
+| 13 | 2026-11-05 | Owner's decision 11: new routing and acceptance, the From column, automatic LLM calls with a setting, Send to model |
+| 14 | 2026-11-05 | Owner's change: the pilot step removed. What production needs stays, as *Going to production* |

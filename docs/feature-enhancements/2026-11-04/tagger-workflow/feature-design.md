@@ -42,15 +42,15 @@ LLM, the owner's review, saving, escalations, and the audit record.
 ## How a question is tagged
 
 ```
-Load ──> locate images ──> OCR each image ──> score ──┬─ settled ──> Accepted ──────────┐
-                                                      │                                 │
-                                                      └─ not settled ──> Partially      │
-                                                           undecided                    │
-                                                              │                         v
-                 owner ticks or turns down the undecided tags ┘    Save ──> /Refresh ──> AUTO_TAGGED
-                 and may pick from the LLM's opinion ─────────────> Decided ──┘
+Load ──> locate images ──> OCR each image ──> score ──┬─ tags accepted ──> Accepted ─────┐
+                                                      │  (undecided dropped: PAR)        │
+                                                      │                                  v
+                                                      └─ none, or suspect ──> Awaiting   Save ──> /Refresh ──> AUTO_TAGGED
+                                                           LLM ──> reply ──> Accepted ───^
+                                                           (LLM)                         │
+                 owner's ticks, edits or a choice ──> Accepted (USR) ────────────────────┘
 
-Invoke LLM (or Start, for all) ──> LLM's tags shown beside the proposal; nothing is chosen for the owner
+Invoke LLM, or Send to model ──> the reply's tags join the chosen set (LLM)
 ```
 
 Nothing reaches the server until the owner presses Save.
@@ -85,9 +85,16 @@ lists: accepted, undecided, triggered and the route.
 
 | Result | Row becomes |
 |---|---|
-| Route `apply` | *Accepted*, on the regression's tags |
-| Route `llm` | *Partially undecided*, on the regression's accepted tags, with the undecided and triggered tags to resolve |
+| Tags accepted, nothing else | *Accepted*, on the regression's tags |
+| Tags accepted, with undecided or triggered ones | *Accepted*, on the accepted tags and marked PAR. The others are dropped, and keep their tick and cross |
+| Nothing accepted | *Awaiting LLM* |
+| Accepted tags under an `llmIfAcceptedTogether` rule | *Awaiting LLM*, because the text can't tell these apart and the LLM sees the figure. The LLM's tags replace them |
 | OCR failed, or gave no text | *Needs human*, with the reason |
+
+This is the tagger's own rule (decision 11), and it departs from the reference,
+which sends anything undecided or triggered to the LLM. `RegressionScorer` still
+computes the reference's route, so the port can be checked against it, and
+`Decision.sendsToLlm` applies the tagger's rule on top.
 
 A tag whose `route` is `never` is never proposed by the regression or offered to
 the LLM. Whether the tag panel shows it is decision 10.
@@ -105,10 +112,15 @@ the reference on real data (see the plan):
 
 ### 4. The LLM
 
-The LLM gives an opinion, and only when asked: **Invoke LLM** in the strip asks
-about the selected question, and Start about every question not settled and not
-asked yet. Asking doesn't change where a question stands, so the owner can go on
-deciding meanwhile. Requests go in table order, through the
+Questions *Awaiting LLM* go to it as soon as a Load has read them. The setting
+**Send questions to the LLM automatically** (File > Settings…, on by default,
+saved in `tagger-settings.json`) turns this off, and Start then sends them.
+**Invoke LLM** in the strip asks about a selected question no model has answered.
+The row menu's **Send to model** asks a model of the owner's choice, which is how
+an answered question is asked again. It lists every model except the one behind
+the current reply, the free and paid Nemotron counting as one. The chosen model
+alone is used, with no fallback, and a hold is waited out. Asking doesn't stop the
+owner deciding meanwhile. Requests go in table order, through the
 existing `AIHub` and `TaskScheduler`, on the `llm` root (the free Nemotron,
 falling back to the paid one). Reasoning stays off, because the model reads and
 doesn't solve.
@@ -120,9 +132,9 @@ The reply is `{tags, confidence, noTagFits, framing, reason}`:
 
 | Reply | Result |
 |---|---|
-| Valid, with tags | Shown in the *LLM* part of the strip. Nothing else changes: the owner picks from them |
+| Valid, with tags | *Accepted*, marked LLM. The tags join the regression's and those already on the question, and override an earlier reply's. On a suspect question they replace the regression's. A set the owner edited by hand stays, and the reply is only shown |
 | Valid, with `confidence` low | The same, with the confidence in the part's title and the *Low confidence* filter |
-| `noTagFits` true | *Escalated* if undecided, showing `framing`, and held out (see [Escalations](#escalations)) |
+| `noTagFits` true | *Escalated* if it has no accepted tags to stand on, showing `framing`, and held out (see [Escalations](#escalations)). Otherwise it stays *Accepted* on the regression's tags |
 | Invalid JSON, or any tag not in the prompt's table | Rejected as a bad reply. One retry, then the failure shows in the LLM part (decision 5) |
 | `noTagFits` false with no tags | Treated as a bad reply |
 | `noTagFits` true with tags | Treated as a bad reply |
@@ -137,27 +149,25 @@ allowed names come from the prompt's own table, not the server's list.
 The review surface is the existing one: the table, the image, `TagStrip` and
 `ChosenTagsBar`, with the decision keys. It gains:
 
-- **Where a tag set came from:** a new source, *regression*, so that the Tags
-  column reads `[R]`, `[E]` (existing) or `[U]` (user), with `*` once edited,
-  followed by `? a, b` for tags still undecided.
+- **Where a tag set came from:** a *From* column before Tags reads PAR (the
+  regression's, undecided ones dropped), LLM or USR (changed by hand), and is
+  blank for the regression's tags alone. Tags marks those already on the question
+  with `[E]`, and ends with `? a, b` for the undecided tags dropped.
 - **The tag strip has three parts:** Existing, Proposed and LLM.
 - **Undecided tags:** the regression's undecided and triggered tags show in
   Proposed with a dotted red outline, a green tick on the left and a red cross on
-  the right. The tick puts the tag in the chosen set, and the cross turns it down.
-  Either can be clicked again to change it. A question stays *Partially undecided*,
-  and out of Save, until none is left open. Key 1 settles it on the tags chosen so
-  far, turning down the rest.
-- **A route `llm` question with nothing to resolve** (nothing accepted, or tags
-  accepted together that need a look) is also *Partially undecided*, until the
-  owner adds a tag or confirms with key 1.
-- **The LLM's tags:** a click puts one in the chosen set or takes it out, and they
-  can be dragged there. A set picked this way is credited to the owner.
+  the right. The tick puts the tag in the chosen set, making the row USR. The cross
+  records that it was turned down and takes it off the `? a, b` list. Neither is
+  needed before Save, since a tag left alone is already out. Edited back to the
+  tags it started with, a row stands on them again.
+- **The LLM's tags:** they arrive in the chosen set. A click takes one out or puts
+  it back, and a set changed this way is credited to the owner.
 - **A filter on what needs a look:** low confidence, tags already on the
   question, and escalations.
 - **The regression's view on the selected question:** accepted, undecided and
   triggered tags with their scores, and the LLM's `reason` when there is one.
 
-A settled question is not assumed right. The cross-validated estimate for the
+Save can now send LLM and PAR tags the owner hasn't looked at. A settled question is not assumed right. The cross-validated estimate for the
 regression alone is 83% exact on Kinematics and 92% on Ray Optics, and those
 figures are somewhat optimistic. So regression tags are reviewable like any
 other, and the audit record keeps them apart.
@@ -267,8 +277,9 @@ Decisions 2 to 9 use the numbering from the original discussion.
 | 5 | What happens to bad or unsure LLM replies? | Unknown tag or invalid JSON: one retry, then the owner, with nothing applied. Low confidence: stage the tags and mark the row | **Decided** by the owner |
 | 6 | How are escalations held out? | Locally, per topic and cycle, until the owner tags them by hand. A new cycle releases them | **Decided** by the owner |
 | 7 | Where do the topic files come from? | Read directly from the question-bank folder at each scope, with nothing copied. The tag list comes from the server | **Decided** by the owner |
-| 8 | What does the LLM see, and is there a pilot? | The image as well as the text, because Ray Optics has questions where only the figure tells a lens from a mirror. A pilot of about 50 questions before a whole topic | Image: **Decided** by the owner. Pilot: proposed. `workflow.md` still lists both as open |
+| 8 | What does the LLM see, and is there a pilot? | The image as well as the text, because Ray Optics has questions where only the figure tells a lens from a mirror. No pilot | **Decided** by the owner. `workflow.md` still lists both as open |
 | 9 | What is recorded locally? | See [Audit record](#audit-record) and [`tag-audit-format.md`](tag-audit-format.md) | **Decided** by the owner |
+| 11 | What goes to the LLM, and who accepts tags? | Tags the regression accepts stand, and what is undecided or triggered beside them is dropped. Only questions with nothing accepted, or under an `llmIfAcceptedTogether` rule, go to the LLM, automatically by default. All LLM tags are accepted, low confidence included. A question is asked again only through a different model of the owner's choice, whose reply overrides the last. This replaces the opinions and required ticks of revision 9. Trade-off: a dropped tag is lost once saved, as the question leaves the queue. The audit record's `dropped` finds these questions again | **Decided** by the owner |
 | 10 | Does the tag panel show tags marked `never`? | Yes: it shows the server's list unchanged, as normal badges. Hiding them would stop a retired tag being applied by accident, but the model would then filter the server's list | Proposed |
 
 Calls made while removing the old logic, for the owner to confirm:
@@ -282,11 +293,11 @@ Calls made while removing the old logic, for the owner to confirm:
 
 | Risk | Effect | Handling |
 |---|---|---|
-| The prompt has never been tried on a model | Replies may be poor, or the free model may not suit it | Step 4 tries it on a few questions before the pilot. The result may send work back to `enhance-tagset` |
-| Tagged questions may not represent untagged ones | Real settle rates and accuracy could be below the estimates | The pilot measures them |
+| The prompt has never been tried on a model | Replies may be poor, or the free model may not suit it | Step 4 tried it on a few questions. Accuracy on a whole topic isn't measured beforehand, and problems may send work back to `enhance-tagset` |
+| Tagged questions may not represent untagged ones | Real settle rates and accuracy could be below the estimates | Not measured beforehand, as there is no pilot. Settle rates show on Load, and the audit record supports review afterwards |
 | A different tesseract build from training | Slightly different text, so different scores | The port's check compares OCR with the cycle's `input/ocr-text.json`: identical for every question of both cycles on 5.5.1 |
-| The owner hasn't validated the hints and thresholds | A systematic error would affect a whole topic | The pilot comes before any whole-topic run |
-| Running on production before the check with the driver | The server's phase 3 is on dev only | The pilot on dev completes the server plan's last check, and only then is phase 3 deployed to the Pi |
+| The owner hasn't validated the hints and thresholds | A systematic error would affect a whole topic | The owner presses Save for each batch, and can stop after any of them |
+| Running on production before the check with the driver | The server's phase 3 is on dev only | A batch on dev completes the server plan's last check, and only then is phase 3 deployed to the Pi |
 
 ## Expected volumes
 
@@ -313,3 +324,5 @@ indicative only.
 | 7 | 2026-11-05 | Owner's decision 3: no stale-write guard, as the owner is the only tagger |
 | 8 | 2026-11-05 | Owner's decisions 2, 4, 6 and 9. Decision 4 changed: existing tags start in the chosen set, with no approval step. Holds live in `pending-tagging.json` |
 | 9 | 2026-11-05 | Owner's change before the pilot: undecided tags are resolved by hand with ticks, and the LLM is invoked on request as an opinion the owner picks from |
+| 10 | 2026-11-05 | Owner's decision 11: accepted tags stand with undecided ones dropped, LLM tags are accepted, the LLM is called automatically by default, and a question is asked again only through another model |
+| 11 | 2026-11-05 | Owner's decision 8: no pilot |
