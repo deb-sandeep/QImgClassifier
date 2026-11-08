@@ -248,6 +248,24 @@ public class TaggerFrame extends JFrame
          */
         List<RefreshResult> save( List<SaveItem> items ) ;
 
+        /**
+         * The topics of the scoped topic's syllabus other than it, by id;
+         * empty before a scope is set.
+         */
+        List<Topic> otherTopics() ;
+
+        /**
+         * Move {@code item} to {@code topic} on the server, as the user's
+         * choice. Blocking; called off the EDT.
+         */
+        void changeTopic( TagItem item, Topic topic ) throws Exception ;
+
+        /**
+         * Delete {@code item} from the question bank on the server.
+         * Blocking; called off the EDT.
+         */
+        void delete( TagItem item ) throws Exception ;
+
         /** Note {@code item} as deferred. */
         void defer( TagItem item, String note ) ;
 
@@ -528,6 +546,9 @@ public class TaggerFrame extends JFrame
      * selection leaves them.
      */
     private final Set<Row> pinned = new HashSet<>() ;
+
+    /** Rows whose move to another topic, or deletion, is under way. */
+    private final Set<Row> removing = new HashSet<>() ;
 
     /**
      * @param transcripts source of the transcripts shown on the right
@@ -1024,6 +1045,15 @@ public class TaggerFrame extends JFrame
         menu.add( save ) ;
         menu.add( clear ) ;
 
+        JMenu     move   = new JMenu( "Change topic" ) ;
+        JMenuItem delete = new JMenuItem( "Delete question…" ) ;
+
+        delete.setForeground( Color.RED ) ;
+        delete.addActionListener( e -> deleteSelected() ) ;
+        menu.addSeparator() ;
+        menu.add( move ) ;
+        menu.add( delete ) ;
+
         table.addMouseListener( new MouseAdapter() {
             @Override public void mousePressed( MouseEvent e ) { popup( e ) ; }
 
@@ -1052,6 +1082,8 @@ public class TaggerFrame extends JFrame
                 save.setEnabled( savable > 0 && controller != null ) ;
                 clear.setText( "Clear " + plural( clearable, "decision" ) ) ;
                 clear.setEnabled( clearable > 0 ) ;
+                fillChangeTopic( move ) ;
+                delete.setEnabled( canMoveOrDelete() ) ;
                 menu.show( table, e.getX(), e.getY() ) ;
             }
         } ) ;
@@ -1075,6 +1107,129 @@ public class TaggerFrame extends JFrame
             sendTo.add( item ) ;
         }
         sendTo.setEnabled( canSend() && !models.isEmpty() ) ;
+    }
+
+    /**
+     * The "Change topic" submenu: the other topics of the scoped topic's
+     * syllabus, by id, as "id - name"; for one selected row only.
+     */
+    private void fillChangeTopic( JMenu move ) {
+
+        move.removeAll() ;
+        if( !canMoveOrDelete() ) {
+            move.setEnabled( false ) ;
+            return ;
+        }
+        for( Topic t : controller.otherTopics() ) {
+            JMenuItem item = new JMenuItem( t.getId() + " - " +
+                                            t.getTopicName() ) ;
+            item.addActionListener( e -> changeTopic( t ) ) ;
+            move.add( item ) ;
+        }
+        move.setEnabled( move.getItemCount() > 0 ) ;
+    }
+
+    /**
+     * True if the selected row can be moved to another topic or deleted:
+     * one row, read, with nothing asked of the LLM or the server for it.
+     */
+    private boolean canMoveOrDelete() {
+
+        List<Row> sel = selectedRows() ;
+        if( controller == null || sel.size() != 1 ) return false ;
+
+        Row row = sel.get( 0 ) ;
+        return !removing.contains( row )
+               && row.llm == TagTableModel.Llm.IDLE
+               && row.status != TaggerStatus.READING
+               && row.status != TaggerStatus.SAVING ;
+    }
+
+    /** Move the selected row's question to {@code topic} on the server. */
+    private void changeTopic( Topic topic ) {
+
+        if( !canMoveOrDelete() ) return ;
+        Row row = selectedRows().get( 0 ) ;
+
+        removing.add( row ) ;
+        row.message = "Moving to " + topic.getId() + " - " +
+                      topic.getTopicName() + "…" ;
+        rowChanged( row ) ;
+        background( () -> {
+                        controller.changeTopic( row.item, topic ) ;
+                        return null ;
+                    },
+                    r -> removeRow( row ),
+                    e -> {
+                        removing.remove( row ) ;
+                        row.message = "Topic not changed: " +
+                                      e.getMessage() ;
+                        rowChanged( row ) ;
+                        error( "Change topic", "Could not move " +
+                               row.questionLabel() + " to topic " +
+                               topic.getId(), e ) ;
+                    } ) ;
+    }
+
+    /** Delete the selected row's question on the server, once confirmed. */
+    private void deleteSelected() {
+
+        if( !canMoveOrDelete() ) return ;
+        Row row = selectedRows().get( 0 ) ;
+
+        int answer = JOptionPane.showConfirmDialog( this,
+                "Delete question " + row.questionLabel() + " (id " +
+                row.item.id() + ") from the question bank?\n\n" +
+                "The server deletes it and its image files. " +
+                "This can't be undone.",
+                "Delete question", JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.WARNING_MESSAGE ) ;
+        if( answer != JOptionPane.OK_OPTION ) return ;
+
+        removing.add( row ) ;
+        row.message = "Deleting…" ;
+        rowChanged( row ) ;
+        background( () -> {
+                        controller.delete( row.item ) ;
+                        return null ;
+                    },
+                    r -> removeRow( row ),
+                    e -> {
+                        removing.remove( row ) ;
+                        row.message = "Not deleted: " + e.getMessage() ;
+                        rowChanged( row ) ;
+                        error( "Delete question", "Could not delete " +
+                               row.questionLabel(), e ) ;
+                    } ) ;
+    }
+
+    /**
+     * Take {@code row}, gone from the scope on the server, out of the table
+     * and select the row shown after it, else the one before.
+     */
+    private void removeRow( Row row ) {
+
+        removing.remove( row ) ;
+        int index = model.indexOf( row ) ;
+        if( index < 0 ) return ;     // a Load replaced the rows meanwhile
+
+        int     view     = table.convertRowIndexToView( index ) ;
+        boolean selected = view >= 0 && table.isRowSelected( view ) ;
+
+        pinned.remove( row ) ;
+        if( row.status != TaggerStatus.SAVED ) {
+            pending = Math.max( 0, pending - 1 ) ;
+        }
+        model.remove( row ) ;
+
+        int n = table.getRowCount() ;
+        if( selected && n > 0 && table.getSelectedRowCount() == 0 ) {
+            select( rowAt( Math.min( view, n - 1 ) ) ) ;
+        }
+        else if( n == 0 ) {
+            clearTable() ;
+        }
+        updateControls() ;
     }
 
     private static int count( List<Row> rows, Predicate<Row> test ) {

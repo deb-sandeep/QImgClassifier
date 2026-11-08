@@ -142,6 +142,33 @@ public class TaggerServerClient {
         return results ;
     }
 
+    /**
+     * Move question {@code questionId} to topic {@code topicId}, of its
+     * syllabus, as the user's choice ({@code User} / null / 100).
+     */
+    public void changeTopic( int questionId, int topicId )
+            throws ServerException {
+
+        ObjectNode body = server.mapper().createObjectNode()
+                                .put( "topicAssocActor", "User" )
+                                .putNull( "topicAssocAiModel" )
+                                .put( "topicAssocConfidence", 100 ) ;
+        server.post( "/Master/Question/Topic/" + questionId + "/" + topicId,
+                     body, new TypeReference<JsonNode>() {} ) ;
+    }
+
+    /**
+     * Delete question {@code questionId} and its image files from the bank.
+     * The server refuses a question in an exam.
+     */
+    public void delete( int questionId ) throws ServerException {
+
+        ObjectNode body = server.mapper().createObjectNode() ;
+        body.putArray( "questionIds" ).add( questionId ) ;
+        server.post( "/Master/Question/Delete", body,
+                     new TypeReference<JsonNode>() {} ) ;
+    }
+
     /** True if there is one result per item, in the same order. */
     private static boolean matches( List<RefreshResult> results,
                                     List<RefreshItem> items ) {

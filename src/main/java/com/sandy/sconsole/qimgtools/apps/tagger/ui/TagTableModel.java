@@ -375,6 +375,17 @@ final class TagTableModel extends AbstractTableModel
         fireTableDataChanged() ;
     }
 
+    /** Take {@code row} out of the table. */
+    void remove( Row row ) {
+
+        int i = rows.indexOf( row ) ;
+        if( i < 0 ) return ;
+
+        rows.remove( i ) ;
+        byId.remove( row.item.id() ) ;
+        fireTableRowsDeleted( i, i ) ;
+    }
+
     /** Every row, in load order. */
     @Override
     public List<Row> rows() {

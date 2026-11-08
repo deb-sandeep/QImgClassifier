@@ -57,6 +57,7 @@ import javax.swing.SwingUtilities;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -764,6 +765,50 @@ public class QTagger implements TaggerFrame.Controller {
             ids.add( t.id() ) ;
         }
         return new RefreshItem( s.item().id(), List.copyOf( ids ) ) ;
+    }
+
+    // ---- moving and deleting questions -------------------------------
+
+    @Override
+    public List<Topic> otherTopics() {
+
+        TagCatalogue c = catalogue ;
+        if( c == null ) return List.of() ;
+
+        int topicId = c.topic().getId() ;
+        return topics.getOrDefault( c.topic().getSyllabusName(), List.of() )
+                     .stream()
+                     .filter( t -> t.getId() != topicId )
+                     .sorted( Comparator.comparingInt( Topic::getId ) )
+                     .toList() ;
+    }
+
+    @Override
+    public void changeTopic( TagItem item, Topic topic )
+            throws ServerException {
+
+        server.changeTopic( item.id(), topic.getId() ) ;
+        log.info( "{}: moved from topic {} to {} - {}", item,
+                  item.question().getTopicId(), topic.getId(),
+                  topic.getTopicName() ) ;
+        dropStored( item ) ;
+    }
+
+    @Override
+    public void delete( TagItem item ) throws ServerException {
+        server.delete( item.id() ) ;
+        log.info( "{}: deleted from the question bank", item ) ;
+        dropStored( item ) ;
+    }
+
+    /** Drop {@code item}'s stored reply and deferral, if any. */
+    private void dropStored( TagItem item ) {
+        try {
+            pending.remove( List.of( item.question() ) ) ;
+        }
+        catch( IOException e ) {
+            log.error( "{}: could not drop its stored reply", item, e ) ;
+        }
     }
 
     // ---- deferrals -----------------------------------------------------
