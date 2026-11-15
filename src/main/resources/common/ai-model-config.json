@@ -50,13 +50,13 @@
         "rpd" : 0
       }
     },
-    "ollama-home" : {
+    "ollama-studio" : {
       "enabled"               : true,
       "type"                  : "ollama",
-      "url"                   : "http://192.168.0.149:11434/api/generate",
+      "url"                   : "http://mac-studio.local:11434/api/generate",
       "connectTimeoutSeconds" : 10,
       "cooldownSeconds"       : 60,
-      "maxParallel"           : 5,
+      "maxParallel"           : 2,
       "rateLimit"             : {
         "rpm" : 0,
         "rpd" : 0
@@ -130,13 +130,13 @@
         "output" : 0.16
       }
     },
-    "gemma4:latest" : {
+    "qwen3.5:27b-q8_0" : {
       "enabled"       : true,
-      "gateway"       : "ollama-home",
-      "displayName"   : "Gemma 4",
+      "gateway"       : "ollama-studio",
+      "displayName"   : "Qwen 3.5 27B",
       "contextTokens" : 12288,
       "costPerMillionToken" : {
-        "input" : 0.0,
+        "input"  : 0.0,
         "output" : 0.0
       }
     }

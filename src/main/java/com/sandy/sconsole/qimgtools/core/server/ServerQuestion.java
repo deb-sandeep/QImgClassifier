@@ -58,7 +58,7 @@ public class ServerQuestion {
     private List<ServerQuestionImage> questionImages = new ArrayList<>() ;
 
     /**
-     * "AI gemma4:latest 72%", "User", or blank if unknown: who made the
+     * "AI qwen3.5:27b-q8_0 72%", "User", or blank if unknown: who made the
      * current association, with the model shown by its name in {@code names}.
      */
     public String provenance( ModelNames names ) {
@@ -67,7 +67,7 @@ public class ServerQuestion {
     }
 
     /**
-     * "AI gemma4:latest 72%", "User", or blank for a null {@code actor}, with
+     * "AI qwen3.5:27b-q8_0 72%", "User", or blank for a null {@code actor}, with
      * the model shown by its name in {@code names}.
      */
     public static String provenance( String actor, String model,

@@ -44,7 +44,7 @@ QImgClassifier owns this file. It holds the AI's ranked topic recommendations pe
 | Field | Type | Meaning |
 |---|---|---|
 | `classifiedBy.actor` | `"AI"` \| `"User"` | `AI`: the recommendations are a model's reply. `User`: a person picked the topic in QImgClassifier's manual-association dialog. |
-| `classifiedBy.agent` | `"gemma"` \| `"openrouter"` \| `null` | Which backend answered: `gemma` is a local Ollama server, `openrouter` is the hosted OpenRouter API. `null` when `actor` is `User`. |
+| `classifiedBy.agent` | `"ollama"` \| `"openrouter"` \| `null` | Which backend answered: `ollama` is a local Ollama server (written as `gemma` before 2026-11-15), `openrouter` is the hosted OpenRouter API. `null` when `actor` is `User`. |
 | `classifiedBy.model` | string \| `null` | The exact model that produced the stored recommendations, e.g. `gemma4:latest` or `google/gemini-2.5-flash`. `null` when `actor` is `User`. |
 
 Notes:

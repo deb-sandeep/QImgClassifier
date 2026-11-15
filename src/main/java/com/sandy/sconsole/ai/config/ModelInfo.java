@@ -22,6 +22,9 @@ import java.time.Duration;
  * @param reasoning         let it reason before answering
  * @param promptCaching     mark the prompt cacheable where the model
  *                          supports it
+ * @param structuredOutput  send it the reply's schema
+ *                          ({@link com.sandy.sconsole.ai.AIRequest#responseSchema})
+ *                          where its gateway can apply it
  * @param reasoningEffort   how hard a reasoning model reasons ({@code low},
  *                          {@code medium} or {@code high}); null for its
  *                          default
@@ -41,8 +44,9 @@ public record ModelInfo( String id, GatewayInfo gateway, String displayName,
                          RateLimit appRateLimit, int maxParallel,
                          Duration requestTimeout, int retries,
                          boolean reasoning, boolean promptCaching,
-                         String reasoningEffort, Integer reasoningMaxTokens,
-                         Integer maxOutputTokens, FallbackInfo fallback,
+                         boolean structuredOutput, String reasoningEffort,
+                         Integer reasoningMaxTokens, Integer maxOutputTokens,
+                         FallbackInfo fallback,
                          boolean reachable ) {
 
     /**
@@ -58,8 +62,9 @@ public record ModelInfo( String id, GatewayInfo gateway, String displayName,
                               enabledInApp, contextTokens, providerRateLimit,
                               appRateLimit, maxParallel, requestTimeout,
                               retries, reasoning, promptCaching,
-                              reasoningEffort, reasoningMaxTokens,
-                              maxOutputTokens, fallback, false ) ;
+                              structuredOutput, reasoningEffort,
+                              reasoningMaxTokens, maxOutputTokens, fallback,
+                              false ) ;
     }
 
     /** Why the model is not {@link #usable()}; null if it is. */
@@ -109,6 +114,7 @@ public record ModelInfo( String id, GatewayInfo gateway, String displayName,
                ( maxOutputTokens != null
                  ? ", max output " + maxOutputTokens + " tokens" : "" ) +
                ( promptCaching ? ", prompt caching" : "" ) +
+               ( structuredOutput ? ", structured output" : "" ) +
                ", fallback " + fallback + ")" ;
     }
 }

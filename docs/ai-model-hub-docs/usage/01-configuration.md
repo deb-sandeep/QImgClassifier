@@ -182,6 +182,7 @@ Models that are only in the global file are invisible to the app.
 | `retries` | yes | Further attempts a job gets on this model after a failed one, before following its fallback. |
 | `reasoning` | yes | Let the model reason before answering. Ollama gets `think`; OpenRouter gets `reasoning: {enabled: false}` when off. |
 | `promptCaching` | `openrouter` models | Mark the prompt cacheable on models whose OpenRouter catalogue entry supports it. |
+| `structuredOutput` | no | Send the model the request's response schema, if it has one (see [Structured output](02-quick-start.md#structured-output)). Default false. |
 | `reasoningEffort` | no | With `reasoning` on: `low`, `medium` or `high`, sent to OpenRouter as `reasoning: {effort}`. Absent: the model's default. |
 | `reasoningMaxTokens` | no | With `reasoning` on, and not with `reasoningEffort`: the most tokens the model may reason with, sent as `reasoning: {max_tokens}`. |
 | `maxOutputTokens` | no | The most tokens a reply may have: OpenRouter `max_tokens`, Ollama `num_predict`. Absent: no limit is sent. A reply cut off at the limit fails as `TRUNCATED`. |

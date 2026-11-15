@@ -2,9 +2,9 @@ package com.sandy.sconsole.qimgtools.apps.classifier;
 
 import com.sandy.sconsole.ai.HubStatus;
 import com.sandy.sconsole.ai.AIHub;
+import com.sandy.sconsole.ai.RoutingPolicy;
 import com.sandy.sconsole.qimgtools.core.ai.TopicPrompter;
 import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.ClassificationListener;
-import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.ClassifierRouting;
 import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.QSourceClassifier;
 import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.QuestionClassifier;
 import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
@@ -63,9 +63,8 @@ import java.util.stream.Collectors;
  * {@link #MAX_LOADED_SOURCES} with unsettled questions, and puts their
  * pending questions on {@link #ready}. Start runs a batch thread that takes
  * them from there and hands them to the {@link TaskScheduler}, whose AI hub
- * shares them out across the models of the app's AI config by subject
- * ({@link ClassifierRouting}), keeping at most {@link #MAX_QUEUED_QUESTIONS}
- * in the hub. A source is unloaded once each of its questions has finished
+ * sends them to the models of the app's AI config in the order they were
+ * submitted, keeping at most {@link #MAX_QUEUED_QUESTIONS} in the hub. A source is unloaded once each of its questions has finished
  * (classified or failed), which lets the loader take the next. Stop is
  * cooperative: running tasks finish, no new ones start, and the questions
  * dropped unstarted go back to the front of {@link #ready}.
@@ -169,7 +168,7 @@ public class QImgClassifier implements QClassifierFrame.Controller {
                 config.getQuestionFilter() ) ;
 
         AIHub hub = AIHub.create( config.getAi(), new AIHub.Options(
-                config.getRequestHistoryFile(), new ClassifierRouting(),
+                config.getRequestHistoryFile(), RoutingPolicy.inOrder(),
                 "qclassifier" ) ) ;
         this.scheduler = new TaskScheduler<>(
                 hub, new TopicPrompter( TopicRepo.instance(), PROMPT_DIR ),

@@ -124,9 +124,12 @@ AIJob.RequestFactory factory = model -> new AIRequest(
         new AIRequest.ResponseSchema( "tag_reply", schema ) ) ;
 ```
 
-The OpenRouter gateway sends it as a strict `json_schema` `response_format`
-only to models whose catalogue entry lists `structured_outputs`; other models,
-and the Ollama gateway, get the request without it. It doesn't set
+Only models whose app entry sets `structuredOutput` get it; the rest get the
+request without it. The Ollama gateway sends it as `format`, which holds the
+reply to the schema, with no prose around it (useful for a model that reasons
+in its reply even with `think` off). The OpenRouter gateway sends it as a
+strict `json_schema` `response_format`, and only to models whose catalogue
+entry lists `structured_outputs`. It doesn't set
 `provider.require_parameters`, so a provider that can't follow the schema
 still answers. Describe the reply in the prompt as well, and keep the reply
 check lenient (fences, text around the JSON): the schema cuts repairs, it

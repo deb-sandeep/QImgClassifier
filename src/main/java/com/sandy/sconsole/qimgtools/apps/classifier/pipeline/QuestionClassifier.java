@@ -4,10 +4,8 @@ import com.sandy.sconsole.qimgtools.core.model.AIAgent;
 import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
 import com.sandy.sconsole.qimgtools.core.model.AttemptTranscript;
 import com.sandy.sconsole.qimgtools.core.model.QTask;
-import com.sandy.sconsole.qimgtools.core.model.Subject;
 import com.sandy.sconsole.qimgtools.apps.classifier.model.TaskStatus;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
-import com.sandy.sconsole.qimgtools.core.model.TopicRepo;
 import com.sandy.sconsole.qimgtools.core.util.FileHelper;
 import com.sandy.sconsole.qimgtools.apps.classifier.workspace.ProcessedList;
 import com.sandy.sconsole.qimgtools.core.workspace.TranscriptStore;
@@ -19,8 +17,6 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -37,11 +33,8 @@ import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
 @Slf4j
 public class QuestionClassifier implements TaskOutcomes<List<Topic>> {
 
-    // Confidence a Gemma reply needs to be kept without a second opinion
-    private static final int CLEAR_LEAD_MIN_CONFIDENCE = 90 ;
-    private static final int CLEAR_LEAD_MIN_MARGIN     = 10 ;
-    private static final int HIGH_CONFIDENCE           = 95 ;
-    private static final int CHEMISTRY_MIN_MARGIN      = 5 ;    // exclusive
+    /** The root every question starts on (the app AI file's only one). */
+    public static final String ROOT = "cloud" ;
 
     @Getter
     private final ClassificationListener listener ;
@@ -80,10 +73,13 @@ public class QuestionClassifier implements TaskOutcomes<List<Topic>> {
         return FileHelper.getQuestionImgGroups( srcDir, questionFilter ) ;
     }
 
-    /** A question may start on either root; see {@link ClassifierRouting}. */
+    /**
+     * Every question starts on {@link #ROOT}; the hub takes them in the order
+     * they were submitted.
+     */
     @Override
     public List<String> roots( QTask task ) {
-        return ClassifierRouting.roots( task ) ;
+        return List.of( ROOT ) ;
     }
 
     @Override
@@ -126,59 +122,11 @@ public class QuestionClassifier implements TaskOutcomes<List<Topic>> {
         listener.taskFinished( task, TaskStatus.FAILED, attempts, reason ) ;
     }
 
-    /**
-     * The cloud root for a local model's {@code topics} that are not
-     * confident enough (see {@link #needsSecondOpinion}); null otherwise.
-     */
+    /** Every reply is kept as it comes: no second opinion is asked. */
     @Override
     public String secondOpinionRoot( QTask task, List<Topic> topics,
                                      AIAgent agent, String model ) {
-        return agent == AIAgent.GEMMA && needsSecondOpinion( task, topics )
-               ? ClassifierRouting.CLOUD : null ;
-    }
-
-    /**
-     * True if Gemma's {@code topics} are not confident enough to keep, so the
-     * question is asked again on OpenRouter. Topics unknown to the master are
-     * ignored, as when they are stored. Confidences are taken highest first;
-     * with only one, the second counts as 0. The reply is kept when:
-     * <ul>
-     *   <li>any subject : the top is &ge; 90 and leads the second by 10 or
-     *       more;</li>
-     *   <li>Physics / Maths : otherwise the top is &ge; 95;</li>
-     *   <li>Chemistry : otherwise the top is &ge; 95 and leads the second by
-     *       more than 5.</li>
-     * </ul>
-     * These are the quality gate QImgExtractor once applied to auto
-     * association; association itself no longer filters.
-     */
-    public boolean needsSecondOpinion( QTask task, List<Topic> topics ) {
-
-        List<Integer> confidences = new ArrayList<>() ;
-        for( Topic t : topics ) {
-            if( TopicRepo.instance().getTopicById( t.getId() ) == null ) continue ;
-            confidences.add( Math.round( t.getMatchProbability() * 100 ) ) ;
-        }
-        if( confidences.isEmpty() ) return true ;
-
-        confidences.sort( Comparator.reverseOrder() ) ;
-        int top    = confidences.get( 0 ) ;
-        int second = confidences.size() > 1 ? confidences.get( 1 ) : 0 ;
-        int margin = top - second ;
-
-        if( top >= CLEAR_LEAD_MIN_CONFIDENCE
-            && margin >= CLEAR_LEAD_MIN_MARGIN ) {
-            return false ;
-        }
-
-        Subject subject = Subject.fromQuestionId( task.getQuestionId() ) ;
-        boolean confident = switch( subject ) {
-            case PHYSICS, MATHS -> top >= HIGH_CONFIDENCE ;
-            case CHEMISTRY      -> top >= HIGH_CONFIDENCE
-                                   && margin > CHEMISTRY_MIN_MARGIN ;
-            case UNKNOWN        -> false ;
-        } ;
-        return !confident ;
+        return null ;
     }
 
     /**

@@ -18,7 +18,7 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /**
- * Marks which AI backend handled a question: a monitor for the local Gemma
+ * Marks which AI backend handled a question: a monitor for the local Ollama
  * server, a cloud for OpenRouter. Shapes differ as well as colours, so the
  * two stay distinguishable at a glance.
  */
@@ -28,7 +28,7 @@ final class AgentIcon implements Icon {
     /** Width and height of the icon in pixels. */
     static final int SIZE = 14 ;
 
-    private static final Color GEMMA_COLOR      = new Color( 0x2E7D32 ) ;
+    private static final Color OLLAMA_COLOR     = new Color( 0x2E7D32 ) ;
     private static final Color OPENROUTER_COLOR = new Color( 0x6A1B9A ) ;
 
     private static final Map<AIAgent,AgentIcon> ICONS = new EnumMap<>( AIAgent.class ) ;
@@ -58,7 +58,7 @@ final class AgentIcon implements Icon {
                                  RenderingHints.VALUE_ANTIALIAS_ON ) ;
             g2.translate( x, y ) ;
             switch( agent ) {
-                case GEMMA      -> paintMonitor( g2 ) ;
+                case OLLAMA     -> paintMonitor( g2 ) ;
                 case OPENROUTER -> paintCloud( g2 ) ;
             }
         }
@@ -70,11 +70,11 @@ final class AgentIcon implements Icon {
     /** A desktop monitor on a stand - the locally hosted model. */
     private static void paintMonitor( Graphics2D g2 ) {
 
-        g2.setColor( GEMMA_COLOR ) ;
+        g2.setColor( OLLAMA_COLOR ) ;
         g2.fill( new RoundRectangle2D.Float( 1, 2, 12, 8, 3, 3 ) ) ;
         g2.setColor( Color.WHITE ) ;
         g2.fill( new Rectangle2D.Float( 2.5f, 3.5f, 9, 5 ) ) ;
-        g2.setColor( GEMMA_COLOR ) ;
+        g2.setColor( OLLAMA_COLOR ) ;
         g2.fill( new Rectangle2D.Float( 6, 10, 2, 2 ) ) ;
         g2.fill( new Rectangle2D.Float( 4, 12, 6, 1.5f ) ) ;
     }

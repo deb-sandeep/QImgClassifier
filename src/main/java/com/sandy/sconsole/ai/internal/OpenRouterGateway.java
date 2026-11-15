@@ -56,10 +56,10 @@ final class OpenRouterGateway extends Gateway {
      * {@code reasoningMaxTokens}, if set), and its {@code maxOutputTokens}
      * as {@code max_tokens}, if set; the request's response schema, if any,
      * as a strict {@code json_schema} {@code response_format} when the
-     * catalogue says the model supports structured output. Provider errors
-     * OpenRouter reports
-     * inside a 200 response are failures too, as is a reply cut off at the
-     * length limit.
+     * model's {@code structuredOutput} is set and the catalogue says it
+     * supports structured output. Provider errors OpenRouter reports inside
+     * a 200 response are failures too, as is a reply cut off at the length
+     * limit.
      */
     @Override
     AIReply complete( ModelInfo model, AIRequest request, Call call )
@@ -112,7 +112,8 @@ final class OpenRouterGateway extends Gateway {
             // Without provider.require_parameters, so a provider that can't
             // follow the schema still answers; the app reads that leniently.
             AIRequest.ResponseSchema schema = request.responseSchema() ;
-            if( schema != null && catalog.supportsStructuredOutput( id ) ) {
+            if( schema != null && model.structuredOutput()
+                && catalog.supportsStructuredOutput( id ) ) {
                 ObjectNode format = payload.putObject( "response_format" )
                                            .put( "type", "json_schema" ) ;
                 format.putObject( "json_schema" )

@@ -10,8 +10,11 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum AIAgent {
 
-    /** Gemma served by a local Ollama instance. */
-    GEMMA( "gemma", "Gemma" ),
+    /**
+     * A model served by a local Ollama server. Transcripts and maps written
+     * before it was renamed call it {@code gemma}.
+     */
+    OLLAMA( "ollama", "Ollama" ),
 
     /** A hosted vision model reached through OpenRouter. */
     OPENROUTER( "openrouter", "OpenRouter" ) ;
@@ -28,7 +31,7 @@ public enum AIAgent {
     /** The agent of a gateway of {@code type}. */
     public static AIAgent of( GatewayType type ) {
         return switch( type ) {
-            case OLLAMA     -> GEMMA ;
+            case OLLAMA     -> OLLAMA ;
             case OPENROUTER -> OPENROUTER ;
         } ;
     }

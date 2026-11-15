@@ -38,7 +38,9 @@ final class OllamaGateway extends Gateway {
      * {@code contextTokens} when set (Ollama's default, 4096, would silently
      * cut a long prompt), and the reply's length its {@code maxOutputTokens}
      * ({@code num_predict}) when set; a reply cut off there fails as
-     * {@link FailureKind#TRUNCATED}.
+     * {@link FailureKind#TRUNCATED}. A model with {@code structuredOutput}
+     * is sent the request's schema as {@code format}, which holds its reply
+     * to that JSON: no prose around it.
      */
     @Override
     AIReply complete( ModelInfo model, AIRequest request, Call call )
@@ -55,6 +57,11 @@ final class OllamaGateway extends Gateway {
             request.images().forEach( i -> images.add( i.base64() ) ) ;
             payload.put( "keep_alive", "5h" ) ;
             payload.put( "think", model.reasoning() ) ;
+
+            AIRequest.ResponseSchema schema = request.responseSchema() ;
+            if( schema != null && model.structuredOutput() ) {
+                payload.set( "format", schema.schema() ) ;
+            }
             if( model.contextTokens() != null
                 || model.maxOutputTokens() != null ) {
                 ObjectNode options = payload.putObject( "options" ) ;

@@ -48,10 +48,11 @@ public record AIRequest( String prompt, List<Image> images,
     }
 
     /**
-     * The JSON schema a reply must follow. A gateway applies it only where
+     * The JSON schema a reply must follow. A gateway applies it only to a
+     * model whose app config sets {@code structuredOutput}, and only where
      * the model supports structured output (OpenRouter: its catalogue entry
-     * lists {@code structured_outputs}), as a strict schema; elsewhere it is
-     * ignored, so the prompt should still describe the reply and the app
+     * lists {@code structured_outputs}, and it is sent as a strict schema;
+     * Ollama: every model, as {@code format}); elsewhere it is ignored, so the prompt should still describe the reply and the app
      * still read it leniently. A provider may also ignore it.
      *
      * @param name   a short name for the schema, e.g. {@code tag_reply}

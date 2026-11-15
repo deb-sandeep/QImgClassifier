@@ -137,7 +137,8 @@ hub.submit( new AIJob<>( question, SubjectRouting.roots( question ),
                          factory, keepGoing, listener ) ) ;
 ```
 
-The full version is `ClassifierRouting` in QImgClassifier.
+QImgClassifier used a fuller version, `ClassifierRouting`, while it had a
+local root (see its git history).
 
 ## What the policy can't do
 

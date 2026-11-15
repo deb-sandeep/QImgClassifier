@@ -45,7 +45,8 @@ import java.util.Set;
  * {@code openrouter} models), optional {@code reasoningEffort}
  * ({@code low} / {@code medium} / {@code high}) or
  * {@code reasoningMaxTokens} (either only with {@code reasoning} on),
- * optional {@code maxOutputTokens}, optional {@code rateLimit} and
+ * optional {@code structuredOutput} (default false), optional
+ * {@code maxOutputTokens}, optional {@code rateLimit} and
  * {@code fallback} (guard name to a list of model ids; the guards are the
  * {@link FailureKind} guard names and {@code default}).
  * <p>
@@ -79,7 +80,7 @@ final class ConfigParser {
             "enabled", "maxParallel", "requestTimeoutSeconds", "retries",
             "reasoning", "promptCaching", "reasoningEffort",
             "reasoningMaxTokens", "maxOutputTokens", "rateLimit",
-            "fallback" ) ;
+            "fallback", "structuredOutput" ) ;
     private static final Set<String> REASONING_EFFORTS =
             Set.of( "low", "medium", "high" ) ;
     private static final Set<String> RATE_LIMIT_KEYS = Set.of( "rpm", "rpd" ) ;
@@ -245,6 +246,8 @@ final class ConfigParser {
             boolean caching    = openRouter ? bool( m, path, "promptCaching" )
                                : m.has( "promptCaching" )
                                  && bool( m, path, "promptCaching" ) ;
+            boolean structured = m.has( "structuredOutput" )
+                                 && bool( m, path, "structuredOutput" ) ;
 
             models.put( id, new ModelInfo(
                     id, def.gateway(), def.displayName(), def.enabled(),
@@ -254,7 +257,7 @@ final class ConfigParser {
                     integer( m, path, "maxParallel", 1 ),
                     seconds( m, path, "requestTimeoutSeconds" ),
                     integer( m, path, "retries", 0 ),
-                    reasoning, caching, effort, maxReason,
+                    reasoning, caching, structured, effort, maxReason,
                     optInteger( m, path, "maxOutputTokens" ),
                     fallback( m, path, all ), true ) ) ;
         }

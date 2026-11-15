@@ -2,11 +2,10 @@
 //
 // parent : the global model config (classpath:/... or a file path; a
 //          relative path is relative to this file's folder)
-// roots  : named pools of entry models. A question may start on either
-//          root; ClassifierRouting shares them out: Chemistry to "cloud",
-//          Physics / Maths to "local" (overflowing to "cloud" only when no
-//          local model can take them), and a local reply that isn't
-//          confident enough goes to "cloud" for a second opinion.
+// roots  : named pools of entry models. Every question starts on "cloud"
+//          and they are taken in the order they were submitted; Qwen
+//          (local, on ollama-studio) stands in once the free Nemotron's
+//          daily quota is used up.
 // models : the app's policy per model it uses (each must be in the parent)
 //   enabled               the app's own switch (on top of the global ones)
 //   maxParallel           requests in flight on the model at most (its slots)
@@ -22,6 +21,10 @@
 //                         reply cut off there fails as "truncated"
 //   promptCaching         mark the prompt cacheable where the model supports
 //                         it (openrouter models)
+//   structuredOutput      (optional, default false) send the model the
+//                         reply's JSON schema, holding its reply to it (no
+//                         prose around the answer); ollama models, and
+//                         openrouter ones that support it
 //   rateLimit             (optional) the app's own { rpm, rpd } on the model,
 //                         on top of the provider's
 //   fallback              (optional) where a question goes once the model
@@ -48,17 +51,17 @@
   "parent" : "classpath:/common/ai-model-config.json",
 
   "roots" : {
-    "local" : [ "gemma4:latest" ],
     "cloud" : [ "nvidia/nemotron-3.5-super-vl:free" ]
   },
 
   "models" : {
-    "gemma4:latest" : {
-      "enabled"               : false,
-      "maxParallel"           : 5,
+    "qwen3.5:27b-q8_0" : {
+      "enabled"               : true,
+      "maxParallel"           : 2,
       "requestTimeoutSeconds" : 300,
       "retries"               : 1,
       "reasoning"             : false,
+      "structuredOutput"      : true,
       "fallback"              : {
         "default" : [ "nvidia/nemotron-3.5-super-vl:free" ]
       }
@@ -71,6 +74,7 @@
       "reasoning"             : false,
       "promptCaching"         : true,
       "fallback"              : {
+        "rateLimitedRPD" : [ "qwen3.5:27b-q8_0" ],
         "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ]
       }
     },

@@ -57,6 +57,13 @@ public class TopicPrompter implements TaskPrompter<List<Topic>> {
     private final Map<Subject,String> promptBySubject =
             new EnumMap<>( Subject.class ) ;
 
+    /**
+     * The reply's schema per subject (see {@link #responseSchema}); absent
+     * for a subject with no topics.
+     */
+    private final Map<Subject,AIRequest.ResponseSchema> schemaBySubject =
+            new EnumMap<>( Subject.class ) ;
+
     /** The topics offered to the model, per subject. */
     private final TopicRepo topicRepo ;
 
@@ -79,6 +86,9 @@ public class TopicPrompter implements TaskPrompter<List<Topic>> {
                                                            : defaultTemplate ;
             promptBySubject.put( subject,
                                  buildPrompt( promptDir, template, subject ) ) ;
+
+            AIRequest.ResponseSchema schema = buildSchema( subject ) ;
+            if( schema != null ) schemaBySubject.put( subject, schema ) ;
         }
     }
 
@@ -91,6 +101,17 @@ public class TopicPrompter implements TaskPrompter<List<Topic>> {
     @Override
     public String prompt( QTask task ) {
         return prompt( task.getSubject() ) ;
+    }
+
+    /**
+     * The reply as a JSON array of {@code {topic_name, id,
+     * match_probability}}, the id one of the subject's topics; null for a
+     * subject with none. Sent only to models with {@code structuredOutput}
+     * (Qwen, which otherwise reasons in prose before its answer).
+     */
+    @Override
+    public AIRequest.ResponseSchema responseSchema( QTask task ) {
+        return schemaBySubject.get( task.getSubject() ) ;
     }
 
     /**
@@ -156,10 +177,13 @@ public class TopicPrompter implements TaskPrompter<List<Topic>> {
     }
 
     /**
-     * Strip markdown fences some models add despite the prompt, and wrap a lone
-     * object in an array.
+     * Strip markdown fences some models add despite the prompt, take the
+     * answer at the end of a reply that reasons in prose first (Qwen: its
+     * last fenced block, else from its last line starting with {@code [}),
+     * and wrap a lone object in an array.
      */
     static String cleanResponse( String response ) {
+
         String s = response.trim() ;
         if( s.startsWith( "```" ) ) {
             int firstNewline = s.indexOf( '\n' ) ;
@@ -168,8 +192,30 @@ public class TopicPrompter implements TaskPrompter<List<Topic>> {
             if( s.endsWith( "```" ) ) s = s.substring( 0, s.length() - 3 ) ;
             s = s.trim() ;
         }
+        else if( !s.startsWith( "[" ) && !s.startsWith( "{" ) ) {
+            s = trailingAnswer( s ) ;
+        }
         if( s.startsWith( "{" ) && s.endsWith( "}" ) ) s = "[" + s + "]" ;
         return s ;
+    }
+
+    /**
+     * The answer after the prose in {@code s}: the body of its last closed
+     * fenced block, else from its last line starting with {@code [} to its
+     * last {@code ]}, else s.
+     */
+    private static String trailingAnswer( String s ) {
+
+        int close = s.lastIndexOf( "```" ) ;
+        int open  = close <= 0 ? -1 : s.lastIndexOf( "```", close - 1 ) ;
+        int body  = open < 0 ? -1 : s.indexOf( '\n', open ) ;
+        if( body >= 0 && body < close ) {
+            return s.substring( body + 1, close ).trim() ;
+        }
+
+        int from = s.lastIndexOf( "\n[" ) ;
+        int to   = s.lastIndexOf( ']' ) ;
+        return from >= 0 && to > from ? s.substring( from + 1, to + 1 ) : s ;
     }
 
     // ---- prompt building -----------------------------------------------
@@ -215,6 +261,30 @@ public class TopicPrompter implements TaskPrompter<List<Topic>> {
             log.error( "Error building topic list JSON for {}", subject, e ) ;
             return "" ;
         }
+    }
+
+    /** The reply schema for {@code subject}; null if it has no topics. */
+    private AIRequest.ResponseSchema buildSchema( Subject subject ) {
+
+        List<Topic> topics = topicRepo.getTopics( subject ) ;
+        if( topics.isEmpty() ) return null ;
+
+        ObjectNode item  = mapper.createObjectNode().put( "type", "object" ) ;
+        ObjectNode props = item.putObject( "properties" ) ;
+
+        props.putObject( "topic_name" ).put( "type", "string" ) ;
+        ArrayNode ids = props.putObject( "id" ).put( "type", "integer" )
+                             .putArray( "enum" ) ;
+        topics.forEach( t -> ids.add( t.getId() ) ) ;
+        props.putObject( "match_probability" ).put( "type", "number" ) ;
+        item.putArray( "required" ).add( "topic_name" ).add( "id" )
+            .add( "match_probability" ) ;
+        item.put( "additionalProperties", false ) ;
+
+        ObjectNode schema = mapper.createObjectNode().put( "type", "array" )
+                                  .put( "minItems", 1 ) ;
+        schema.set( "items", item ) ;
+        return new AIRequest.ResponseSchema( "topic_list", schema ) ;
     }
 
     /**
