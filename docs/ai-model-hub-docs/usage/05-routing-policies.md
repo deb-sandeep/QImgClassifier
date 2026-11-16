@@ -23,9 +23,9 @@ often, and the other models of the root naturally take more of the work.
 
 | Type | What it tells you |
 |---|---|
-| [`ModelSlot`](../javadocs/com/sandy/sconsole/ai/ModelSlot.html) | the asking model (`model()`, a [`ModelInfo`](../javadocs/com/sandy/sconsole/ai/config/ModelInfo.html)), its requests in flight, its average latency over recent replies |
-| [`Candidate`](../javadocs/com/sandy/sconsole/ai/Candidate.html) | a job (`job().payload()` is yours), `via` (why it may run here: `ROOT`, `ESCALATION`, `RETRY`, `HANDED_BACK`, `FALLBACK`), how long it has waited, and `order` (its queue position, lower first) |
-| [`HubView`](../javadocs/com/sandy/sconsole/ai/HubView.html) | the other models: `isAvailable`, `canSendNow`, `rootModels`, `isRootAvailable`, `canRootSendNow` |
+| `ModelSlot` | the asking model (`model()`, a `ModelInfo`), its requests in flight, its average latency over recent replies |
+| `Candidate` | a job (`job().payload()` is yours), `via` (why it may run here: `ROOT`, `ESCALATION`, `RETRY`, `HANDED_BACK`, `FALLBACK`), how long it has waited, and `order` (its queue position, lower first) |
+| `HubView` | the other models: `isAvailable`, `canSendNow`, `rootModels`, `isRootAvailable`, `canRootSendNow` |
 
 The policy is called under the hub's lock, so be quick, and never call back
 into the hub from it (use `view`). If it throws, the exception is logged
@@ -40,7 +40,7 @@ order; a job keeps its place between attempts.
 new AIHub.Options( history, RoutingPolicy.inOrder(), "my-app" )
 ```
 
-See [`RoutingPolicy.inOrder()`](../javadocs/com/sandy/sconsole/ai/RoutingPolicy.html).
+See `RoutingPolicy.inOrder()`.
 
 ## Scenario: one root, several models, spread the load
 

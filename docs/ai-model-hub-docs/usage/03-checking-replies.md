@@ -1,15 +1,15 @@
 # 3. Checking replies
 
 Every reply goes through your listener's
-[`check`](../javadocs/com/sandy/sconsole/ai/JobListener.html) before the hub
+`check` before the hub
 does anything with it. `check` returns a
-[`ReplyCheck<R>`](../javadocs/com/sandy/sconsole/ai/ReplyCheck.html), where
+`ReplyCheck<R>`, where
 `R` is your result type:
 
 | Verdict | Effect |
 |---|---|
 | `ReplyCheck.accept( value )` | `value` is the job's result: `succeeded( job, value, model, false )`. |
-| `ReplyCheck.reject( reason )` | The attempt fails as [`FailureKind.BAD_REPLY`](../javadocs/com/sandy/sconsole/ai/FailureKind.html). The job retries on the same model, or follows that model's `badReply` (else `default`) fallback, like any other failure. |
+| `ReplyCheck.reject( reason )` | The attempt fails as `FailureKind.BAD_REPLY`. The job retries on the same model, or follows that model's `badReply` (else `default`) fallback, like any other failure. |
 | `ReplyCheck.escalate( value, root, why )` | The reply will do, but another root should be asked. See [Escalation](06-escalation.md). |
 
 A `check` that throws a `RuntimeException` (logged at ERROR) or returns
@@ -80,12 +80,12 @@ class TopicListener implements JobListener<Question,List<Answer>> {
 
 ## What you get alongside the reply
 
-[`AIReply`](../javadocs/com/sandy/sconsole/ai/AIReply.html) carries `text()`,
+`AIReply` carries `text()`,
 `reasoning()` (the model's reasoning when the gateway returned it:
 OpenRouter's `message.reasoning` or `reasoning_details`, Ollama's
-`thinking`; else `null`) and `usage()`: a [`TokenUsage`](../javadocs/com/sandy/sconsole/ai/TokenUsage.html)
+`thinking`; else `null`) and `usage()`: a `TokenUsage`
 with input, output, reasoning and cached tokens and the cost in USD, or
 `null` if the gateway didn't report it. The same usage and reasoning are in
 the attempt's
-[`AttemptResult`](../javadocs/com/sandy/sconsole/ai/AttemptResult.html),
+`AttemptResult`,
 reported to `attemptFinished` (see [Monitoring](08-monitoring.md)).

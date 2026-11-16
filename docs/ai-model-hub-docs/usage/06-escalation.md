@@ -8,7 +8,7 @@ keep the reply as a provisional result and ask the models of another root.
 ReplyCheck.escalate( value, "cloud", "top confidence below 90" )
 ```
 
-See [`ReplyCheck.Escalate`](../javadocs/com/sandy/sconsole/ai/ReplyCheck.Escalate.html).
+See `ReplyCheck.Escalate`.
 
 ## What happens
 

@@ -10,9 +10,9 @@ hub.submit( job ) ;                   // Priority.NORMAL: behind them
 `FRONT` suits work a user asked for explicitly, such as "retry this one now".
 Submitting several jobs `FRONT` puts the **last** one first, so submit them
 in reverse to keep their order. See
-[`Priority`](../javadocs/com/sandy/sconsole/ai/Priority.html). Routing
+`Priority`. Routing
 policies see the queue position as
-[`Candidate.order()`](../javadocs/com/sandy/sconsole/ai/Candidate.html).
+`Candidate.order()`.
 
 ## Running a batch and waiting for it
 
@@ -88,7 +88,7 @@ Once it returns `false`:
 | a request in flight | the request finishes; then as above |
 
 Stopping never interrupts a request in flight. Only
-[`AIHub.shutdown()`](../javadocs/com/sandy/sconsole/ai/AIHub.html) does that,
+`AIHub.shutdown()` does that,
 or `abortRequest` for one request (below).
 
 ## Terminating a request in flight
@@ -109,12 +109,12 @@ The attempt fails as a `TIMEOUT` ("request terminated by the user"), so the
 job goes on as after a timeout: a retry on the same model, the model's
 `timeout` fallback, or its end (with its provisional result if it was
 escalated). Returns `false` if the job has no request in flight. See
-[`AIHub.abortRequest`](../javadocs/com/sandy/sconsole/ai/AIHub.html#abortRequest(long)).
+`AIHub.abortRequest`).
 
 ## Holding, releasing and cancelling one job
 
 `submit` returns a
-[`JobHandle`](../javadocs/com/sandy/sconsole/ai/JobHandle.html):
+`JobHandle`:
 
 ```java
 JobHandle h = hub.submit( job ) ;
@@ -153,7 +153,7 @@ The new job starts with a fresh retry budget on every model.
 
 ## Job counts
 
-[`hub.status().jobs()`](../javadocs/com/sandy/sconsole/ai/HubStatus.Jobs.html)
+`hub.status().jobs()`
 gives `waiting` (including jobs between attempts), `held`, `running` and
 `done` (jobs that ended after starting). It is handy for a queue display.
 See [Monitoring](08-monitoring.md).

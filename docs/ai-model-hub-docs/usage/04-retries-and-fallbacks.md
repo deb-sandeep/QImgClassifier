@@ -7,7 +7,7 @@ the next models by **why** the attempt failed.
 ## Failure kinds
 
 Every failed attempt has a
-[`FailureKind`](../javadocs/com/sandy/sconsole/ai/FailureKind.html), which
+`FailureKind`, which
 names the guard used:
 
 | Kind | Guard | Typical cause | Uses a retry? |
@@ -66,7 +66,7 @@ This covers:
 
 - **Jobs not tried yet**: once every model of their roots is held back,
   the first available model of a root model's guard takes them, as a
-  [`Candidate.Via.STAND_IN`](../javadocs/com/sandy/sconsole/ai/Candidate.Via.html).
+  `Candidate.Via.STAND_IN`.
   They are still new jobs (`isContinuation()` is false).
 - **Jobs between attempts** on the held model: one waiting to retry it, or
   one handed back by it. The guard for the model's current hold is used,
@@ -105,7 +105,7 @@ in flight finish. The setting is kept in memory only, per hub, and shows as
 `ModelStatus.passthrough()` in the [status](08-monitoring.md);
 `ModelStatus.passthroughGuard()` says whether the model has the guard, e.g.
 to offer the setting only where it has somewhere to send the jobs. See
-[`AIHub.setPassthrough`](../javadocs/com/sandy/sconsole/ai/AIHub.html#setPassthrough(java.lang.String,boolean)).
+`AIHub.setPassthrough`).
 
 ## Ordered lists: a later model is a last resort
 
@@ -238,7 +238,7 @@ a → b → c. A model the job has already used up is skipped.
 - **Unreachable gateway**: it is held for `cooldownSeconds`. After that it
   sends one request at a time (a probe) until one gets any answer.
 
-Holds show up in [`HubStatus.notices()`](../javadocs/com/sandy/sconsole/ai/HubStatus.html);
+Holds show up in `HubStatus.notices()`;
 see [Monitoring](08-monitoring.md).
 
 ## Limits shared across apps

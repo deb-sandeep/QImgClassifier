@@ -2,8 +2,8 @@
 
 ## Status snapshots
 
-[`AIHub.status()`](../javadocs/com/sandy/sconsole/ai/AIHub.html) returns an
-immutable [`HubStatus`](../javadocs/com/sandy/sconsole/ai/HubStatus.html).
+`AIHub.status()` returns an
+immutable `HubStatus`.
 It is cheap enough to poll every second, e.g. from a Swing `Timer`:
 
 ```java
@@ -23,13 +23,13 @@ new javax.swing.Timer( 1000, e -> {
 
 | Part | Holds |
 |---|---|
-| `gateways()` | [`GatewayStatus`](../javadocs/com/sandy/sconsole/ai/HubStatus.GatewayStatus.html): enabled, reachable, held until / why, held for the day, requests today, in flight vs cap |
-| `models()` | [`ModelStatus`](../javadocs/com/sandy/sconsole/ai/HubStatus.ModelStatus.html): usable, available, held until / why, in flight vs slots, jobs waiting for it, average latency, attempts succeeded and failed, its rpm / rpd with the requests of the last minute and of today, its switches in the global and app configs |
-| `jobs()` | [`Jobs`](../javadocs/com/sandy/sconsole/ai/HubStatus.Jobs.html): waiting, held, running, done |
+| `gateways()` | `GatewayStatus`: enabled, reachable, held until / why, held for the day, requests today, in flight vs cap |
+| `models()` | `ModelStatus`: usable, available, held until / why, in flight vs slots, jobs waiting for it, average latency, attempts succeeded and failed, its rpm / rpd with the requests of the last minute and of today, its switches in the global and app configs |
+| `jobs()` | `Jobs`: waiting, held, running, done |
 | `nextSendAt()` | when some model with waiting work may next send (`Long.MAX_VALUE` if no work waits) |
 | `notices()` | what is held back right now, and why |
-| `requests()` | [`Request`](../javadocs/com/sandy/sconsole/ai/HubStatus.Request.html): each request in flight (oldest first): job id and payload text, model, gateway, attempt number, start time |
-| `queue()` | [`WaitingJob`](../javadocs/com/sandy/sconsole/ai/HubStatus.WaitingJob.html): each waiting job in the order it is offered: job id and payload text, when it joined, attempts so far, last model and failure, the models that may take it now |
+| `requests()` | `Request`: each request in flight (oldest first): job id and payload text, model, gateway, attempt number, start time |
+| `queue()` | `WaitingJob`: each waiting job in the order it is offered: job id and payload text, when it joined, attempts so far, last model and failure, the models that may take it now |
 
 The payload text is the payload's `toString()`, so give the payload a
 readable one (e.g. the question id).
@@ -48,7 +48,7 @@ for( HubStatus.WaitingJob j : s.queue() ) {
 
 ## Showing rate-limit holds
 
-[`Notice`](../javadocs/com/sandy/sconsole/ai/HubStatus.Notice.html) lists
+`Notice` lists
 each gateway (model `null`) or single model that is held back, with a
 readable reason, when it lifts, and whether it is a daily hold. Per-minute
 pacing is routine and is never a notice.
@@ -75,7 +75,7 @@ boolean dailyHold = hub.status().notices().stream()
 ## A ready-made Swing view
 
 A Swing app need not build its own view of the snapshot:
-[`ModelsPanel`](../javadocs/com/sandy/sconsole/ai/ui/ModelsPanel.html)
+`ModelsPanel`
 (package `com.sandy.sconsole.ai.ui`) shows the job counts and next request
 time, the gateways, the models (one column each: state, in flight / slots,
 waiting, last minute / rpm, today / rpd, average reply, OK, failed), the
@@ -122,12 +122,12 @@ public void attemptFinished( JobContext<Question> job, AttemptResult r ) {
 
 | Type | Holds |
 |---|---|
-| [`Attempt`](../javadocs/com/sandy/sconsole/ai/Attempt.html) | job id, attempt number (handed-back attempts aren't counted, so the next one reuses the number), the model, the exact request, the start time |
-| [`AttemptResult`](../javadocs/com/sandy/sconsole/ai/AttemptResult.html) | elapsed ms; outcome `OK` / `FAILED` / `RATE_LIMITED` / `UNREACHABLE`; the raw reply or raw error body; a readable failure reason; the [`FailureKind`](../javadocs/com/sandy/sconsole/ai/FailureKind.html); token usage; the model's reasoning, if a reply came with one |
+| `Attempt` | job id, attempt number (handed-back attempts aren't counted, so the next one reuses the number), the model, the exact request, the start time |
+| `AttemptResult` | elapsed ms; outcome `OK` / `FAILED` / `RATE_LIMITED` / `UNREACHABLE`; the raw reply or raw error body; a readable failure reason; the `FailureKind`; token usage; the model's reasoning, if a reply came with one |
 
 ## Token usage and cost
 
-[`TokenUsage`](../javadocs/com/sandy/sconsole/ai/TokenUsage.html) is on
+`TokenUsage` is on
 `AIReply.usage()` and `AttemptResult.usage()`. It holds `inputTokens`,
 `outputTokens`, `reasoningTokens`, `cachedTokens` and `cost` (USD).
 Optional values are `null` when the gateway didn't report them, and the

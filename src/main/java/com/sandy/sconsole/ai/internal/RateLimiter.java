@@ -15,7 +15,8 @@ import java.util.List;
  * UTC calendar day (reset at 00:00 UTC, as
  * OpenRouter's daily free-model quota is), plus a suspension set when the
  * provider itself reports a rate limit covering every model, or cannot be
- * reached.
+ * reached. Requests are counted whether or not a limit is set, so the
+ * counts can be shown.
  * <p>
  * Not thread-safe; the {@link Engine} calls it only while holding its lock.
  * Counts live in memory; the {@link Engine} saves them to a
@@ -45,8 +46,8 @@ final class RateLimiter {
     private final long spacing ;
 
     /**
-     * Start times of requests in the current UTC day and the last minute (or
-     * only the last minute, if only RPM is set).
+     * Start times of requests in the current UTC day and the last minute,
+     * kept with or without a limit, so the counts can be shown.
      */
     private final Deque<Long> starts = new ArrayDeque<>() ;
 
@@ -114,10 +115,7 @@ final class RateLimiter {
                : null ;
     }
 
-    /**
-     * Requests started within the longest window in use, oldest first; empty
-     * if no limit is set.
-     */
+    /** Requests started today (UTC) and in the last minute, oldest first. */
     List<Long> starts( long now ) {
         prune( now ) ;
         return new ArrayList<>( starts ) ;
@@ -129,14 +127,14 @@ final class RateLimiter {
      * {@link #record}.
      */
     void restore( List<Long> times, long now ) {
-        if( rpm == 0 && rpd == 0 ) return ;
         starts.addAll( times ) ;
         prune( now ) ;
     }
 
     /**
      * Replace the counted starts with {@code times} (epoch ms, oldest
-     * first), e.g. every app's from the {@link UsageLedger}.
+     * first), e.g. every app's from the {@link UsageLedger}. Without a
+     * limit the ledger counts nothing, so this app's own counts are kept.
      */
     void sync( List<Long> times, long now ) {
 
@@ -148,7 +146,7 @@ final class RateLimiter {
 
     /** Count a request starting at {@code now}. */
     void record( long now ) {
-        if( rpm > 0 || rpd > 0 ) starts.addLast( now ) ;
+        starts.addLast( now ) ;
     }
 
     /**
@@ -186,10 +184,10 @@ final class RateLimiter {
         return countSince( now - MINUTE_MS ) ;
     }
 
-    /** Requests counted today (UTC); only kept with an rpd. */
+    /** Requests counted today (UTC). */
     int countToday( long now ) {
         prune( now ) ;
-        return rpd > 0 ? countSince( utcDayStart( now ) - 1 ) : 0 ;
+        return countSince( utcDayStart( now ) - 1 ) ;
     }
 
     /** The suspension in force at {@code now}; null if there is none. */
@@ -203,14 +201,10 @@ final class RateLimiter {
         return rpd > 0 && countSince( utcDayStart( now ) - 1 ) >= rpd ;
     }
 
-    /**
-     * Drop starts that no window in use covers: the last minute, and with a
-     * daily limit, the current UTC day.
-     */
+    /** Drop starts neither the last minute nor the current UTC day covers. */
     private void prune( long now ) {
 
-        long horizon = rpd > 0 ? dailyHorizon( now ) : now - MINUTE_MS ;
-
+        long horizon = dailyHorizon( now ) ;
         while( !starts.isEmpty() && starts.peekFirst() <= horizon ) {
             starts.pollFirst() ;
         }

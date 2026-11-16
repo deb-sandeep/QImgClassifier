@@ -2,9 +2,9 @@ package com.sandy.sconsole.qimgtools.apps.classifier;
 
 import com.sandy.sconsole.ai.HubStatus;
 import com.sandy.sconsole.ai.AIHub;
-import com.sandy.sconsole.ai.RoutingPolicy;
 import com.sandy.sconsole.qimgtools.core.ai.TopicPrompter;
 import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.ClassificationListener;
+import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.ClassifierRouting;
 import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.QSourceClassifier;
 import com.sandy.sconsole.qimgtools.apps.classifier.pipeline.QuestionClassifier;
 import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
@@ -47,9 +47,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -59,13 +59,17 @@ import java.util.stream.Collectors;
  * <p>
  * Loading and submitting are decoupled by a blocking queue. A loader thread
  * discovers the sources named in {@code qclassifier.sources.txt} (minus those
- * already in the processed list) one at a time, keeping at most
- * {@link #MAX_LOADED_SOURCES} with unsettled questions, and puts their
- * pending questions on {@link #ready}. Start runs a batch thread that takes
- * them from there and hands them to the {@link TaskScheduler}, whose AI hub
- * sends them to the models of the app's AI config in the order they were
- * submitted, keeping at most {@link #MAX_QUEUED_QUESTIONS} in the hub. A source is unloaded once each of its questions has finished
- * (classified or failed), which lets the loader take the next. Stop is
+ * already in the processed list) one at a time, while either root (see
+ * {@link QuestionClassifier#roots}) has fewer than
+ * {@link #MAX_LOADED_SOURCES} sources with unsettled questions of its own,
+ * and puts their pending questions on {@link #ready}. Start runs a batch
+ * thread that takes them from there, in order, and hands them to the
+ * {@link TaskScheduler} while their root has fewer than
+ * {@link #MAX_QUEUED_QUESTIONS} in the AI hub; the hub sends each root's
+ * questions to its models in the order they were submitted. So a slower
+ * root's backlog never holds back the other's questions. A source is
+ * unloaded once each of its questions has finished (classified or failed),
+ * which lets the loader take the next. Stop is
  * cooperative: running tasks finish, no new ones start, and the questions
  * dropped unstarted go back to the front of {@link #ready}.
  * <p>
@@ -85,13 +89,20 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     /** Classpath folder of the prompt templates and syllabus files. */
     private static final String PROMPT_DIR = "/apps/classifier/" ;
 
-    /** Most sources loaded with questions not yet finished. */
+    /** Most sources loaded with questions of a root not yet finished. */
     private static final int MAX_LOADED_SOURCES = 15 ;
 
-    /** Most batch questions queued or running in the AI hub. */
-    private static final int MAX_QUEUED_QUESTIONS = 50 ;
+    /** Most batch questions of a root queued or running in the AI hub. */
+    private static final int MAX_QUEUED_QUESTIONS = 10 ;
 
-    /** How long the batch thread waits on {@link #ready} at a time. */
+    /** The roots questions start on, each with its own caps. */
+    private static final List<String> ROOTS =
+            List.of( QuestionClassifier.PHY_MATHS, QuestionClassifier.CHEM ) ;
+
+    /**
+     * How long the batch thread waits at a time when no question on
+     * {@link #ready} can be handed over (a job's end wakes it sooner).
+     */
     private static final long POLL_MS = 500 ;
 
     private final QClassifierConfig  config ;
@@ -133,10 +144,18 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     private final Object loadLock = new Object() ;
 
     /**
-     * Per loaded source, the ids of its pending questions not yet finished;
-     * a source leaves once none is left.
+     * Per loaded source, its pending questions not yet finished, by id, with
+     * the root each starts on; a source leaves once none is left.
      */
-    private final Map<File,Set<String>> unsettled = new HashMap<>() ;
+    private final Map<File,Map<String,String>> unsettled = new HashMap<>() ;
+
+    /**
+     * {@link #unsettled} questions per root they start on, changed under
+     * {@link #loadLock}, read lock-free by {@link ClassifierRouting} under
+     * the hub's lock.
+     */
+    private final Map<String,Integer> unsettledByRoot =
+            new ConcurrentHashMap<>() ;
 
     /** Questions this batch handed to the scheduler, in order. */
     private final List<QTask> submitted = new ArrayList<>() ;
@@ -168,7 +187,9 @@ public class QImgClassifier implements QClassifierFrame.Controller {
                 config.getQuestionFilter() ) ;
 
         AIHub hub = AIHub.create( config.getAi(), new AIHub.Options(
-                config.getRequestHistoryFile(), RoutingPolicy.inOrder(),
+                config.getRequestHistoryFile(),
+                new ClassifierRouting(
+                        r -> unsettledByRoot.getOrDefault( r, 0 ) > 0 ),
                 "qclassifier" ) ) ;
         this.scheduler = new TaskScheduler<>(
                 hub, new TopicPrompter( TopicRepo.instance(), PROMPT_DIR ),
@@ -288,8 +309,8 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     }
 
     /**
-     * Loader thread body: load each queued source in turn, once fewer than
-     * {@link #MAX_LOADED_SOURCES} are loaded. Runs until interrupted.
+     * Loader thread body: load each queued source in turn, once a root has
+     * fewer than {@link #MAX_LOADED_SOURCES} loaded. Runs until interrupted.
      */
     private void runLoader() {
 
@@ -313,11 +334,24 @@ public class QImgClassifier implements QClassifierFrame.Controller {
         }
     }
 
-    /** Block until fewer than {@link #MAX_LOADED_SOURCES} are loaded. */
+    /**
+     * Block until a root has fewer than {@link #MAX_LOADED_SOURCES} sources
+     * loaded with unsettled questions of its own.
+     */
     private void awaitSourceSlot() throws InterruptedException {
         synchronized( loadLock ) {
-            while( unsettled.size() >= MAX_LOADED_SOURCES ) loadLock.wait() ;
+            while( ROOTS.stream().allMatch(
+                    r -> loadedFor( r ) >= MAX_LOADED_SOURCES ) ) {
+                loadLock.wait() ;
+            }
         }
+    }
+
+    /** Sources loaded with unsettled questions of {@code root}; under lock. */
+    private int loadedFor( String root ) {
+        return (int)unsettled.values().stream()
+                             .filter( ids -> ids.containsValue( root ) )
+                             .count() ;
     }
 
     /**
@@ -353,9 +387,16 @@ public class QImgClassifier implements QClassifierFrame.Controller {
         if( pending.isEmpty() ) return ;
 
         synchronized( loadLock ) {
-            unsettled.put( srcDir, pending.stream()
-                                          .map( QTask::getQuestionId )
-                                          .collect( Collectors.toSet() ) ) ;
+            Map<String,String> ids = pending.stream().collect(
+                    Collectors.toMap( QTask::getQuestionId,
+                                      scheduler::startRoot ) ) ;
+            Map<String,String> old = unsettled.put( srcDir, ids ) ;
+            if( old != null ) {
+                old.values().forEach(
+                        r -> unsettledByRoot.merge( r, -1, Integer::sum ) ) ;
+            }
+            ids.values().forEach(
+                    r -> unsettledByRoot.merge( r, 1, Integer::sum ) ) ;
         }
         ready.addAll( pending ) ;
         log.info( "Loaded source {} ({} of {}) - {} questions pending",
@@ -369,11 +410,16 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     private void settled( QTask task ) {
 
         synchronized( loadLock ) {
-            Set<String> ids = unsettled.get( task.getSrcDir() ) ;
-            if( ids == null || !ids.remove( task.getQuestionId() ) ) return ;
+            Map<String,String> ids  = unsettled.get( task.getSrcDir() ) ;
+            String             root = ids == null ? null
+                                    : ids.remove( task.getQuestionId() ) ;
+
+            if( root == null ) return ;
+            unsettledByRoot.merge( root, -1, Integer::sum ) ;
+            // A root's count may drop with it even if the source stays
+            loadLock.notifyAll() ;
             if( ids.isEmpty() ) {
                 unsettled.remove( task.getSrcDir() ) ;
-                loadLock.notifyAll() ;
                 log.debug( "Source {} settled - unloaded",
                            task.getSrcDir().getName() ) ;
             }
@@ -383,8 +429,8 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     /** True if {@code task} is pending in a loaded source. */
     private boolean isUnsettled( QTask task ) {
         synchronized( loadLock ) {
-            Set<String> ids = unsettled.get( task.getSrcDir() ) ;
-            return ids != null && ids.contains( task.getQuestionId() ) ;
+            Map<String,String> ids = unsettled.get( task.getSrcDir() ) ;
+            return ids != null && ids.containsKey( task.getQuestionId() ) ;
         }
     }
 
@@ -416,24 +462,25 @@ public class QImgClassifier implements QClassifierFrame.Controller {
     }
 
     /**
-     * Batch thread body: take the loaded questions off {@link #ready} and
-     * hand them to the scheduler while fewer than
-     * {@link #MAX_QUEUED_QUESTIONS} are in it, until every source is loaded
-     * and its questions handed over, or a stop; then wait until they are
-     * done or the stop has wound them up, and put the ones dropped unstarted
-     * back at the front of {@link #ready}.
+     * Batch thread body: take the loaded questions off {@link #ready}, in
+     * order, and hand each to the scheduler once its root has fewer than
+     * {@link #MAX_QUEUED_QUESTIONS} in it (a question whose root is full is
+     * passed over, keeping its place), until every source is loaded and its
+     * questions handed over, or a stop; then wait until they are done or
+     * the stop has wound them up, and put the ones dropped unstarted back at
+     * the front of {@link #ready}.
      */
     private void runBatch() {
 
         try {
-            while( scheduler.awaitBatchBelow( MAX_QUEUED_QUESTIONS,
-                                              this::isProcessing ) ) {
-                // Read before polling: once 0, every question is on ready
+            while( isProcessing() ) {
+                // Read before looking: once 0, every question is on ready
                 boolean allLoaded = namesPending.get() == 0 ;
-                QTask   task      = ready.poll( POLL_MS, TimeUnit.MILLISECONDS ) ;
+                QTask   task      = nextWithRoom() ;
 
                 if( task == null ) {
-                    if( allLoaded ) break ;
+                    if( allLoaded && ready.isEmpty() ) break ;
+                    scheduler.awaitBatchChange( POLL_MS ) ;
                     continue ;
                 }
                 // Finished meanwhile (a re-queue, a manual association)
@@ -454,6 +501,23 @@ public class QImgClassifier implements QClassifierFrame.Controller {
             listener.processingStateChanged( ProcessingState.STOPPED ) ;
             log.info( "Processing stopped" ) ;
         }
+    }
+
+    /**
+     * The first question on {@link #ready} whose root has fewer than
+     * {@link #MAX_QUEUED_QUESTIONS} in the scheduler, taken off it; null if
+     * there is none.
+     */
+    private QTask nextWithRoom() {
+
+        Map<String,Boolean> room = new HashMap<>() ;
+        for( QTask task : ready ) {
+            String  root = scheduler.startRoot( task ) ;
+            boolean free = room.computeIfAbsent( root, r ->
+                    scheduler.batchOutstanding( r ) < MAX_QUEUED_QUESTIONS ) ;
+            if( free && ready.removeFirstOccurrence( task ) ) return task ;
+        }
+        return null ;
     }
 
     /**

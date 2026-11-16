@@ -32,11 +32,14 @@ final class OllamaGateway extends Gateway {
     }
 
     /**
-     * A non-streaming {@code /api/generate} call with the images attached;
-     * the model stays loaded for 5 hours. Thinking is switched on or off per
-     * the model's {@code reasoning}; the context window is the model's
-     * {@code contextTokens} when set (Ollama's default, 4096, would silently
-     * cut a long prompt), and the reply's length its {@code maxOutputTokens}
+     * A non-streaming {@code /api/generate} call with the images attached.
+     * How long the model stays loaded is the server's own setting (no
+     * {@code keep_alive} is sent). Thinking is switched on or off per the
+     * model's {@code reasoning}; the context window is the model's
+     * {@code contextTokens} when set, else the server's own (a server left
+     * at Ollama's default, 4096, would silently cut a long prompt; a
+     * {@code num_ctx} other than the loaded model's makes Ollama reload
+     * it), and the reply's length its {@code maxOutputTokens}
      * ({@code num_predict}) when set; a reply cut off there fails as
      * {@link FailureKind#TRUNCATED}. A model with {@code structuredOutput}
      * is sent the request's schema as {@code format}, which holds its reply
@@ -55,7 +58,6 @@ final class OllamaGateway extends Gateway {
 
             ArrayNode images = payload.putArray( "images" ) ;
             request.images().forEach( i -> images.add( i.base64() ) ) ;
-            payload.put( "keep_alive", "5h" ) ;
             payload.put( "think", model.reasoning() ) ;
 
             AIRequest.ResponseSchema schema = request.responseSchema() ;

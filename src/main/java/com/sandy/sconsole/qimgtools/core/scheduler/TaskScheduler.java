@@ -72,6 +72,9 @@ public class TaskScheduler<R> {
     /** Batch jobs queued or running; the batch is done at 0. */
     private int batchOutstanding ;
 
+    /** {@link #batchOutstanding} by the root each job starts on. */
+    private final Map<String,Integer> outstandingByRoot = new HashMap<>() ;
+
     /**
      * How many questions are waiting (including those between attempts),
      * how many have a request in flight, and how many have finished.
@@ -154,7 +157,7 @@ public class TaskScheduler<R> {
                     continue ;
                 }
                 active.put( task, e ) ;
-                batchOutstanding++ ;
+                countIn( e ) ;
                 submit( e, Priority.NORMAL ) ;
             }
         }
@@ -185,21 +188,26 @@ public class TaskScheduler<R> {
         }
     }
 
-    /**
-     * Block while {@code limit} or more batch jobs are queued or running, as
-     * long as {@code keepGoing} holds.
-     *
-     * @return {@code keepGoing}'s last answer
-     */
-    public boolean awaitBatchBelow( int limit, BooleanSupplier keepGoing )
-            throws InterruptedException {
-
+    /** Batch jobs queued or running that started on {@code root}. */
+    public int batchOutstanding( String root ) {
         synchronized( lock ) {
-            while( batchOutstanding >= limit && keepGoing.getAsBoolean() ) {
-                lock.wait( MAX_WAIT_MS ) ;
-            }
+            return outstandingByRoot.getOrDefault( root, 0 ) ;
         }
-        return keepGoing.getAsBoolean() ;
+    }
+
+    /**
+     * Wait until a batch job ends or is held, or {@code ms} pass, whichever
+     * comes first.
+     */
+    public void awaitBatchChange( long ms ) throws InterruptedException {
+        synchronized( lock ) {
+            lock.wait( ms ) ;
+        }
+    }
+
+    /** The root {@code task} starts on when it has no route: its first. */
+    public String startRoot( QTask task ) {
+        return outcomes.roots( task ).get( 0 ) ;
     }
 
     /** True while a batch job is queued or running. */
@@ -269,8 +277,7 @@ public class TaskScheduler<R> {
                 if( e.handle == null || !e.handle.hold() ) return false ;
                 active.remove( task ) ;
                 if( e.batch ) {
-                    batchOutstanding-- ;
-                    e.countedOut = true ;
+                    countOut( e ) ;
                     lock.notifyAll() ;
                 }
             }
@@ -296,10 +303,7 @@ public class TaskScheduler<R> {
                 return false ;
             }
             active.put( task, e ) ;
-            if( e.batch ) {
-                batchOutstanding++ ;
-                e.countedOut = false ;
-            }
+            if( e.batch ) countIn( e ) ;
             if( e.handle != null ) e.handle.release( true ) ;
             else submit( e, Priority.FRONT ) ;
             return true ;
@@ -345,12 +349,28 @@ public class TaskScheduler<R> {
 
         synchronized( lock ) {
             if( active.get( e.task ) == e ) active.remove( e.task ) ;
-            if( e.batch && !e.countedOut ) {
-                batchOutstanding-- ;
-                e.countedOut = true ;
-            }
+            if( e.batch && !e.countedOut ) countOut( e ) ;
             lock.notifyAll() ;
         }
+    }
+
+    /** Count {@code e} in the batch, in total and by its root; under lock. */
+    private void countIn( Entry e ) {
+        batchOutstanding++ ;
+        outstandingByRoot.merge( root( e ), 1, Integer::sum ) ;
+        e.countedOut = false ;
+    }
+
+    /** Take {@code e} off the batch counts; under lock. */
+    private void countOut( Entry e ) {
+        batchOutstanding-- ;
+        outstandingByRoot.merge( root( e ), -1, Integer::sum ) ;
+        e.countedOut = true ;
+    }
+
+    /** The root {@code e} starts on. */
+    private String root( Entry e ) {
+        return e.route != null ? e.route.root() : startRoot( e.task ) ;
     }
 
     private static AIAgent agentOf( ModelInfo model ) {

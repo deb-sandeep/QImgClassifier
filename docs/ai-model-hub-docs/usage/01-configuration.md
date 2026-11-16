@@ -83,7 +83,7 @@ included, with the colons of an object aligned.
 | Key | Required | Meaning |
 |---|---|---|
 | `enabled` | yes | `false` switches off the gateway and every model on it, in one place. |
-| `type` | yes | `openrouter` or `ollama`: the transport ([`GatewayType`](../javadocs/com/sandy/sconsole/ai/config/GatewayType.html)). |
+| `type` | yes | `openrouter` or `ollama`: the transport (`GatewayType`). |
 | `url` | yes | The endpoint requests are posted to. |
 | `apiKeyFile` | `openrouter` only | A file holding only the API key. `~/` is the home folder; a relative path is relative to the global file's folder. If the file is missing or empty, the gateway's models are unusable. |
 | `connectTimeoutSeconds` | yes | The longest wait for a connection. |
@@ -100,9 +100,9 @@ appears in logs, history and status.
 |---|---|---|
 | `enabled` | yes | `false` switches off this model alone. |
 | `gateway` | yes | The gateway hosting it. |
-| `displayName` | no | The name to show users; see [`AIConfig.displayName`](../javadocs/com/sandy/sconsole/ai/config/AIConfig.html). |
+| `displayName` | no | The name to show users; see `AIConfig.displayName`. |
 | `rateLimit` | no | `{ "rpm", "rpd" }` the provider enforces on this model. |
-| `contextTokens` | no | The context window to ask for (Ollama's `num_ctx`). |
+| `contextTokens` | no | The context window to ask for (Ollama's `num_ctx`). Absent: the server's own setting. A `num_ctx` other than the one the model is loaded with makes Ollama reload it. The Ollama gateway sends no `keep_alive`, so how long a model stays loaded is the server's setting too. |
 | `costPerMillionToken` | no | `{ "input", "output" }`: the provider's price in USD per million tokens. Documentation only: checked for shape, never used. |
 
 ## The app file
@@ -209,8 +209,8 @@ catch( AIConfigException e ) {
 }
 ```
 
-See [`AIConfigLoader`](../javadocs/com/sandy/sconsole/ai/config/AIConfigLoader.html)
-and [`AIConfigException`](../javadocs/com/sandy/sconsole/ai/config/AIConfigException.html).
+See `AIConfigLoader`
+and `AIConfigException`.
 
 A common pattern is to let a system property point at another app file
 without rebuilding:
@@ -249,7 +249,7 @@ the roots.
 
 ## Inspecting the config in code
 
-[`AIConfig`](../javadocs/com/sandy/sconsole/ai/config/AIConfig.html) and its
+`AIConfig` and its
 records are read-only views:
 
 ```java
@@ -261,7 +261,7 @@ boolean canRun = config.isRootUsable( "main" ) ;
 String  shown  = config.displayName( "anthropic/claude-haiku-5.5" ) ;
 ```
 
-See [`ModelInfo`](../javadocs/com/sandy/sconsole/ai/config/ModelInfo.html),
-[`GatewayInfo`](../javadocs/com/sandy/sconsole/ai/config/GatewayInfo.html),
-[`FallbackInfo`](../javadocs/com/sandy/sconsole/ai/config/FallbackInfo.html) and
-[`RateLimit`](../javadocs/com/sandy/sconsole/ai/config/RateLimit.html).
+See `ModelInfo`,
+`GatewayInfo`,
+`FallbackInfo` and
+`RateLimit`.

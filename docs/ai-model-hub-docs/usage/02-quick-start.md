@@ -7,10 +7,10 @@ listener.
 ## Steps
 
 1. Load the config ([Configuration](01-configuration.md)).
-2. Create one [`AIHub`](../javadocs/com/sandy/sconsole/ai/AIHub.html) per
+2. Create one `AIHub` per
    application and keep it for the app's lifetime.
-3. Submit an [`AIJob`](../javadocs/com/sandy/sconsole/ai/AIJob.html) with a
-   [`JobListener`](../javadocs/com/sandy/sconsole/ai/JobListener.html).
+3. Submit an `AIJob` with a
+   `JobListener`.
 4. Shut the hub down when the app exits.
 
 ## Example
@@ -83,14 +83,14 @@ public class Ask {
 
 | Part | Notes |
 |---|---|
-| `AIHub.Options( historyFile, routing, appName )` | `historyFile` keeps today's request times so per-day limits survive a restart (`null` keeps them in memory only). `routing` defaults to [`RoutingPolicy.inOrder()`](../javadocs/com/sandy/sconsole/ai/RoutingPolicy.html) when null. `appName` is sent to gateways that attribute traffic to an app (OpenRouter's `X-Title`). See [`AIHub.Options`](../javadocs/com/sandy/sconsole/ai/AIHub.Options.html). |
+| `AIHub.Options( historyFile, routing, appName )` | `historyFile` keeps today's request times so per-day limits survive a restart (`null` keeps them in memory only). `routing` defaults to `RoutingPolicy.inOrder()` when null. `appName` is sent to gateways that attribute traffic to an app (OpenRouter's `X-Title`). See `AIHub.Options`. |
 | `new AIJob<>( payload, roots, request, keepGoing, listener )` | `payload` is your own object, handed back in every callback as `job.payload()`. `roots` are the roots it may start on. `request` builds the request for each attempt (see below). `keepGoing` is checked before each attempt: return `false` to stop the job ([Job control](07-job-control.md)). An optional sixth argument, `model`, pins the job to one model ([Job control](07-job-control.md#sending-a-job-to-one-model)). |
 | `check(…)` | **Required.** Decides what a reply means. Here every reply is accepted; see [Checking replies](03-checking-replies.md). |
 | `succeeded` / `failed` / `dropped` | Exactly one of them ends every job. |
 
 ## Building requests
 
-[`AIJob.RequestFactory`](../javadocs/com/sandy/sconsole/ai/AIJob.RequestFactory.html)
+`AIJob.RequestFactory`
 is called before **every** attempt with the model about to be asked, so a
 prompt can depend on the model. It is called again on retries, so cache
 anything costly, such as encoded images:
@@ -107,8 +107,8 @@ AIJob.RequestFactory factory = model -> new AIRequest(
 Gateways send the prompt first and the images after it. A prompt shared by
 many requests is therefore a stable prefix, which prompt caching can reuse
 (see `promptCaching` in [Configuration](01-configuration.md)). See
-[`AIRequest`](../javadocs/com/sandy/sconsole/ai/AIRequest.html) and
-[`AIRequest.Image`](../javadocs/com/sandy/sconsole/ai/AIRequest.Image.html).
+`AIRequest` and
+`AIRequest.Image`.
 
 If the factory throws, the job fails.
 
@@ -134,7 +134,7 @@ entry lists `structured_outputs`. It doesn't set
 still answers. Describe the reply in the prompt as well, and keep the reply
 check lenient (fences, text around the JSON): the schema cuts repairs, it
 doesn't guarantee them away. See
-[`AIRequest.ResponseSchema`](../javadocs/com/sandy/sconsole/ai/AIRequest.ResponseSchema.html).
+`AIRequest.ResponseSchema`.
 
 ## Threading rules
 
@@ -150,7 +150,7 @@ doesn't guarantee them away. See
 
 ## Shutting down
 
-`AIHub` is `AutoCloseable`. [`shutdown()`](../javadocs/com/sandy/sconsole/ai/AIHub.html)
+`AIHub` is `AutoCloseable`. `shutdown()`
 stops the workers and interrupts requests in flight. To let work finish
 first, stop submitting and wait for your jobs to end (see
 [Job control](07-job-control.md)).

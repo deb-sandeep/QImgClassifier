@@ -1171,25 +1171,35 @@ public final class Engine {
 
     /**
      * Count a request on {@code m}, saving the history if it is kept. With
-     * a ledger, the providers' counts are already in it ({@link #reserve}).
+     * a ledger, a provider-limited gateway's count is already in it
+     * ({@link #reserve}); one without limits is counted here.
      */
     private void recordUse( ModelState m, long now ) {
 
         m.limiter.record( now ) ;
-        if( ledger == null ) m.gateway.limiter.record( now ) ;
-        if( history != null && ( hasDailyLimit( m ) || hasDailyLimit( m.gateway ) ) ) {
+        if( countsHere( m.gateway ) ) m.gateway.limiter.record( now ) ;
+        if( history != null && ( inHistory( m ) || inHistory( m.gateway ) ) ) {
             saveHistory( now ) ;
         }
     }
 
-    /** True if {@code m}'s counts in this app have a daily limit. */
-    private static boolean hasDailyLimit( ModelState m ) {
-        return m.limiter.rpd() > 0 ;
+    /**
+     * True if {@code m}'s counts are kept in this app's history: its own
+     * daily limit, or no provider limit counted in a ledger (then only the
+     * counts shown, e.g. a local model's).
+     */
+    private static boolean inHistory( ModelState m ) {
+        return m.limiter.rpd() > 0 || m.shared == null ;
+    }
+
+    /** True if {@code g}'s requests are counted by this app, not a ledger. */
+    private boolean countsHere( GatewayState g ) {
+        return ledger == null || g.info.rateLimit().isNone() ;
     }
 
     /** True if {@code g}'s counts are kept in this app's history. */
-    private boolean hasDailyLimit( GatewayState g ) {
-        return ledger == null && g.info.rateLimit().rpd() > 0 ;
+    private boolean inHistory( GatewayState g ) {
+        return countsHere( g ) ;
     }
 
     /**
@@ -1207,19 +1217,20 @@ public final class Engine {
 
         for( GatewayState g : gateways.values() ) {
             List<Long> times = saved.remove( g.historyKey() ) ;
-            if( times == null || !hasDailyLimit( g ) ) continue ;
+            if( times == null || !inHistory( g ) ) continue ;
             g.limiter.restore( times, now ) ;
-            log.info( "[{}] {} of {} requests today already used",
+            log.info( "[{}] {} requests today already used{}",
                       g.info.name(), g.limiter.countToday( now ),
-                      g.info.rateLimit().rpd() ) ;
+                      of( g.info.rateLimit().rpd() ) ) ;
         }
         for( ModelState m : models.values() ) {
             List<Long> times = saved.remove( m.historyKey() ) ;
-            if( times == null || !hasDailyLimit( m ) ) continue ;
+            if( times == null || !inHistory( m ) ) continue ;
             m.limiter.restore( times, now ) ;
-            log.info( "[{}] {} of {} requests today already used{}",
+            log.info( "[{}] {} requests today already used{}{}",
                       m.info.tag(), m.limiter.countToday( now ),
-                      m.limiter.rpd(), ledger != null ? " (this app)" : "" ) ;
+                      of( m.limiter.rpd() ),
+                      ledger != null ? " (this app)" : "" ) ;
         }
         otherHistory.putAll( saved ) ;
     }
@@ -1259,16 +1270,21 @@ public final class Engine {
         }
     }
 
+    /** " of {@code rpd}" for a log line; "" without a daily limit. */
+    private static String of( int rpd ) {
+        return rpd > 0 ? " of " + rpd : "" ;
+    }
+
     private void saveHistory( long now ) {
 
         Map<String,List<Long>> all = new HashMap<>( otherHistory ) ;
         for( GatewayState g : gateways.values() ) {
-            if( hasDailyLimit( g ) ) {
+            if( inHistory( g ) ) {
                 all.put( g.historyKey(), g.limiter.starts( now ) ) ;
             }
         }
         for( ModelState m : models.values() ) {
-            if( hasDailyLimit( m ) ) {
+            if( inHistory( m ) ) {
                 all.put( m.historyKey(), m.limiter.starts( now ) ) ;
             }
         }

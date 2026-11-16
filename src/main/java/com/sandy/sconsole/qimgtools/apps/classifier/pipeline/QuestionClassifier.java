@@ -33,8 +33,11 @@ import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
 @Slf4j
 public class QuestionClassifier implements TaskOutcomes<List<Topic>> {
 
-    /** The root every question starts on (the app AI file's only one). */
-    public static final String ROOT = "cloud" ;
+    /** The root Physics and Maths questions start on (Qwen). */
+    public static final String PHY_MATHS = "phy-maths" ;
+
+    /** The root Chemistry questions start on (the free Nemotron). */
+    public static final String CHEM = "chem" ;
 
     @Getter
     private final ClassificationListener listener ;
@@ -74,12 +77,19 @@ public class QuestionClassifier implements TaskOutcomes<List<Topic>> {
     }
 
     /**
-     * Every question starts on {@link #ROOT}; the hub takes them in the order
-     * they were submitted.
+     * Physics and Maths start on {@link #PHY_MATHS}: they classify accurately
+     * on a smaller model; {@link #CHEM}'s models may borrow them in their
+     * spare time ({@link ClassifierRouting}). Chemistry, which is trickier
+     * and needs a larger model, and a question of no known subject start on
+     * {@link #CHEM}. Each model takes its own questions in the order they
+     * were submitted.
      */
     @Override
     public List<String> roots( QTask task ) {
-        return List.of( ROOT ) ;
+        return switch( task.getSubject() ) {
+            case PHYSICS, MATHS     -> List.of( PHY_MATHS, CHEM ) ;
+            case CHEMISTRY, UNKNOWN -> List.of( CHEM ) ;
+        } ;
     }
 
     @Override

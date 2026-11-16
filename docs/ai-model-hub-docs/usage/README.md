@@ -18,12 +18,9 @@ it gives back replies, which your own code checks and turns into results.
 
 It depends only on the JDK (17+), Jackson and SLF4J.
 
-API reference: [javadocs](../javadocs/frames.html) (framed; [plain](../javadocs/index.html)) (packages
-[`com.sandy.sconsole.ai`](../javadocs/com/sandy/sconsole/ai/package-summary.html),
-[`com.sandy.sconsole.ai.config`](../javadocs/com/sandy/sconsole/ai/config/package-summary.html)
-and
-[`com.sandy.sconsole.ai.ui`](../javadocs/com/sandy/sconsole/ai/ui/package-summary.html),
-a ready-made Swing view of the hub's status).
+The API is the packages `com.sandy.sconsole.ai`,
+`com.sandy.sconsole.ai.config` and `com.sandy.sconsole.ai.ui` (a ready-made
+Swing view of the hub's status); see the Javadoc comments in their source.
 `com.sandy.sconsole.ai.internal` is not API: don't use it.
 
 ## Scenarios
@@ -49,11 +46,11 @@ a ready-made Swing view of the hub's status).
 | **Reachable** | A model a job can get to: one in a root, or in a fallback list of a usable model a job can get to. An app can invoke only these; any other model in its `models` gets no slots. |
 | **Root** | A named pool of entry models in the app file. A job names the roots it may start on. |
 | **Slot** | One of a model's `maxParallel` worker threads. A free slot whose model may send asks the routing policy for a job. |
-| **Job** | One unit of work ([`AIJob`](../javadocs/com/sandy/sconsole/ai/AIJob.html)): your payload, its roots, a request factory, a stop check and a listener. |
-| **Attempt** | One request of a job to one model ([`Attempt`](../javadocs/com/sandy/sconsole/ai/Attempt.html), [`AttemptResult`](../javadocs/com/sandy/sconsole/ai/AttemptResult.html)). |
-| **Routing policy** | Your callback that picks which waiting job a free slot takes ([`RoutingPolicy`](../javadocs/com/sandy/sconsole/ai/RoutingPolicy.html)). |
-| **Reply check** | Your callback that accepts, rejects or escalates a reply ([`ReplyCheck`](../javadocs/com/sandy/sconsole/ai/ReplyCheck.html)). |
-| **Fallback guard** | Per model and per failure kind, the ordered list of models a job moves on to once the model has failed it for good ([`FailureKind`](../javadocs/com/sandy/sconsole/ai/FailureKind.html)). |
+| **Job** | One unit of work (`AIJob`): your payload, its roots, a request factory, a stop check and a listener. |
+| **Attempt** | One request of a job to one model (`Attempt`, `AttemptResult`). |
+| **Routing policy** | Your callback that picks which waiting job a free slot takes (`RoutingPolicy`). |
+| **Reply check** | Your callback that accepts, rejects or escalates a reply (`ReplyCheck`). |
+| **Fallback guard** | Per model and per failure kind, the ordered list of models a job moves on to once the model has failed it for good (`FailureKind`). |
 | **Held back** | Not allowed to send for now: paused or suspended after a rate limit, at a daily limit, or its gateway unreachable. Pacing under a per-minute limit and busy slots don't count. |
 
 ## The life of a job
@@ -70,11 +67,5 @@ submit ──► WAITING ──(a slot of a model in one of its roots picks it)�
 ```
 
 Every step is reported to the job's
-[`JobListener`](../javadocs/com/sandy/sconsole/ai/JobListener.html), on the
+`JobListener`, on the
 hub's worker threads.
-
-## Regenerating the javadocs
-
-```sh
-docs/ai-model-hub-docs/generate-javadocs.sh
-```

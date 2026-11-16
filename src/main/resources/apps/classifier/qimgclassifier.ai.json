@@ -2,10 +2,15 @@
 //
 // parent : the global model config (classpath:/... or a file path; a
 //          relative path is relative to this file's folder)
-// roots  : named pools of entry models. Every question starts on "cloud"
-//          and they are taken in the order they were submitted; Qwen
-//          (local, on ollama-studio) stands in once the free Nemotron's
-//          daily quota is used up.
+// roots  : named pools of entry models. A question starts on its
+//          subject's root (QuestionClassifier.roots): Physics and Maths on
+//          "phy-maths" (Qwen on ollama-studio: they classify accurately on
+//          a smaller model), Chemistry on "chem" (the free Nemotron:
+//          Chemistry is trickier and needs a larger model). Each model
+//          takes its own questions in the order they were submitted.
+//          Physics and Maths also list "chem": its models take them only
+//          while no Chemistry question is unsettled in the loaded sources,
+//          or while Qwen is held back (ClassifierRouting).
 // models : the app's policy per model it uses (each must be in the parent)
 //   enabled               the app's own switch (on top of the global ones)
 //   maxParallel           requests in flight on the model at most (its slots)
@@ -51,13 +56,14 @@
   "parent" : "classpath:/common/ai-model-config.json",
 
   "roots" : {
-    "cloud" : [ "nvidia/nemotron-3.5-super-vl:free" ]
+    "phy-maths" : [ "qwen3.5:27b-q8_0" ],
+    "chem"      : [ "nvidia/nemotron-3.5-super-vl:free" ]
   },
 
   "models" : {
     "qwen3.5:27b-q8_0" : {
       "enabled"               : true,
-      "maxParallel"           : 2,
+      "maxParallel"           : 3,
       "requestTimeoutSeconds" : 300,
       "retries"               : 1,
       "reasoning"             : false,
@@ -74,8 +80,7 @@
       "reasoning"             : false,
       "promptCaching"         : true,
       "fallback"              : {
-        "rateLimitedRPD" : [ "qwen3.5:27b-q8_0" ],
-        "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ]
+        "passthrough" : [ "nvidia/nemotron-3.5-super-vl" ]
       }
     },
     "nvidia/nemotron-3.5-super-vl" : {

@@ -30,7 +30,9 @@
 //   rateLimit             (optional) { rpm, rpd } the provider enforces on
 //                         this model
 //   contextTokens         (optional) context window to ask for (Ollama's
-//                         num_ctx; its default of 4096 would cut our prompts)
+//                         num_ctx); absent: the server's own setting. A
+//                         num_ctx other than the one the model is loaded
+//                         with makes Ollama reload it
 //   costPerMillionToken   (optional) { input, output }: the provider's price in
 //                         USD per million tokens; for documentation only,
 //                         never used by the processing
@@ -56,7 +58,7 @@
       "url"                   : "http://mac-studio.local:11434/api/generate",
       "connectTimeoutSeconds" : 10,
       "cooldownSeconds"       : 60,
-      "maxParallel"           : 2,
+      "maxParallel"           : 3,
       "rateLimit"             : {
         "rpm" : 0,
         "rpd" : 0
@@ -134,7 +136,6 @@
       "enabled"       : true,
       "gateway"       : "ollama-studio",
       "displayName"   : "Qwen 3.5 27B",
-      "contextTokens" : 12288,
       "costPerMillionToken" : {
         "input"  : 0.0,
         "output" : 0.0
