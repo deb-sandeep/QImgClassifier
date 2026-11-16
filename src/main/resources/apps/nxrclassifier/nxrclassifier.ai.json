@@ -11,10 +11,21 @@
   "parent" : "classpath:/common/ai-model-config.json",
 
   "roots" : {
-    "nxr" : [ "nvidia/nemotron-3.5-super-vl:free" ]
+    "nxr" : [ "qwen3.5:27b-q8_0" ]
   },
 
   "models" : {
+    "qwen3.5:27b-q8_0" : {
+      "enabled"               : true,
+      "maxParallel"           : 3,
+      "requestTimeoutSeconds" : 300,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "structuredOutput"      : true,
+      "fallback"              : {
+        "default" : [ "nvidia/nemotron-3.5-super-vl:free" ]
+      }
+    },
     "nvidia/nemotron-3.5-super-vl:free" : {
       "enabled"               : true,
       "maxParallel"           : 4,

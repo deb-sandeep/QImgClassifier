@@ -54,9 +54,9 @@
  "physicsMathsNMin": 0.6,
  "labelThresholds": {
   "C": {
-   "N": 0.6,
-   "X": 0.6,
-   "R": 0.6
+   "N": 0.9,
+   "X": 0.9,
+   "R": 0.9
   }
  },
  "chemistryNumericStemOdds": 3.0,
@@ -76676,10 +76676,10 @@
   -0.134797960679
  ],
  "thresholds": {
-  "M": 0.89,
-  "P": 0.72,
-  "C": 0.8,
-  "default": 0.89
+  "M": 0.9,
+  "P": 0.9,
+  "C": 0.9,
+  "default": 0.9
  },
  "unseenTypeMargin": 0.1,
  "golden": [
