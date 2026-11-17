@@ -14,6 +14,7 @@ import com.sandy.sconsole.qimgtools.apps.transcriber.model.TranscriptionStatus;
 import com.sandy.sconsole.qimgtools.apps.transcriber.pipeline.TranscriberListener;
 import com.sandy.sconsole.qimgtools.apps.transcriber.pipeline.TranscriptionJob;
 import com.sandy.sconsole.qimgtools.apps.transcriber.server.StoredTranscription;
+import com.sandy.sconsole.qimgtools.apps.transcriber.server.TranscriptionSearch;
 import com.sandy.sconsole.qimgtools.apps.transcriber.ui.TranscriberTableModel.Row;
 import com.sandy.sconsole.qimgtools.apps.transcriber.workspace.StagedTranscriptions.Staged;
 import com.sandy.sconsole.qimgtools.apps.transcriber.workspace.TranscriptionAuditLog;
@@ -23,6 +24,7 @@ import com.sandy.sconsole.qimgtools.core.model.RateLimitNotice;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
 import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
 import com.sandy.sconsole.qimgtools.core.server.SConsoleServer.ServerException;
+import com.sandy.sconsole.qimgtools.core.server.ServerQuestion;
 import com.sandy.sconsole.qimgtools.core.ui.HeaderFilterController;
 import com.sandy.sconsole.qimgtools.core.ui.RateLimitStrip;
 import com.sandy.sconsole.qimgtools.core.ui.Spinner;
@@ -95,11 +97,14 @@ import java.awt.event.WindowEvent;
 import java.io.File;
 import java.io.IOException;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
@@ -168,6 +173,21 @@ public class TranscriberFrame extends JFrame
          */
         String nextRoot( String model ) ;
 
+        /**
+         * Send {@code items} to {@code model} alone (its retries, no
+         * fallback); an LCT question only if its passage is known.
+         */
+        void transcribeWith( List<TranscriptionItem> items, String model ) ;
+
+        /** The models a question may be sent to by hand, usable ones. */
+        List<String> models() ;
+
+        /**
+         * The transcriptions models gave {@code item} (an LCT question's
+         * part), oldest first, as the audit log keeps them.
+         */
+        List<TranscriptionAuditLog.Given> given( TranscriptionItem item ) ;
+
         /** True while a model run is going. */
         boolean isRunning() ;
 
@@ -216,6 +236,23 @@ public class TranscriberFrame extends JFrame
         Loaded loadSaved( List<TranscriptionAuditLog.Saved> saved )
                 throws ServerException ;
 
+        /**
+         * Page {@code page} (from 0) of the questions whose stored
+         * transcription matches {@code text}, a Lucene query; empty
+         * {@code topicIds} or {@code types} mean any. Blocks; called off
+         * the EDT.
+         */
+        TranscriptionSearch search( String text, List<Integer> topicIds,
+                                    List<String> types, int page )
+                throws ServerException ;
+
+        /**
+         * {@code questions}, found by a search, with their transcriptions
+         * as stored now, to check in the table. Blocks; called off the EDT.
+         */
+        Loaded loadFound( List<ServerQuestion> questions )
+                throws ServerException ;
+
         List<RateLimitNotice> rateLimitNotices() ;
 
         /** The AI hub's state now, for the Models tab. */
@@ -250,6 +287,15 @@ public class TranscriberFrame extends JFrame
     public record Loaded( List<TranscriptionItem> items,
                           Map<Integer,Staged> staged, int pending,
                           boolean saved ) {}
+
+    /** One of a question's transcriptions, as a Check tab shows it. */
+    private record Alt( Transcription t, TranscriptionRoute route,
+                        String label ) {}
+
+    /** A tab's time: when the transcription was given. */
+    private static final DateTimeFormatter TAB_TIME =
+            DateTimeFormatter.ofPattern( "dd MMM HH:mm" )
+                             .withZone( ZoneId.systemDefault() ) ;
 
     private static final double SPLIT_RATIO = 0.5 ;
     private static final int    ROW_HEIGHT  = 20 ;
@@ -359,6 +405,9 @@ public class TranscriberFrame extends JFrame
     private final ModelsPanel                        modelsPanel = new ModelsPanel(
             "Question", this::setPassthrough, this::abortRequest ) ;
 
+    /** The selected row's transcriptions, as its Check tabs show them. */
+    private List<Alt> choiceAlts = List.of() ;
+
     private final JPanel queueBar  = new JPanel( new BorderLayout() ) ;
     private final JLabel queueText = new JLabel( " " ) ;
     private final JLabel paceText  = new JLabel( " " ) ;
@@ -393,6 +442,10 @@ public class TranscriberFrame extends JFrame
             "Spot-check saved questions…", null, null, "Check the " +
             "transcriptions saved in the last hours (replaces the table)",
             this::spotCheck ) ;
+    private final Action searchAction = action(
+            "Search transcriptions", null, shortcut( KeyEvent.VK_F ),
+            "Go to the toolbar's search over the stored transcriptions",
+            this::focusSearch ) ;
     private final Action selectAllAction = action( "Select all shown rows",
             null, shortcut( KeyEvent.VK_A ), null, this::selectAllRows ) ;
 
@@ -426,6 +479,9 @@ public class TranscriberFrame extends JFrame
             new JCheckBoxMenuItem( "Show rate limit bar", true ) ;
     private final JComboBox<Show> showBox = new JComboBox<>( Show.values() ) ;
 
+    /** The toolbar's search over the stored transcriptions. */
+    private final SearchBar searchBar = new SearchBar( this::search ) ;
+
     /** True while a Load's call runs. */
     private boolean loading ;
 
@@ -447,6 +503,12 @@ public class TranscriberFrame extends JFrame
      * and Load from start.
      */
     private Integer afterId ;
+
+    /**
+     * What the search whose questions the table shows found, for the
+     * status bar; null once anything else is loaded.
+     */
+    private String searchNote ;
 
     /** True while Run unattended loops: load, transcribe, save. */
     private boolean unattended ;
@@ -527,6 +589,8 @@ public class TranscriberFrame extends JFrame
         // As wide as its longest label; the toolbar would stretch it.
         showBox.setMaximumSize( showBox.getPreferredSize() ) ;
         toolbar.add( showBox ) ;
+        toolbar.addSeparator() ;
+        toolbar.add( searchBar ) ;
 
         // On the left the table; on the right the selected row's detail
         // above the Check, Transcripts and Models tabs and the rate limit
@@ -544,6 +608,9 @@ public class TranscriberFrame extends JFrame
         right.add( detail, BorderLayout.NORTH ) ;
         right.add( tabs(), BorderLayout.CENTER ) ;
         right.add( rateLimitStrip, BorderLayout.SOUTH ) ;
+        // Else its minimum is its widest content's (the Check tab's button
+        // row), and the divider can't widen the table past it.
+        right.setMinimumSize( new Dimension( 0, 0 ) ) ;
 
         JSplitPane split = new JSplitPane( JSplitPane.HORIZONTAL_SPLIT,
                                            new JScrollPane( table ), right ) ;
@@ -665,6 +732,7 @@ public class TranscriberFrame extends JFrame
         file.add( loadFromStartAction ) ;
         file.add( unattendedAction ) ;
         file.add( spotCheckAction ) ;
+        file.add( searchAction ) ;
         file.addSeparator() ;
         file.add( exit ) ;
 
@@ -802,13 +870,15 @@ public class TranscriberFrame extends JFrame
 
     /**
      * Right-click on the table, for the selected rows, or the clicked row if
-     * it isn't one of them: the marks, sending and saving.
+     * it isn't one of them: the marks, sending (to the models, or to one
+     * model chosen) and saving.
      */
     private void addRowMenu() {
 
-        JPopupMenu menu = new JPopupMenu() ;
-        JMenuItem  send = new JMenuItem() ;
-        JMenuItem  save = new JMenuItem() ;
+        JPopupMenu menu   = new JPopupMenu() ;
+        JMenuItem  send   = new JMenuItem() ;
+        JMenu      sendTo = new JMenu( "Transcribe with" ) ;
+        JMenuItem  save   = new JMenuItem() ;
 
         send.addActionListener( e -> transcribe( selectedRows().stream()
                 .filter( this::isRequeueable ).toList() ) ) ;
@@ -818,6 +888,7 @@ public class TranscriberFrame extends JFrame
         }
         menu.addSeparator() ;
         menu.add( send ) ;
+        menu.add( sendTo ) ;
         menu.add( save ) ;
 
         table.addMouseListener( new MouseAdapter() {
@@ -842,12 +913,65 @@ public class TranscriberFrame extends JFrame
                 updateSelectionActions() ;
                 send.setText( "Transcribe " + plural( sendable, "question" ) ) ;
                 send.setEnabled( sendable > 0 && canSend() ) ;
+                fillSendTo( sendTo, sel ) ;
                 save.setText( "Save " + plural( savable, "transcription" ) ) ;
                 save.setEnabled( savable > 0 && !unattended && !saving()
                                  && controller != null ) ;
                 menu.show( table, e.getX(), e.getY() ) ;
             }
         } ) ;
+    }
+
+    /**
+     * The "Transcribe with" submenu: every usable model, for the selected
+     * rows that can go to one.
+     */
+    private void fillSendTo( JMenu sendTo, List<Row> sel ) {
+
+        List<Row>    rows   = sel.stream().filter( this::isChoosable )
+                                 .toList() ;
+        List<String> models = controller == null ? List.of()
+                                                 : controller.models() ;
+
+        sendTo.removeAll() ;
+        for( String id : models ) {
+            JMenuItem item = new JMenuItem( names.of( id ) ) ;
+            item.setToolTipText( id + " alone: its retries, no fallback" ) ;
+            item.addActionListener( e -> transcribeWith( rows, id ) ) ;
+            sendTo.add( item ) ;
+        }
+        sendTo.setText( "Transcribe " + plural( rows.size(), "question" ) +
+                        " with" ) ;
+        sendTo.setEnabled( !rows.isEmpty() && !models.isEmpty()
+                           && canSend() && !checkPanel.isEditing() ) ;
+    }
+
+    /**
+     * True if {@code row} may be sent to a model chosen: it has images, its
+     * type is supported, it isn't with a model or being saved, and for an
+     * LCT question its passage is known.
+     */
+    private boolean isChoosable( Row row ) {
+        return row.item.hasImages() && !row.unsupported
+               && row.status != TranscriptionStatus.TRANSCRIBING
+               && row.status != TranscriptionStatus.WAITING_PASSAGE
+               && row.status != TranscriptionStatus.SAVING
+               && ( !row.item.isLct()
+                    || controller.passage( row.item.lctCtxId() ) != null ) ;
+    }
+
+    /** Send {@code rows} to {@code model} alone. */
+    private void transcribeWith( List<Row> rows, String model ) {
+
+        if( rows.isEmpty() || !canSend() ) return ;
+        for( Row row : rows ) {
+            row.status  = TranscriptionStatus.TRANSCRIBING ;
+            row.message = "Sent to " + names.of( model ) + " alone" ;
+            rowChanged( row ) ;
+        }
+        controller.transcribeWith( rows.stream().map( r -> r.item ).toList(),
+                                   model ) ;
+        updateControls() ;
     }
 
     private static int count( List<Row> rows, Predicate<Row> test ) {
@@ -949,15 +1073,82 @@ public class TranscriberFrame extends JFrame
         List<TranscriptionAuditLog.Saved> chosen = SavedCheckDialog.ask(
                 this, controller::savedSince, names ) ;
         if( chosen == null || !discardUnsaved( "Spot-check" ) ) return ;
+        loadToCheck( "Spot-check", "the saved transcriptions",
+                     () -> controller.loadSaved( chosen ), loaded -> {} ) ;
+    }
+
+    /** File > Search transcriptions: go to the toolbar's search. */
+    private void focusSearch() {
+        searchBar.focusQuery() ;
+    }
+
+    /**
+     * The toolbar's search: load into the table, in place of its rows,
+     * page {@code req.page()} of the questions whose stored transcription
+     * matches, to check as a spot check's are; nothing found leaves the
+     * table as it is. The cursor stays.
+     */
+    private void search( SearchBar.Request req ) {
+
+        if( controller == null || busy() || unattended ) return ;
+        if( !discardUnsaved( "Search" ) ) return ;
+
+        List<Integer>         topics = req.inCriteria() ? criteriaTopicIds()
+                                                        : List.of() ;
+        TranscriptionSearch[] found  = new TranscriptionSearch[1] ;
+
+        loadToCheck( "Search", "the questions found", () -> {
+            found[0] = controller.search( req.text(), topics, req.types(),
+                                          req.page() ) ;
+            return found[0].questions().isEmpty()
+                   ? null : controller.loadFound( found[0].questions() ) ;
+        }, loaded -> {
+            searchBar.searched( req, found[0] ) ;
+            if( loaded == null ) {
+                JOptionPane.showMessageDialog( this, "Nothing matches " +
+                        req.describe() + ".", "Search",
+                        JOptionPane.INFORMATION_MESSAGE ) ;
+                return ;
+            }
+            searchNote = req.summary( found[0] ) ;
+            refreshStatusBar() ;
+        } ) ;
+    }
+
+    /**
+     * The topics of the criteria in effect: those chosen, else every topic
+     * of the syllabuses chosen.
+     */
+    private List<Integer> criteriaTopicIds() {
+
+        TranscriptionCriteria c = controller.criteria() ;
+        if( !c.topicIds().isEmpty() ) return c.topicIds() ;
+
+        List<Integer> ids = new ArrayList<>() ;
+        for( String syllabus : c.syllabusNames() ) {
+            controller.topics( syllabus ).forEach( t -> ids.add( t.getId() ) ) ;
+        }
+        return ids ;
+    }
+
+    /**
+     * Run {@code load} off the EDT and show what it brings in place of the
+     * table's rows (null: nothing, the table left as it is), then pass it
+     * to {@code then}; {@code title} names the command in an error dialog,
+     * {@code what} the questions in the status bar.
+     */
+    private void loadToCheck( String title, String what,
+                              Callable<Loaded> load,
+                              Consumer<Loaded> then ) {
 
         loading = true ;
-        statusBar.setText( "Loading the saved transcriptions…" ) ;
+        statusBar.setText( "Loading " + what + "…" ) ;
         Spinner.busy( loadButton ) ;
         updateControls() ;
 
         new SwingWorker<Loaded,Void>() {
             @Override protected Loaded doInBackground() throws Exception {
-                return controller.loadSaved( chosen ) ;
+                return load.call() ;
             }
 
             @Override protected void done() {
@@ -965,17 +1156,21 @@ public class TranscriberFrame extends JFrame
                 loading = false ;
                 Spinner.idle( loadButton ) ;
                 updateControls() ;
+                Loaded loaded ;
                 try {
-                    showItems( get() ) ;
+                    loaded = get() ;
                 }
                 catch( Exception e ) {
                     Throwable cause = e.getCause() != null ? e.getCause() : e ;
-                    log.error( "Could not load the saved questions", cause ) ;
+                    log.error( "Could not load {}", what, cause ) ;
                     JOptionPane.showMessageDialog( TranscriberFrame.this,
-                            "Could not load the saved questions:\n" +
-                            cause.getMessage(), "Spot-check",
+                            "Could not load " + what + ":\n" +
+                            cause.getMessage(), title,
                             JOptionPane.ERROR_MESSAGE ) ;
+                    return ;
                 }
+                if( loaded != null ) showItems( loaded ) ;
+                then.accept( loaded ) ;
             }
         }.execute() ;
     }
@@ -1047,9 +1242,10 @@ public class TranscriberFrame extends JFrame
     /** Fill the table with {@code loaded}; the rows shown before are dropped. */
     private void showItems( Loaded loaded ) {
 
+        searchNote = null ;
         if( !loaded.saved() ) pending = loaded.pending() ;
         setUp( model.setItems( loaded.items() ), loaded ) ;
-        checkPanel.show( null, null, null, 0, null ) ;
+        checkPanel.show( null, null, null, 0, null, null ) ;
         showDetail( null ) ;
         updateControls() ;
         if( model.rows().stream().noneMatch( Row::isSendable ) ) {
@@ -1128,7 +1324,7 @@ public class TranscriberFrame extends JFrame
      */
     private void transcribe( List<Row> rows ) {
 
-        if( rows.isEmpty() || !canSend() ) return ;
+        if( rows.isEmpty() || !maySend() ) return ;
         for( Row row : rows ) {
             row.status  = TranscriptionStatus.TRANSCRIBING ;
             row.message = row.item.isLct()
@@ -1556,7 +1752,7 @@ public class TranscriberFrame extends JFrame
             @Override public List<String> problems( String edited ) {
                 List<String> found = new ArrayList<>(
                         WellFormed.problems( edited, null ) ) ;
-                found.addAll( WellFormed.smilesProblems( edited ) ) ;
+                found.addAll( WellFormed.appProblems( edited ) ) ;
                 return found ;
             }
 
@@ -2155,7 +2351,8 @@ public class TranscriberFrame extends JFrame
 
         showDetail( row ) ;
         if( row == null ) {
-            checkPanel.show( null, null, null, 0, null ) ;
+            checkPanel.show( null, null, null, 0, null, null ) ;
+            choiceAlts = List.of() ;
             return ;
         }
         Transcription t     = row.transcription() ;
@@ -2166,7 +2363,100 @@ public class TranscriberFrame extends JFrame
         checkPanel.show( images( row ), text,
                          t == null ? List.of() : t.contests(), shift,
                          row.status.getLabel() +
-                         ( row.message == null ? "" : ": " + row.message ) ) ;
+                         ( row.message == null ? "" : ": " + row.message ),
+                         choices( row ) ) ;
+    }
+
+    /**
+     * The transcriptions {@code row}'s question was given, as tabs (noted
+     * in {@link #choiceAlts}, in the same order): each text once, at its
+     * latest, oldest first, and the one in use if it isn't one of them (an
+     * edit, a stored one); none if there is only one.
+     */
+    private List<CheckPanel.Choice> choices( Row row ) {
+
+        Map<String,Alt> byText = new LinkedHashMap<>() ;
+        Transcription   cur    = row.transcription() ;
+
+        for( TranscriptionAuditLog.Given g : controller.given( row.item ) ) {
+            String text = g.transcription().content() ;
+            byText.remove( text ) ;
+            byText.put( text, new Alt( g.transcription(), g.route(),
+                                       model.shortName( g.transcription()
+                                                         .model() ) + " " +
+                                       TAB_TIME.format( g.at() ) ) ) ;
+        }
+        if( cur != null && !byText.containsKey( cur.content() ) ) {
+            byText.put( cur.content(),
+                        new Alt( cur, row.route(),
+                                 model.routeText( row.route() ) ) ) ;
+        }
+
+        choiceAlts = List.copyOf( byText.values() ) ;
+        List<CheckPanel.Choice> choices = new ArrayList<>() ;
+        for( Alt a : choiceAlts ) {
+            boolean current = cur != null
+                              && a.t().content().equals( cur.content() ) ;
+            choices.add( new CheckPanel.Choice(
+                    a.label(), whole( row, a.t().content() ), current ) ) ;
+        }
+        return choices ;
+    }
+
+    /**
+     * {@code text} as it would be saved for {@code row}: for an LCT
+     * question, after its group's passage and the marker.
+     */
+    private String whole( Row row, String text ) {
+
+        if( !row.item.isLct() ) return text ;
+        Passage p = controller.passage( row.item.lctCtxId() ) ;
+        return p == null ? text
+                         : Transcription.lctContent( p.content(), text ) ;
+    }
+
+    /**
+     * The Check tab's Use this one: the selected row takes the
+     * transcription of tab {@code index} instead, checked, if it is well
+     * formed.
+     */
+    @Override
+    public void choose( int index ) {
+
+        Row row = table.getSelectedRowCount() == 1 ? selectedRow() : null ;
+        if( row == null || !canChoose() || index >= choiceAlts.size() ) {
+            return ;
+        }
+        Alt          a        = choiceAlts.get( index ) ;
+        List<String> problems = new ArrayList<>(
+                WellFormed.problems( a.t().content(), null ) ) ;
+
+        problems.addAll( WellFormed.appProblems( a.t().content() ) ) ;
+        if( !problems.isEmpty() ) {
+            row.message = "Can't use " + a.label() + ": " +
+                          String.join( "; ", problems ) ;
+            rowChanged( row ) ;
+            showDetail( row ) ;
+            return ;
+        }
+
+        row.staged  = new Staged( a.t(), a.route(), true, false ) ;
+        row.saved   = false ;
+        row.status  = row.restingStatus() ;
+        row.message = "Using " + a.label() + ", checked" ;
+        controller.stage( row.item, row.staged ) ;
+        controller.mark( row.item, "chose", a.route() ) ;
+        rowChanged( row ) ;
+        showRow( row ) ;
+        updateControls() ;
+    }
+
+    @Override
+    public boolean canChoose() {
+
+        Row row = table.getSelectedRowCount() == 1 ? selectedRow() : null ;
+        return row != null && controller != null && !unattended
+               && !checkPanel.isEditing() && row.isMarkable() ;
     }
 
     /** The whole question's images: an LCT group's passage first. */
@@ -2256,11 +2546,20 @@ public class TranscriberFrame extends JFrame
     }
 
     /**
-     * True if questions may be sent to the models now: no load runs and
-     * the run isn't stopping. While an unattended run goes, it sends.
+     * True if the user may send questions to the models now: they can be
+     * sent ({@link #maySend}) and no unattended run goes, which sends its
+     * own.
      */
     private boolean canSend() {
-        return controller != null && !unattended && !loading
+        return maySend() && !unattended ;
+    }
+
+    /**
+     * True if questions can be sent to the models now, by the user or an
+     * unattended run: no load runs and the run isn't stopping.
+     */
+    private boolean maySend() {
+        return controller != null && !loading
                && runState != ProcessingState.STOPPING ;
     }
 
@@ -2274,6 +2573,8 @@ public class TranscriberFrame extends JFrame
         loadAction.setEnabled( manual && idle ) ;
         loadFromStartAction.setEnabled( manual && idle ) ;
         spotCheckAction.setEnabled( manual && idle ) ;
+        searchAction.setEnabled( manual && idle ) ;
+        searchBar.setEnabled( manual && idle ) ;
         unattendedAction.setEnabled( unattended || idle ) ;
         startAction.setEnabled( canSend() && !sending && model.rows().stream()
                                          .anyMatch( Row::isSendable ) ) ;
@@ -2305,6 +2606,7 @@ public class TranscriberFrame extends JFrame
                 model.count( TranscriptionStatus.NO_IMAGES ) ) ;
         if( pending >= 0 ) text += " · " + pending + " pending on the server" ;
         if( afterId != null ) text += " · next load after id " + afterId ;
+        if( searchNote != null ) text = searchNote + "   |   " + text ;
         if( runState == ProcessingState.STOPPING ) text += "   |   stopping" ;
 
         String down = controller == null ? null : controller.qwenDown() ;

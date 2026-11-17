@@ -5,8 +5,10 @@
  * - maths ($...$, $$...$$) is taken out before markdown-it sees it, so its
  *   underscores and backslashes stay as written, and each formula is drawn
  *   by MathJax (with mhchem for \ce);
- * - a diagram block is a framed box with its description; a smiles: line
- *   in it is drawn under the text, or "SMILES not drawable" in red;
+ * - a figure is a blockquote, shown as a framed box (its maths drawn as
+ *   anywhere else); a "> smiles:" line in it is drawn as a structure, or
+ *   "SMILES not drawable" in red. A diagram fence, the earlier form, is
+ *   framed the same way;
  * - an uncertain block is an amber box;
  * - the LCT marker is a dashed rule between the passage and the question.
  */
@@ -19,6 +21,13 @@
   var MATH  = /\\\$|\$\$([\s\S]+?)\$\$|\$([^$\n]+?)\$/g ;
   var SLOT  = new RegExp( OPEN + '(\\d+)' + CLOSE, 'g' ) ;
   var MARK  = /<p>&lt;!-- question --&gt;<\/p>/g ;
+
+  // A figure's smiles: line, kept from markdown-it as a slot of its own.
+  var MOL_OPEN  = '\uE002' ;
+  var MOL_CLOSE = '\uE003' ;
+  var MOL_SLOT  = new RegExp( '<p>' + MOL_OPEN + '(\\d+)' + MOL_CLOSE +
+                              '</p>', 'g' ) ;
+  var MOL_LINE  = /^(\s*>[\s>]*)smiles:(.*)$/i ;
 
   var SVG_NS = 'http://www.w3.org/2000/svg' ;
 
@@ -43,13 +52,10 @@
       lines.forEach( function( line ) {
         var s = line.trim() ;
         if( /^smiles:/i.test( s ) ) {
-          var smiles = s.substring( s.indexOf( ':' ) + 1 ).trim() ;
           html += '<div>' + escape( text.join( '\n' ) )
                                 .replace( /\n/g, '<br>' ) + '</div>' ;
           text  = [] ;
-          html += '<div class="smiles" data-smiles="' + escape( smiles ) +
-                  '"><span class="code">smiles: ' + escape( smiles ) +
-                  '</span></div>' ;
+          html += smilesBox( s.substring( s.indexOf( ':' ) + 1 ) ) ;
         }
         else text.push( line ) ;
       } ) ;
@@ -64,6 +70,26 @@
     return '<pre><code>' + escape( token.content ) + '</code></pre>' ;
   }
 
+  /** A box for {@code smiles}, drawn into by drawSmiles. */
+  function smilesBox( smiles ) {
+    smiles = smiles.trim() ;
+    return '<div class="smiles" data-smiles="' + escape( smiles ) +
+           '"><span class="code">smiles: ' + escape( smiles ) +
+           '</span></div>' ;
+  }
+
+  /** Frame each blockquote of {@code root}, a figure, as a diagram. */
+  function frameFigures( root ) {
+    var quotes = root.querySelectorAll( 'blockquote' ) ;
+    Array.prototype.forEach.call( quotes, function( q ) {
+      var label = document.createElement( 'div' ) ;
+      label.className   = 'label' ;
+      label.textContent = 'FIGURE' ;
+      q.className = 'diagram' ;
+      q.insertBefore( label, q.firstChild ) ;
+    } ) ;
+  }
+
   function renderer() {
     if( md ) return md ;
     md = window.markdownit( { html : false, linkify : false,
@@ -73,12 +99,14 @@
   }
 
   /**
-   * The markdown with each formula outside fences replaced by a slot,
-   * and the formulas, in order.
+   * The markdown with each formula outside fences replaced by a slot, and
+   * each figure's smiles: line by a paragraph of its own holding a slot;
+   * the formulas and the SMILES, in order.
    */
   function takeMaths( markdown ) {
 
     var maths   = [] ;
+    var mols    = [] ;
     var out     = [] ;
     var chunk   = [] ;
     var inFence = false ;
@@ -101,10 +129,18 @@
         out.push( line ) ;
       }
       else if( inFence ) out.push( line ) ;
+      else if( MOL_LINE.test( line ) ) {
+        var m   = MOL_LINE.exec( line ) ;
+        var gap = m[1].replace( /\s+$/, '' ) ;
+        mols.push( m[2] ) ;
+        chunk.push( gap ) ;
+        chunk.push( m[1] + MOL_OPEN + ( mols.length - 1 ) + MOL_CLOSE ) ;
+        chunk.push( gap ) ;
+      }
       else chunk.push( line ) ;
     } ) ;
     flush() ;
-    return { markdown : out.join( '\n' ), maths : maths } ;
+    return { markdown : out.join( '\n' ), maths : maths, mols : mols } ;
   }
 
   /** Draw each formula slot of {@code root} with MathJax. */
@@ -190,6 +226,9 @@
       var taken = takeMaths( markdown || '' ) ;
       var html  = renderer().render( taken.markdown )
                             .replace( MARK, '<hr class="lct">' )
+                            .replace( MOL_SLOT, function( all, n ) {
+        return smilesBox( taken.mols[ +n ] ) ;
+      } )
                             .replace( SLOT, function( all, n ) {
         var m = taken.maths[ +n ] ;
         return '<span class="tex" data-n="' + n + '">' +
@@ -197,6 +236,7 @@
                '</span>' ;
       } ) ;
       root.innerHTML = html ;
+      frameFigures( root ) ;
       window.scrollTo( 0, 0 ) ;
       drawSmiles( root ) ;
       MathJax.startup.promise.then( function() {

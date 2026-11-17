@@ -174,6 +174,7 @@ final class SavedCheckDialog extends JDialog {
             case ESCALATED -> "Qwen → " + model ;
             case STAND_IN  -> model + " (Qwen down)" ;
             case RESENT    -> model + " (re-sent)" ;
+            case CHOSEN    -> model + " (chosen)" ;
             case EDITED    -> "Edited (" + model + ")" ;
             case STORED    -> model + " (stored)" ;
         } ;

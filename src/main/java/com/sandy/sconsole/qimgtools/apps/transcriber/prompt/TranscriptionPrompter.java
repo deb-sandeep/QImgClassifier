@@ -117,7 +117,7 @@ public final class TranscriptionPrompter
         List<String>     problems = new ArrayList<>(
                 WellFormed.problems( raw, null ) ) ;
 
-        problems.addAll( WellFormed.smilesProblems( raw ) ) ;
+        problems.addAll( WellFormed.appProblems( raw ) ) ;
         if( job != null && job.kind() == TranscriptionJob.Kind.LCT_QUESTION
             && repeatsPassage( content, job.passage() ) ) {
             problems.add( "repeats the passage" ) ;

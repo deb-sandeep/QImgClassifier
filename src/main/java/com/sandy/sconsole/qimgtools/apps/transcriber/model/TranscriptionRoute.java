@@ -25,6 +25,9 @@ public record TranscriptionRoute( Kind kind, String model, String reason ) {
         /** Re-sent after the user marked the earlier one faulty. */
         RESENT,
 
+        /** Sent by the user to a model of their choice, that model alone. */
+        CHOSEN,
+
         /** Edited by hand. */
         EDITED,
 

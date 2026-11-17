@@ -26,7 +26,8 @@ th, td {
 
 th { background : #f2f2f2 ; }
 
-/* A figure: its description in a frame, a structure drawn under it. */
+/* A figure (a blockquote, or a diagram fence): its description in a
+   frame, a structure drawn under it. */
 .diagram {
   border        : 1px solid #8aa4c8 ;
   border-left   : 4px solid #8aa4c8 ;
@@ -36,6 +37,8 @@ th { background : #f2f2f2 ; }
   margin        : 0.5em 0 ;
   font-size     : 14px ;
 }
+
+blockquote.diagram p { margin : 0.2em 0 ; }
 
 .diagram .label {
   font-size   : 11px ;

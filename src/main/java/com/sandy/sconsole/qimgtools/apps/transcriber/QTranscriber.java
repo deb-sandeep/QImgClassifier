@@ -24,6 +24,7 @@ import com.sandy.sconsole.qimgtools.apps.transcriber.server.LctContext;
 import com.sandy.sconsole.qimgtools.apps.transcriber.server.PendingTranscriptions;
 import com.sandy.sconsole.qimgtools.apps.transcriber.server.StoredTranscription;
 import com.sandy.sconsole.qimgtools.apps.transcriber.server.TranscriberServerClient;
+import com.sandy.sconsole.qimgtools.apps.transcriber.server.TranscriptionSearch;
 import com.sandy.sconsole.qimgtools.apps.transcriber.ui.TranscriberFrame;
 import com.sandy.sconsole.qimgtools.apps.transcriber.util.TranscriberConfig;
 import com.sandy.sconsole.qimgtools.apps.transcriber.workspace.CriteriaStore;
@@ -89,6 +90,9 @@ public class QTranscriber implements TranscriberFrame.Controller,
     public static final List<String> SYLLABUSES =
             List.of( "IIT Physics", "IIT Chemistry", "IIT Maths" ) ;
 
+    /** Questions a search page brings. */
+    public static final int SEARCH_PAGE = 100 ;
+
     private final TranscriberConfig       config ;
     private final TranscriberServerClient server ;
     private final QuestionLocator         locator ;
@@ -109,6 +113,13 @@ public class QTranscriber implements TranscriberFrame.Controller,
 
     /** The passages known, by group. */
     private final Map<String,Passage> passages = new ConcurrentHashMap<>() ;
+
+    /**
+     * The transcriptions models gave the questions loaded, oldest first,
+     * by server id: read from the audit log on Load, added to as they come.
+     */
+    private final Map<Integer,List<TranscriptionAuditLog.Given>> given =
+            new ConcurrentHashMap<>() ;
 
     /**
      * The questions waiting for their group's passage job, by group; a
@@ -290,6 +301,7 @@ public class QTranscriber implements TranscriberFrame.Controller,
             if( s != null ) restored.put( item.id(), s ) ;
             if( item.isLct() ) knownPassage( item ) ;
         }
+        readGiven( items ) ;
         log.info( "Loaded {} questions ({} restored from the workspace), " +
                   "{} await transcription for {}", items.size(),
                   restored.size(), r.totalResults(), c.describe() ) ;
@@ -315,39 +327,153 @@ public class QTranscriber implements TranscriberFrame.Controller,
 
         List<TranscriptionItem> items  = new ArrayList<>() ;
         Map<Integer,Staged>     stored = new HashMap<>() ;
+        ServerException         failed = null ;
 
         for( TranscriptionAuditLog.Saved e : saved ) {
-            StoredTranscription st = server.transcription(
-                    e.question().getId() ) ;
-            if( st == null || st.content() == null ) {
-                log.warn( "{}: the server has no transcription now",
-                          e.question().getQuestionId() ) ;
-                continue ;
-            }
-
-            String            lct  = st.lctCtx() == null ? null
-                                                         : st.lctCtx().lctCtxId() ;
-            TranscriptionItem item = TranscriptionItem.of(
-                    locator.locate( e.question() ), lct, lct != null ) ;
-            String            text = st.content() ;
-
-            if( item.isLct() ) {
-                String part = Transcription.questionPart( text ) ;
-                if( part != null ) text = part ;
-                storedPassage( st.lctCtx() ) ;
-            }
-
             TranscriptionRoute route = e.route() != null ? e.route()
                     : new TranscriptionRoute( TranscriptionRoute.Kind.QWEN,
-                                              st.aiModel(), null ) ;
-            Transcription      t     = new Transcription(
-                    text, st.aiModel(), e.c(), null, e.minP(), null ) ;
-
-            items.add( item ) ;
-            stored.put( item.id(), new Staged( t, route, false, false ) ) ;
+                                              null, null ) ;
+            try {
+                loadStored( e.question(), route, e.c(), e.minP(), items,
+                            stored ) ;
+            }
+            catch( ServerException ex ) {
+                failed = notLoaded( e.question(), ex ) ;
+            }
         }
+        if( items.isEmpty() && failed != null ) throw failed ;
+        readGiven( items ) ;
         log.info( "Loaded {} saved questions to check", items.size() ) ;
         return new TranscriberFrame.Loaded( items, stored, -1, true ) ;
+    }
+
+    /**
+     * {@code questions}, found by a search, each with its transcription as
+     * the server stores it now, to check in the table as
+     * {@link #loadSaved} does; route Stored, no C.
+     */
+    @Override
+    public TranscriberFrame.Loaded loadFound( List<ServerQuestion> questions )
+            throws ServerException {
+
+        List<TranscriptionItem> items  = new ArrayList<>() ;
+        Map<Integer,Staged>     stored = new HashMap<>() ;
+        ServerException         failed = null ;
+
+        for( ServerQuestion q : questions ) {
+            TranscriptionRoute route = new TranscriptionRoute(
+                    TranscriptionRoute.Kind.STORED, null, null ) ;
+            try {
+                loadStored( q, route, null, null, items, stored ) ;
+            }
+            catch( ServerException ex ) {
+                failed = notLoaded( q, ex ) ;
+            }
+        }
+        if( items.isEmpty() && failed != null ) throw failed ;
+        readGiven( items ) ;
+        log.info( "Loaded {} questions found by a search", items.size() ) ;
+        return new TranscriberFrame.Loaded( items, stored, -1, true ) ;
+    }
+
+    /**
+     * Note that {@code q}'s stored transcription could not be read (e.g.
+     * a search hit the server no longer has one for), so it is left out
+     * of a load to check; the others still load.
+     *
+     * @return {@code e}, to throw if no question loads
+     */
+    private ServerException notLoaded( ServerQuestion q, ServerException e ) {
+        log.warn( "{} (server id {}) left out: {}", q.getQuestionId(),
+                  q.getId(), e.getMessage() ) ;
+        return e ;
+    }
+
+    /**
+     * Read {@code q}'s transcription from the server and add it to
+     * {@code items} and {@code stored} with {@code route} (its model, if
+     * null, the stored one's), {@code c} and {@code minP}; an LCT
+     * question's part only, its group's passage noted. A question the
+     * server has no transcription for is left out.
+     */
+    private void loadStored( ServerQuestion q, TranscriptionRoute route,
+                             Integer c, Double minP,
+                             List<TranscriptionItem> items,
+                             Map<Integer,Staged> stored )
+            throws ServerException {
+
+        StoredTranscription st = server.transcription( q.getId() ) ;
+        if( st == null || st.content() == null ) {
+            log.warn( "{}: the server has no transcription now",
+                      q.getQuestionId() ) ;
+            return ;
+        }
+
+        String            lct  = st.lctCtx() == null ? null
+                                                     : st.lctCtx().lctCtxId() ;
+        TranscriptionItem item = TranscriptionItem.of(
+                locator.locate( q ), lct, lct != null ) ;
+        String            text = st.content() ;
+
+        if( item.isLct() ) {
+            String part = Transcription.questionPart( text ) ;
+            if( part != null ) text = part ;
+            storedPassage( st.lctCtx() ) ;
+        }
+        if( route.model() == null ) {
+            route = new TranscriptionRoute( route.kind(), st.aiModel(),
+                                            route.reason() ) ;
+        }
+
+        Transcription t = new Transcription(
+                text, st.aiModel(), c, null, minP, null ) ;
+        items.add( item ) ;
+        stored.put( item.id(), new Staged( t, route, false, false ) ) ;
+    }
+
+    @Override
+    public TranscriptionSearch search( String text, List<Integer> topicIds,
+                                       List<String> types, int page )
+            throws ServerException {
+
+        TranscriptionSearch found = server.search(
+                text, topicIds, types, page, SEARCH_PAGE ) ;
+        log.info( "Search \"{}\" (topics {}, types {}), page {}: {} found",
+                  text, topicIds.isEmpty() ? "any" : topicIds,
+                  types.isEmpty() ? "any" : types, page + 1,
+                  found.totalResults() ) ;
+        return found ;
+    }
+
+    /**
+     * Read from the audit log the transcriptions given {@code items}
+     * before; a failed read is only logged (no choice is offered).
+     */
+    private void readGiven( List<TranscriptionItem> items ) {
+
+        Set<Integer> ids = new HashSet<>() ;
+        for( TranscriptionItem item : items ) ids.add( item.id() ) ;
+        try {
+            Map<Integer,List<TranscriptionAuditLog.Given>> read =
+                    audit.given( ids ) ;
+            for( Integer id : ids ) {
+                given.put( id, List.copyOf( read.getOrDefault(
+                        id, List.of() ) ) ) ;
+            }
+        }
+        catch( IOException e ) {
+            log.warn( "Could not read the earlier transcriptions from the " +
+                      "audit log: {}", e.getMessage() ) ;
+        }
+    }
+
+    /**
+     * The transcriptions models gave {@code item}, oldest first: those in
+     * the audit log when it was loaded and those since.
+     */
+    @Override
+    public List<TranscriptionAuditLog.Given> given( TranscriptionItem item ) {
+        return given.getOrDefault( item.id(), List.of() ) ;
     }
 
     /**
@@ -505,6 +631,50 @@ public class QTranscriber implements TranscriberFrame.Controller,
     }
 
     /**
+     * Send {@code items} to {@code model} alone: its retries, no fallback,
+     * no escalation. An LCT question goes with its group's passage, so one
+     * whose passage isn't known is left out (the frame offers only those
+     * that have one).
+     */
+    @Override
+    public void transcribeWith( List<TranscriptionItem> items,
+                                String model ) {
+
+        if( stopRequested ) return ;
+        synchronized( this ) {
+            List<TranscriptionJob> jobs = new ArrayList<>() ;
+
+            for( TranscriptionItem item : items ) {
+                Passage p = item.isLct() ? passages.get( item.lctCtxId() )
+                                         : null ;
+                if( item.isLct() && p == null ) {
+                    log.info( "{}: not sent to {}, its passage isn't known",
+                              item, model ) ;
+                    continue ;
+                }
+                jobs.add( TranscriptionJob.question(
+                        item, p == null ? null : p.content(), false ) ) ;
+            }
+            log.info( "Sending {} questions to {} alone", jobs.size(),
+                      model ) ;
+            submit( jobs, new TaskScheduler.Route(
+                    TranscriberOutcomes.TRANSCRIBE, model ) ) ;
+        }
+    }
+
+    /**
+     * The models a question may be sent to by hand: every usable one, in
+     * the AI file's order.
+     */
+    @Override
+    public List<String> models() {
+        return scheduler.hubStatus().models().stream()
+                        .filter( HubStatus.ModelStatus::usable )
+                        .map( HubStatus.ModelStatus::id )
+                        .toList() ;
+    }
+
+    /**
      * The root a transcription by {@code model} found faulty goes to:
      * Qwen's to Nemotron ({@code escalate}), Nemotron's to GLM
      * ({@code recheck}); null for GLM's, or with no usable root left.
@@ -526,7 +696,10 @@ public class QTranscriber implements TranscriberFrame.Controller,
                      .anyMatch( m -> m.id().equals( model ) ) ;
     }
 
-    /** Submit {@code jobs}, starting a run if none is going. Under the lock. */
+    /**
+     * Submit {@code jobs}, starting a run if none is going; a route pinned
+     * to a model is the user's choice. Under the lock.
+     */
     private void submit( List<TranscriptionJob> jobs,
                          TaskScheduler.Route route ) {
 
@@ -534,7 +707,7 @@ public class QTranscriber implements TranscriberFrame.Controller,
         List<QTask> tasks = new ArrayList<>() ;
 
         for( TranscriptionJob job : jobs ) {
-            outcomes.track( job ) ;
+            outcomes.track( job, route != null && route.model() != null ) ;
             tasks.add( job.task() ) ;
         }
         log.info( "Transcribing {} jobs{}", tasks.size(),
@@ -655,6 +828,13 @@ public class QTranscriber implements TranscriberFrame.Controller,
                                                   false ) ) ;
             return ;
         }
+        TranscriptionAuditLog.Given g = new TranscriptionAuditLog.Given(
+                Instant.now(), t, route ) ;
+        given.merge( q.getId(), List.of( g ), ( a, b ) -> {
+            List<TranscriptionAuditLog.Given> all = new ArrayList<>( a ) ;
+            all.addAll( b ) ;
+            return List.copyOf( all ) ;
+        } ) ;
         stage( job.item(), new Staged( t, route, false, provisional ) ) ;
         frame.transcribed( job, t, route, provisional ) ;
     }

@@ -21,16 +21,19 @@ import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The transcriber's audit trail, one JSON object per line (JSON Lines),
  * only ever appended to. Every line has {@code time} and {@code event}:
  * <ul>
  * <li>{@code transcribed}: a transcription accepted (question, passage or
- * question part), with its model, route and score;
+ * question part), with its model, route and score; read back for the
+ * Check tab's choice between a question's transcriptions;
  * <li>{@code saved}: the server's answer to a store, with what was sent,
  * its score and the server question (images included), read back by the
  * saved-questions spot check;
@@ -60,6 +63,18 @@ public final class TranscriptionAuditLog {
      */
     public record Saved( Instant at, ServerQuestion question,
                          TranscriptionRoute route, Integer c, Double minP ) {}
+
+    /**
+     * A transcription a model gave a question (or an LCT question's part),
+     * as the {@code transcribed} line keeps it: without its contested
+     * positions.
+     *
+     * @param at            when it was accepted
+     * @param transcription the transcription
+     * @param route         how it came about
+     */
+    public record Given( Instant at, Transcription transcription,
+                         TranscriptionRoute route ) {}
 
     private final File file ;
 
@@ -152,6 +167,64 @@ public final class TranscriptionAuditLog {
             }
         }
         return List.copyOf( latest.values() ) ;
+    }
+
+    /**
+     * The transcriptions given the questions with server ids {@code ids}
+     * (not their passages), oldest first, by server id; a question with
+     * none is left out, and a line that can't be read is skipped.
+     */
+    public Map<Integer,List<Given>> given( Set<Integer> ids )
+            throws IOException {
+
+        Map<Integer,List<Given>> given = new HashMap<>() ;
+        if( ids.isEmpty() || !file.exists() ) return given ;
+
+        try( BufferedReader in = Files.newBufferedReader(
+                file.toPath(), StandardCharsets.UTF_8 ) ) {
+            String text ;
+            while( ( text = in.readLine() ) != null ) {
+                if( !text.contains( "\"transcribed\"" ) ) continue ;
+                JsonNode n = read( text ) ;
+                if( n == null
+                    || !"transcribed".equals( n.path( "event" ).asText() )
+                    || "passage".equals( n.path( "what" ).asText() )
+                    || !ids.contains( n.path( "serverId" ).asInt( -1 ) )
+                    || !n.path( "content" ).isTextual() ) {
+                    continue ;
+                }
+                Given g = given( n ) ;
+                if( g == null ) continue ;
+                given.computeIfAbsent( n.path( "serverId" ).asInt(),
+                                       k -> new ArrayList<>() ).add( g ) ;
+            }
+        }
+        return given ;
+    }
+
+    /** The {@code transcribed} line {@code n}; null if it can't be read. */
+    private static Given given( JsonNode n ) {
+
+        Instant at = instant( n.path( "time" ).asText() ) ;
+        if( at == null ) return null ;
+        try {
+            Transcription t = new Transcription(
+                    n.path( "content" ).asText(),
+                    n.path( "model" ).isTextual()
+                    ? n.path( "model" ).asText() : null,
+                    n.path( "c" ).isNumber() ? n.path( "c" ).asInt() : null,
+                    n.path( "geoMeanP" ).isNumber()
+                    ? n.path( "geoMeanP" ).asDouble() : null,
+                    n.path( "minP" ).isNumber()
+                    ? n.path( "minP" ).asDouble() : null,
+                    List.of() ) ;
+            return new Given( at, t, TranscriptionJson.route( n ) ) ;
+        }
+        catch( RuntimeException e ) {
+            log.warn( "Skipping an unreadable transcribed line: {}",
+                      e.getMessage() ) ;
+            return null ;
+        }
     }
 
     /** The {@code saved} line {@code n}; null if it can't be read. */

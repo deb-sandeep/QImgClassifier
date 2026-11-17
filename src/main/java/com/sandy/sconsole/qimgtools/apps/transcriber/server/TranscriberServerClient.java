@@ -21,7 +21,8 @@ import java.util.stream.Collectors;
  * Client for the SConsole server's transcription APIs (the server's
  * {@code doc/feature-enhancements/2026-11-17/question-transcription/}
  * {@code api-changes.md} rev 3): pending questions, an LCT group's passage,
- * storing a batch of transcriptions, and reading one back. Calls go
+ * storing a batch of transcriptions, reading one back, and searching the
+ * transcriptions (the question search's {@code text}). Calls go
  * through {@link SConsoleServer}, which turns a failed one into a
  * {@link ServerException}. Thread-safe.
  */
@@ -90,6 +91,37 @@ public class TranscriberServerClient {
     public StoredTranscription transcription( int id ) throws ServerException {
         return server.get( "/Master/Question/Transcription/" + id,
                            new TypeReference<StoredTranscription>() {} ) ;
+    }
+
+    /**
+     * Page {@code page} (from 0, {@code size} a page, 1-500) of the
+     * questions whose transcription matches {@code text}, a Lucene query
+     * (default operator AND; a question without a transcription never
+     * matches), by server id. Empty {@code topicIds} or {@code types}
+     * impose no constraint. A query the server can't parse is a
+     * {@link ServerException} with its reason.
+     */
+    public TranscriptionSearch search( String text, List<Integer> topicIds,
+                                       List<String> types, int page,
+                                       int size )
+            throws ServerException {
+
+        ObjectNode body = server.mapper().createObjectNode()
+                                .put( "text", text )
+                                .put( "page", page )
+                                .put( "size", size ) ;
+
+        body.putArray( "sort" ).add( "id:asc" ) ;
+        if( !topicIds.isEmpty() ) {
+            ArrayNode ids = body.putArray( "topicIds" ) ;
+            topicIds.forEach( ids::add ) ;
+        }
+        if( !types.isEmpty() ) {
+            ArrayNode qTypes = body.putArray( "qTypes" ) ;
+            types.forEach( qTypes::add ) ;
+        }
+        return server.post( "/Master/Question/Search", body,
+                            new TypeReference<TranscriptionSearch>() {} ) ;
     }
 
     /**

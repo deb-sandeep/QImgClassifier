@@ -27,7 +27,7 @@ Agreed with the user on 2026-11-17, one question at a time.
 | 2 | **Search** as in the reviewer: syllabuses and a topic list. Results come in server id order behind an `afterId` cursor; a new search resets it. The server's `Transcription/Pending` takes the criteria (`required-server-apis.md` §4) |
 | 3 | **No agreement between models.** Qwen transcribes. Calibrated (`logprob-confidence.md` rev 3 §0): a Qwen reply goes to the free Nemotron (paid once the free quota is used up) only if it is malformed (§4.1) or Ollama fails the request; Nemotron's transcription is accepted as it is. Qwen's confidence score C is recorded and orders spot checks, but doesn't route |
 | 4 | **Qwen down**: questions fall back to the free Nemotron, by the AI file's fallback guards. An unattended run stops once Qwen is down *and* the free Nemotron is held for the day, so a long outage can't run up the paid model; an attended run goes on to the paid one |
-| 5 | **Spot checks** in a JavaFX `WebView`: markdown-it + MathJax 3 + mhchem, `diagram` blocks as framed boxes, `smiles:` lines drawn as structures (SmilesDrawer). A transcription marked faulty goes to the next model in the chain Qwen → Nemotron → GLM: Qwen's to Nemotron, Nemotron's to GLM (the paid Nemotron is the same model, so no help). A faulty GLM transcription stays unsaved |
+| 5 | **Spot checks** in a JavaFX `WebView`: markdown-it + MathJax 3 + mhchem, figures (blockquotes, rev 1.6) as framed boxes, `smiles:` lines drawn as structures (SmilesDrawer). A transcription marked faulty goes to the next model in the chain Qwen → Nemotron → GLM: Qwen's to Nemotron, Nemotron's to GLM (the paid Nemotron is the same model, so no help). A faulty GLM transcription stays unsaved |
 | 6 | **Saving** as in the reviewer: staged in the table, saved by Save (or by the unattended run) |
 | 7 | **LCT questions are self-contained**: an LCT question's `content` is its group's passage, the marker `<!-- question -->`, then its question part (`required-server-apis.md` §5). The passage is transcribed once per group, held locally until Save, and sent as `lctCtx` with the group's first question saved |
 | 8 | **Images** from the local question bank (`QuestionLocator`), as the other apps; the server's image data is not used |
@@ -243,7 +243,11 @@ for a passage, only the `_Ctx` images. Images go as stored (no
    not stripped: the well-formed check refuses it (a bad fence).
 2. **Well formed** (note §4.1). For any model: cut off, empty, unbalanced
    `$` / `$$` / `{}` in maths, a bad fence, an empty `diagram` block, a
-   placeholder, meta or solution text, a `smiles:` line CDK can't parse.
+   placeholder, meta or solution text (the calibration replay's checks);
+   then the app's own: a `smiles:` line CDK can't parse, and since rev 1.6
+   a figure with no description, a figure not followed by a blank line
+   (markdown would take the next line into it), or a `diagram` fence (the
+   old form). Maths inside a figure is checked like any other.
    A failure is a bad reply (`BadReply`). For Qwen it goes straight to the
    free Nemotron, with no retry: at temperature 0 a retry would give the
    same reply. Qwen has `retries: 0`, and its `badReply` and `truncated`
@@ -358,9 +362,11 @@ loading `web/view.html` from the classpath once (markdown-it, MathJax 3
 with mhchem, SmilesDrawer, a stylesheet; all bundled under
 `src/main/resources/apps/transcriber/web/`, no network). It shows a content
 by calling a page function with the markdown (passed as a JSON string, on
-the FX thread). `diagram` blocks render as framed boxes with the
-description; a `smiles:` line inside is drawn as a structure under the
-text, or shows "SMILES not drawable" in red. The LCT marker renders as a
+the FX thread). A figure (a blockquote) renders as a framed box with its
+description, maths drawn as anywhere else; a `> smiles:` line inside is
+taken out before markdown-it and drawn as a structure, or shows "SMILES
+not drawable" in red. An old `diagram` fence is framed the same way, its
+text as written. The LCT marker renders as a
 thin rule, so the passage and question part are told apart.
 
 ### 8.2 Marks
@@ -519,3 +525,7 @@ of questions per type, LCT groups included.
 | 1.3 | 2026-11-17 | O3 settled: Qwen has no retries; a malformed, cut-off or timed-out Qwen reply falls back to the free Nemotron at once (§4.2, §6.2) |
 | 1.4 | 2026-11-17 | Calibrated (note rev 3): C doesn't route, it orders spot checks; `gate.route.on.c`; Qwen `maxParallel` 3; prompt v3; golden cases; O4 settled |
 | 1.5 | 2026-11-17 | As implemented: MathJax's SVG build instead of CHTML (§11); a passage's transcripts under its `_Ctx` id and the saved audit lines keep the server question (§4.3); the spot check loads the chosen saved questions into the main table (§8.3) |
+| 1.6 | 2026-11-17 | Figures are blockquotes (`> ` lines, a blank line after; `>` used for nothing else), not `diagram` fences, so their maths is LaTeX and renders: a code block shows LaTeX raw, which is why prompt v3 kept descriptions to Unicode plain text (prompt review P8). Prompt v4. The gate reads a blockquote's lines as it read a fence's description lines (not scored), and still reads `diagram` fences, so the golden cases replay unchanged; the app refuses a `diagram` fence, a figure without description and one not followed by a blank line (§6.2). The server stores and indexes the markdown as given, so it needs no change (its format doc, rule 4, updated) |
+| 1.7 | 2026-11-17 | §8.2: the row menu's *Transcribe with ▸* sends the selected questions to any usable model alone (pinned: its retries, no fallback or escalation), route `CHOSEN`; an LCT question only once its passage is known. Qwen gets a `passthrough` guard to the free Nemotron (Cascade in the Models tab) |
+| 1.8 | 2026-11-17 | §8.1: a question given more than one transcription offers them in a drop-down in the Check tab (tabs at first, but they overflowed the width), read back from the audit log's `transcribed` lines (no new store), the one in use marked; *Use this one* takes the one shown instead, checked, if it is well formed. Not a diff view (the user's call: too heavy), but a second view beside the first, closed until its divider is dragged open, with its own drop-down, so any two transcriptions show side by side |
+| 1.9 | 2026-11-17 | §8.3: a search box in the toolbar finds saved questions by the text of their transcriptions (the server's transcription search, a `text` Lucene query on `POST /Master/Question/Search`), optionally of one type and within the criteria's topics, and loads them straight into the table, 100 a page, to check as the spot check's are. For testing the search API and revisiting earlier questions. A hit with no stored transcription (a stale index entry) is left out, not a failed load |

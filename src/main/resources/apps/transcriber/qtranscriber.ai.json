@@ -6,7 +6,8 @@
 // retry gives the same reply. A malformed, cut-off or timed-out reply, a
 // server error, or Qwen being unreachable sends the question to the free
 // Nemotron at once, by Qwen's fallback guards; the paid Nemotron takes over
-// once the free one's daily quota is used up.
+// once the free one's daily quota is used up. Cascade (the Models tab)
+// passes Qwen's questions straight to the free Nemotron.
 //
 // "escalate" (the free Nemotron) is reached by a re-send of a faulty Qwen
 // transcription, and by a second opinion if gate.route.on.c is set;
@@ -42,7 +43,8 @@
         "serverError" : [ "nvidia/nemotron-3.5-super-vl:free" ],
         "timeout"     : [ "nvidia/nemotron-3.5-super-vl:free" ],
         "badReply"    : [ "nvidia/nemotron-3.5-super-vl:free" ],
-        "truncated"   : [ "nvidia/nemotron-3.5-super-vl:free" ]
+        "truncated"   : [ "nvidia/nemotron-3.5-super-vl:free" ],
+        "passthrough" : [ "nvidia/nemotron-3.5-super-vl:free" ]
       }
     },
     "nvidia/nemotron-3.5-super-vl:free" : {

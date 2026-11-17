@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -22,8 +23,11 @@ import javax.swing.text.Highlighter;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.io.File;
 import java.util.List;
 
@@ -33,6 +37,13 @@ import java.util.List;
  * the <i>Markdown</i> toggle, as raw markdown with Qwen's contested
  * positions highlighted; the spot-check marks as buttons. The buttons never
  * take the focus, so the keys stay with the table.
+ * <p>
+ * A question given more than one transcription offers them in a drop-down
+ * above the transcription (the one in use marked), and <i>Use this one</i>
+ * takes the one shown instead. A second view, beside the first, starts
+ * closed: drag the divider from the right edge (or click its arrow) to
+ * open it, with its own drop-down, to see two transcriptions side by
+ * side.
  * <p>
  * {@link #edit} turns the lower half into an editor beside the rendered
  * view, which follows the text after a short pause; the well-formed
@@ -57,7 +68,22 @@ final class CheckPanel extends JPanel {
 
         /** True if the selected row's passage can be edited. */
         boolean canEditPassage() ;
+
+        /** Use the transcription of choice {@code index} instead. */
+        void choose( int index ) ;
+
+        /** True if the selected row may take another transcription. */
+        boolean canChoose() ;
     }
+
+    /**
+     * One of a question's transcriptions, as the drop-downs offer it.
+     *
+     * @param label    its name in the drop-downs
+     * @param markdown its whole content, as shown
+     * @param current  true for the one in use
+     */
+    record Choice( String label, String markdown, boolean current ) {}
 
     /** An edit under way. */
     interface Editing {
@@ -92,8 +118,6 @@ final class CheckPanel extends JPanel {
 
     private final ImagePreview  image       =
             new ImagePreview( IMAGE_HEIGHT, IMAGE_WIDTH ) ;
-    private final MarkdownView  view        = new MarkdownView() ;
-    private final JTextArea     raw         = textArea( false ) ;
     private final JTextArea     editor      = textArea( true ) ;
     private final JButton[]     marks       = new JButton[BUTTONS.length] ;
     private final JButton       editPassage = new JButton( "Edit passage" ) ;
@@ -101,29 +125,48 @@ final class CheckPanel extends JPanel {
     private final JLabel        problems    = new JLabel( " " ) ;
     private final JButton       done        = new JButton( "Done" ) ;
     private final JButton       cancel      = new JButton( "Cancel" ) ;
+    private final Side          left        = new Side() ;
+    private final Side          right       = new Side() ;
+    private final JSplitPane    compare     = new JSplitPane(
+            JSplitPane.HORIZONTAL_SPLIT, left.panel, right.panel ) ;
     private final Marks         actions ;
 
-    // The lower half: the rendered view or the raw text, or while editing
-    // the editor beside the rendered view.
+    // The lower half: the two views side by side, the second closed at
+    // first; or while editing the editor beside the first view's rendering.
     private final JPanel lower   = new JPanel( new BorderLayout() ) ;
-    private final JPanel shown   = new JPanel( new CardLayout() ) ;
     private final JPanel buttons = new JPanel( new CardLayout() ) ;
     private final Timer  rerender ;
 
     /** The edit under way; null when not editing. */
     private Editing editing ;
 
-    /** The markdown shown, while not editing; null for a note. */
-    private String current ;
+    /** The choices offered; fewer than two offers none. */
+    private List<Choice> choices = List.of() ;
+
+    /** The transcription in use: its contests, and their shift. */
+    private List<Contest> contests = List.of() ;
+    private int           shift ;
+
+    /** True while the drop-downs are refilled: their events are ignored. */
+    private boolean filling ;
 
     CheckPanel( Marks actions ) {
 
         super( new BorderLayout() ) ;
         this.actions = actions ;
 
-        shown.add( view, RENDERED ) ;
-        shown.add( new JScrollPane( raw ), RAW ) ;
-        lower.add( shown, BorderLayout.CENTER ) ;
+        right.panel.setMinimumSize( new Dimension( 0, 0 ) ) ;
+        compare.setResizeWeight( 1.0 ) ;
+        compare.setContinuousLayout( true ) ;
+        compare.setOneTouchExpandable( true ) ;
+        compare.addComponentListener( new ComponentAdapter() {
+            @Override public void componentResized( ComponentEvent e ) {
+                if( compare.getWidth() <= 0 ) return ;
+                compare.setDividerLocation( 1.0 ) ;
+                compare.removeComponentListener( this ) ;
+            }
+        } ) ;
+        lower.add( compare, BorderLayout.CENTER ) ;
 
         JSplitPane split = new JSplitPane( JSplitPane.VERTICAL_SPLIT, image,
                                            lower ) ;
@@ -133,7 +176,7 @@ final class CheckPanel extends JPanel {
         markdown.setFocusable( false ) ;
         markdown.setToolTipText( "Show the raw markdown, Qwen's contested " +
                                  "positions highlighted" ) ;
-        markdown.addActionListener( e -> showCard() ) ;
+        markdown.addActionListener( e -> showCards() ) ;
         editPassage.setFocusable( false ) ;
         editPassage.addActionListener( e -> actions.editPassage() ) ;
 
@@ -204,31 +247,51 @@ final class CheckPanel extends JPanel {
      * highlighted in its raw text, each {@code shift} characters further
      * on (the passage before an LCT question part); null images clear the
      * image, null markdown shows {@code note} instead (e.g. why there is
-     * no transcription). Ignored while editing.
+     * no transcription). With two or more {@code choices}, both views offer
+     * them in a drop-down: the first shows the one in use, the second the
+     * latest other. Ignored while editing.
      */
     void show( List<File> images, String markdown, List<Contest> contests,
-               int shift, String note ) {
+               int shift, String note, List<Choice> choices ) {
 
         if( editing != null ) return ;
         image.show( images ) ;
-        current = markdown ;
-        raw.setText( markdown != null ? markdown
-                                      : note == null ? "" : note ) ;
-        raw.setCaretPosition( 0 ) ;
-        highlight( markdown == null ? List.of() : contests, shift ) ;
-        view.show( markdown ) ;
-        showCard() ;
+        this.contests = contests == null ? List.of() : contests ;
+        this.shift    = shift ;
+        this.choices  = choices == null || choices.size() < 2
+                        ? List.of() : List.copyOf( choices ) ;
+
+        int inUse = 0 ;
+        int other = -1 ;
+        for( int i = 0 ; i < this.choices.size() ; i++ ) {
+            if( this.choices.get( i ).current() ) inUse = i ;
+            else other = i ;
+        }
+        if( other < 0 ) other = inUse ;
+
+        filling = true ;
+        try {
+            left.fill( inUse ) ;
+            right.fill( other ) ;
+        }
+        finally {
+            filling = false ;
+        }
+        left.display( markdown, true, note ) ;
+        if( this.choices.isEmpty() ) right.display( markdown, true, note ) ;
+        else right.showChoice() ;
         refreshButtons() ;
     }
 
-    /** The rendered view, or the raw text if toggled or for a note. */
-    private void showCard() {
-        ( (CardLayout) shown.getLayout() ).show(
-                shown, markdown.isSelected() || current == null ? RAW
-                                                                : RENDERED ) ;
+    /** Each view rendered, or raw if toggled or for a note. */
+    private void showCards() {
+        left.showCard() ;
+        right.showCard() ;
     }
 
-    private void highlight( List<Contest> contests, int shift ) {
+    /** Highlight {@code contests} in {@code raw}, {@code shift} further on. */
+    private static void highlight( JTextArea raw, List<Contest> contests,
+                                   int shift ) {
 
         Highlighter h = raw.getHighlighter() ;
         Highlighter.HighlightPainter paint =
@@ -236,7 +299,7 @@ final class CheckPanel extends JPanel {
         int length = raw.getDocument().getLength() ;
 
         h.removeAllHighlights() ;
-        for( Contest c : contests == null ? List.<Contest>of() : contests ) {
+        for( Contest c : contests ) {
             int from = shift + c.offset() ;
             int to   = Math.min( length,
                                  from + Math.max( 1, c.chosen().length() ) ) ;
@@ -261,7 +324,8 @@ final class CheckPanel extends JPanel {
         editor.setCaretPosition( 0 ) ;
 
         JSplitPane side = new JSplitPane( JSplitPane.HORIZONTAL_SPLIT,
-                                          new JScrollPane( editor ), view ) ;
+                                          new JScrollPane( editor ),
+                                          left.view ) ;
         side.setResizeWeight( 0.5 ) ;
         side.setContinuousLayout( true ) ;
         lower.removeAll() ;
@@ -286,7 +350,7 @@ final class CheckPanel extends JPanel {
         String       text  = editor.getText() ;
         List<String> found = editing.problems( text ) ;
 
-        view.show( text ) ;
+        left.view.show( text ) ;
         problems.setText( found.isEmpty() ? " "
                                           : "Can't keep: " +
                                             String.join( "; ", found ) ) ;
@@ -306,13 +370,13 @@ final class CheckPanel extends JPanel {
         rerender.stop() ;
         editing = null ;
 
-        shown.add( view, RENDERED ) ;
+        left.shown.add( left.view, RENDERED ) ;
         lower.removeAll() ;
-        lower.add( shown, BorderLayout.CENTER ) ;
+        lower.add( compare, BorderLayout.CENTER ) ;
         lower.revalidate() ;
         lower.repaint() ;
         ( (CardLayout) buttons.getLayout() ).show( buttons, MARKS ) ;
-        showCard() ;
+        showCards() ;
 
         if( keep ) e.done( text ) ;
         else e.cancelled() ;
@@ -324,5 +388,103 @@ final class CheckPanel extends JPanel {
             marks[i].setEnabled( actions.canPress( i + 1 ) ) ;
         }
         editPassage.setEnabled( actions.canEditPassage() ) ;
+        left.refresh() ;
+        right.refresh() ;
+    }
+
+    /**
+     * One view: a drop-down choosing one of the question's transcriptions,
+     * Use this one, and the transcription rendered or raw.
+     */
+    private final class Side {
+
+        final MarkdownView      view  = new MarkdownView() ;
+        final JTextArea         raw   = textArea( false ) ;
+        final JPanel            shown = new JPanel( new CardLayout() ) ;
+        final JComboBox<String> pick  = new JComboBox<>() ;
+        final JButton           use   = new JButton( "Use this one" ) ;
+        final JPanel            bar   = new JPanel( new FlowLayout(
+                FlowLayout.LEFT, 6, 2 ) ) ;
+        final JPanel            panel = new JPanel( new BorderLayout() ) ;
+
+        /** The markdown shown; null for a note. */
+        String text ;
+
+        Side() {
+
+            shown.add( view, RENDERED ) ;
+            shown.add( new JScrollPane( raw ), RAW ) ;
+            pick.setFocusable( false ) ;
+            pick.setToolTipText( "The question's transcriptions; ● is the " +
+                                 "one in use" ) ;
+            pick.addActionListener( e -> {
+                if( !filling ) showChoice() ;
+            } ) ;
+            use.setFocusable( false ) ;
+            use.setToolTipText( "Use the transcription shown instead, as " +
+                                "checked" ) ;
+            use.addActionListener( e -> {
+                int i = pick.getSelectedIndex() ;
+                if( i >= 0 ) actions.choose( i ) ;
+            } ) ;
+            bar.add( pick ) ;
+            bar.add( use ) ;
+            bar.setVisible( false ) ;
+            panel.add( bar, BorderLayout.NORTH ) ;
+            panel.add( shown, BorderLayout.CENTER ) ;
+        }
+
+        /** Offer the choices, {@code selected} selected; hidden for none. */
+        void fill( int selected ) {
+
+            pick.removeAllItems() ;
+            for( Choice c : choices ) {
+                pick.addItem( c.current() ? "● " + c.label() : c.label() ) ;
+            }
+            if( !choices.isEmpty() ) pick.setSelectedIndex( selected ) ;
+            bar.setVisible( !choices.isEmpty() ) ;
+            bar.revalidate() ;
+        }
+
+        /** Show the choice selected; contests only for the one in use. */
+        void showChoice() {
+
+            int i = pick.getSelectedIndex() ;
+            if( i < 0 || i >= choices.size() ) return ;
+            Choice c = choices.get( i ) ;
+            display( c.markdown(), c.current(), null ) ;
+            refreshButtons() ;
+        }
+
+        /**
+         * Show {@code markdown}, its contests highlighted if it is the one
+         * in use ({@code inUse}), or {@code note} without it.
+         */
+        void display( String markdown, boolean inUse, String note ) {
+
+            text = markdown ;
+            raw.setText( markdown != null ? markdown
+                                          : note == null ? "" : note ) ;
+            raw.setCaretPosition( 0 ) ;
+            highlight( raw, markdown == null || !inUse ? List.of()
+                                                       : contests, shift ) ;
+            view.show( markdown ) ;
+            showCard() ;
+        }
+
+        /** Rendered, or raw if toggled or for a note. */
+        void showCard() {
+            ( (CardLayout) shown.getLayout() ).show(
+                    shown, markdown.isSelected() || text == null ? RAW
+                                                                 : RENDERED ) ;
+        }
+
+        /** Use this one only for one not in use, if a choice may be made. */
+        void refresh() {
+            int i = pick.getSelectedIndex() ;
+            use.setEnabled( i >= 0 && i < choices.size()
+                            && !choices.get( i ).current()
+                            && actions.canChoose() ) ;
+        }
     }
 }

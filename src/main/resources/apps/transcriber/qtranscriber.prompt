@@ -1,4 +1,4 @@
-# QTranscriber prompt, version 3 (2026-11-17)
+# QTranscriber prompt, version 4 (2026-11-17: figures as blockquotes)
 #
 # Lines starting with '#' are comments and are not sent. The file has
 # sections, each starting with a line '=== <name> ==='.
@@ -49,13 +49,14 @@ Rules:
    $\ce{...}$ (MathJax mhchem). No other delimiters: no \( \), no \[ \].
    Use $$...$$ only for an expression printed on its own line; words
    printed on the same line as an expression stay outside the maths.
-4. Each figure is a fenced code block with the info string diagram, placed
-   where the figure appears. It holds a factual description of what is
-   drawn: shapes, labels, values, arrows and how the parts are arranged,
-   with printed labels and values copied exactly. This block is the only
-   place for anything you infer: only printed text goes outside diagram
-   blocks, and names or identifications you work out (a compound's name,
-   what a circuit is) go inside the block.
+4. Each figure is a blockquote (every line starting with "> "), placed
+   where the figure appears, with a blank line before and after it. It
+   holds a factual description of what is drawn: shapes, labels, values,
+   arrows and how the parts are arranged, with printed labels and values
+   copied exactly. A figure is the only place for anything you infer:
+   only printed text goes outside figures, and names or identifications
+   you work out (a compound's name, what a circuit is) go inside the
+   figure. Use blockquotes for nothing else.
 5. No image placeholders, and no text outside the transcription: no
    introduction, notes, explanation, answer or solution.
 
@@ -100,32 +101,31 @@ and "Column II" / "Sign of ΔS" is written:
 | (B) Freezing of water | (q) Negative |
 | | (r) Zero |
 
-Diagram blocks:
+Figures:
 
-- Plain text only inside a diagram block: no $, no LaTeX. Use Unicode
-  symbols (°, θ, ², ⁻, →).
-- Each drawn chemical structure gets its own diagram block, with its
-  printed label if it has one, and a last line `smiles: <SMILES>`.
+- Start the description with the figure's printed label, e.g.
+  "Figure 2:", "Structure (II):", else with "Figure:".
+- Maths and chemistry in a figure are written as everywhere else, in
+  $...$ and $\ce{...}$.
+- Each drawn chemical structure gets its own figure, with its printed
+  label if it has one, and a last line "> smiles: <SMILES>", the SMILES
+  as plain text.
 - Arrows, reagents and conditions printed between structures are printed
-  text: write them outside the blocks, e.g. $\ce{->[AlCl3]}$ P.
+  text: write them outside the figures, e.g. $\ce{->[AlCl3]}$ P.
 - If an option or a table cell is a figure, write only its label there,
-  and put the diagram block after the list or table, starting its
-  description with that label, e.g. "Option (B): ..." or
-  "Column I (C): ...".
+  and put the figure after the list or table, starting its description
+  with that label, e.g. "Option (B): ..." or "Column I (C): ...".
 
-A diagram block looks like this:
+A figure looks like this:
 
-```diagram
-A block of mass m on a smooth incline at angle θ to the horizontal,
-attached by a string over a pulley at the top to a hanging mass M.
-```
+> Figure: A block of mass $m$ on a smooth incline at angle $\theta$ to the
+> horizontal, attached by a string over a pulley at the top to a hanging
+> mass $M$.
 
 A structure looks like this:
 
-```diagram
-Structure (II): a cyclohexane ring carrying a COOH group.
-smiles: OC(=O)C1CCCCC1
-```
+> Structure (II): a cyclohexane ring carrying a $\ce{COOH}$ group.
+> smiles: OC(=O)C1CCCCC1
 
 Reply with the transcription only, as plain markdown, not wrapped in a
 code fence.
@@ -142,7 +142,7 @@ This question:
 === SUBJECT Chemistry ===
 Chemistry: every formula, ion, isotope, reaction and configuration goes in
 $\ce{...}$, also inside tables and options. Draw no conclusions about an
-unlabelled structure outside its diagram block.
+unlabelled structure outside its figure.
 
 === TYPE SCA ===
 Single correct answer. Transcribe the question, then its options as a list.

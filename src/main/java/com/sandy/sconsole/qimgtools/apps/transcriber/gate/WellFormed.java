@@ -13,8 +13,9 @@ import java.util.regex.Pattern;
  * The well-formed checks of a transcription (logprob-confidence.md §4.1):
  * a reply failing any of them is not accepted. {@link #problems} is the
  * calibration replay's {@code well_formed}, problem texts included;
- * {@link #smilesProblems} adds the SMILES parse check, which the replay
- * left to the app.
+ * {@link #appProblems} adds the app's own: the figure checks (figures are
+ * blockquotes now, not {@code diagram} fences) and the SMILES parse, which
+ * the replay left to the app.
  */
 public final class WellFormed {
 
@@ -54,8 +55,21 @@ public final class WellFormed {
         return problems ;
     }
 
+    /**
+     * The app's own problems of {@code text}, beyond {@link #problems}:
+     * its figures' and its SMILES'.
+     */
+    public static List<String> appProblems( String text ) {
+
+        List<String> problems = new ArrayList<>(
+                new ReplyLayout( text ).figureProblems() ) ;
+
+        problems.addAll( smilesProblems( text ) ) ;
+        return problems ;
+    }
+
     /** The {@code smiles:} lines of {@code text} that CDK can't parse. */
-    public static List<String> smilesProblems( String text ) {
+    private static List<String> smilesProblems( String text ) {
 
         List<String> problems = new ArrayList<>() ;
         SmilesParser parser   = null ;
@@ -75,12 +89,15 @@ public final class WellFormed {
         return problems ;
     }
 
-    /** The SMILES of the {@code smiles:} lines of {@code text}. */
+    /**
+     * The SMILES of the {@code smiles:} lines of {@code text}, in a
+     * figure's blockquote or a {@code diagram} fence.
+     */
     public static List<String> smilesLines( String text ) {
 
         List<String> smiles = new ArrayList<>() ;
         for( String line : text.split( "\n", -1 ) ) {
-            String s = PyText.strip( line ) ;
+            String s = ReplyLayout.unquote( PyText.strip( line ) ) ;
             if( ReplyLayout.isSmiles( s ) ) {
                 smiles.add( PyText.strip( s.substring( s.indexOf( ':' ) + 1 ) ) ) ;
             }

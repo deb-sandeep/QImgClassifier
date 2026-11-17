@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
  * where it nearly wrote a different reading (logprob-confidence.md §4.2 with
  * the rev 3 additions of §4.2a; the replay's {@code gate3}).
  * <p>
- * A token on a {@code diagram} description line or a fence line is not
+ * A token on a figure's description line or a fence line is not
  * scored. A scored token is contested at margin {@code m} if one of its
  * alternatives (a <i>rival</i>) with {@code p(chosen) - p(rival) < m} is
  * <ul>

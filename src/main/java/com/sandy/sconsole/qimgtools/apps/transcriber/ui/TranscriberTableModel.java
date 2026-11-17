@@ -325,8 +325,12 @@ final class TranscriberTableModel extends AbstractTableModel
      * "Edited (Qwen)"; blank without one.
      */
     String routeText( Row row ) {
+        return routeText( row.route() ) ;
+    }
 
-        TranscriptionRoute r = row.route() ;
+    /** {@code r}, short, as {@link #routeText(Row)}; blank for null. */
+    String routeText( TranscriptionRoute r ) {
+
         if( r == null ) return "" ;
 
         String model = shortName( r.model() ) ;
@@ -335,6 +339,7 @@ final class TranscriberTableModel extends AbstractTableModel
             case ESCALATED -> "Qwen → " + model ;
             case STAND_IN  -> model + " (Qwen down)" ;
             case RESENT    -> model + " (re-sent)" ;
+            case CHOSEN    -> model + " (chosen)" ;
             case EDITED    -> r.model() == null ? "Typed"
                                                 : "Edited (" + model + ")" ;
             case STORED    -> model + " (stored)" ;

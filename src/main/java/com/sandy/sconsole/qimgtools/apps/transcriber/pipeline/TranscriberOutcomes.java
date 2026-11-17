@@ -18,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -66,6 +67,9 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
     /** Why a job was sent for a second opinion, by task. */
     private final Map<QTask,String> escalations = new ConcurrentHashMap<>() ;
 
+    /** The tasks sent to a model the user chose, that model alone. */
+    private final Set<QTask> chosen = ConcurrentHashMap.newKeySet() ;
+
     /**
      * @param routeOnC true to escalate a Qwen reply with C above
      *        {@code cMax}
@@ -80,11 +84,18 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
         this.cMax        = cMax ;
     }
 
-    /** Note that {@code job}'s task is about to be sent. */
-    public void track( TranscriptionJob job ) {
+    /**
+     * Note that {@code job}'s task is about to be sent; {@code byChoice}
+     * if to a model the user chose: it is then never escalated, and its
+     * route is {@link Kind#CHOSEN}.
+     */
+    public void track( TranscriptionJob job, boolean byChoice ) {
+
         jobs.put( job.task(), job ) ;
         tried.put( job.task(), new ArrayList<>() ) ;
         escalations.remove( job.task() ) ;
+        if( byChoice ) chosen.add( job.task() ) ;
+        else chosen.remove( job.task() ) ;
     }
 
     /** The job {@code task} is; null if it wasn't sent. */
@@ -114,7 +125,8 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
         TranscriptionJob job = jobs.get( task ) ;
 
         if( !routeOnC || value.c() == null || agent != AIAgent.OLLAMA
-            || job == null || job.resent() || value.c() <= cMax ) {
+            || job == null || job.resent() || chosen.contains( task )
+            || value.c() <= cMax ) {
             return null ;
         }
         escalations.put( task, secondOpinionReason( task, value ) ) ;
@@ -164,6 +176,9 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
     private TranscriptionRoute route( QTask task, TranscriptionJob job,
                                       AIAgent agent, String model ) {
 
+        if( chosen.contains( task ) ) {
+            return new TranscriptionRoute( Kind.CHOSEN, model, null ) ;
+        }
         if( job != null && job.resent() ) {
             return new TranscriptionRoute( Kind.RESENT, model, null ) ;
         }
