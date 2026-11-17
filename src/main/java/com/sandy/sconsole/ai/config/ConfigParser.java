@@ -46,7 +46,11 @@ import java.util.Set;
  * ({@code low} / {@code medium} / {@code high}) or
  * {@code reasoningMaxTokens} (either only with {@code reasoning} on),
  * optional {@code structuredOutput} (default false), optional
- * {@code maxOutputTokens}, optional {@code rateLimit} and
+ * {@code maxOutputTokens}, optional {@code sampler} ({@code temperature},
+ * {@code topK}, {@code topP}, {@code presencePenalty},
+ * {@code frequencyPenalty}, {@code repeatPenalty}, each optional),
+ * optional {@code logprobs} (1–20 alternatives; Ollama models only),
+ * optional {@code rateLimit} and
  * {@code fallback} (guard name to a list of model ids; the guards are the
  * {@link FailureKind} guard names and {@code default}).
  * <p>
@@ -80,7 +84,11 @@ final class ConfigParser {
             "enabled", "maxParallel", "requestTimeoutSeconds", "retries",
             "reasoning", "promptCaching", "reasoningEffort",
             "reasoningMaxTokens", "maxOutputTokens", "rateLimit",
-            "fallback", "structuredOutput" ) ;
+            "fallback", "structuredOutput", "sampler", "logprobs" ) ;
+    private static final Set<String> SAMPLER_KEYS = Set.of(
+            "temperature", "topK", "topP", "presencePenalty",
+            "frequencyPenalty", "repeatPenalty" ) ;
+    private static final int MAX_LOGPROBS = 20 ;
     private static final Set<String> REASONING_EFFORTS =
             Set.of( "low", "medium", "high" ) ;
     private static final Set<String> RATE_LIMIT_KEYS = Set.of( "rpm", "rpd" ) ;
@@ -248,6 +256,7 @@ final class ConfigParser {
                                  && bool( m, path, "promptCaching" ) ;
             boolean structured = m.has( "structuredOutput" )
                                  && bool( m, path, "structuredOutput" ) ;
+            Integer logprobs   = logprobs( m, path, openRouter ) ;
 
             models.put( id, new ModelInfo(
                     id, def.gateway(), def.displayName(), def.enabled(),
@@ -259,6 +268,7 @@ final class ConfigParser {
                     integer( m, path, "retries", 0 ),
                     reasoning, caching, structured, effort, maxReason,
                     optInteger( m, path, "maxOutputTokens" ),
+                    sampler( m, path ), logprobs,
                     fallback( m, path, all ), true ) ) ;
         }
         return models ;
@@ -616,6 +626,64 @@ final class ConfigParser {
                          "needs reasoning set to true" ) ;
         }
         return effort ;
+    }
+
+    /**
+     * A model's optional {@code sampler}; null if absent. Every setting is
+     * optional; {@code topK} is a whole number of at least 1, the others
+     * numbers of at least 0.
+     */
+    private Sampler sampler( JsonNode model, String path ) {
+
+        if( !model.has( "sampler" ) ) return null ;
+
+        JsonNode n  = object( model, path, "sampler" ) ;
+        String   at = join( path, "sampler" ) ;
+
+        checkKeys( n, at, SAMPLER_KEYS ) ;
+        Sampler sampler = new Sampler(
+                optNumber( n, at, "temperature" ),
+                optInteger( n, at, "topK" ),
+                optNumber( n, at, "topP" ),
+                optNumber( n, at, "presencePenalty" ),
+                optNumber( n, at, "frequencyPenalty" ),
+                optNumber( n, at, "repeatPenalty" ) ) ;
+        return sampler.isEmpty() ? null : sampler ;
+    }
+
+    /**
+     * A model's optional {@code logprobs}: 1 to {@link #MAX_LOGPROBS}
+     * alternatives per token; null if absent. Only Ollama returns them, so
+     * an OpenRouter model with it is refused: a gate fed no logprobs would
+     * pass everything.
+     */
+    private Integer logprobs( JsonNode model, String path,
+                              boolean openRouter ) {
+
+        if( !model.has( "logprobs" ) ) return null ;
+
+        int k = integer( model, path, "logprobs", 1 ) ;
+        if( k > MAX_LOGPROBS ) {
+            throw error( path + ".logprobs", "must be at most " +
+                         MAX_LOGPROBS ) ;
+        }
+        if( openRouter ) {
+            throw error( path + ".logprobs", "is supported on Ollama " +
+                         "models only" ) ;
+        }
+        return k ;
+    }
+
+    /** An optional number of at least 0; null if absent. */
+    private Double optNumber( JsonNode parent, String path, String key ) {
+
+        if( !parent.has( key ) ) return null ;
+
+        JsonNode n = required( parent, path, key ) ;
+        if( !n.isNumber() || n.asDouble() < 0 ) {
+            throw error( join( path, key ), "must be a number of at least 0" ) ;
+        }
+        return n.asDouble() ;
     }
 
     private Duration seconds( JsonNode parent, String path, String key ) {

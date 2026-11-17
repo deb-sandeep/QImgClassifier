@@ -201,3 +201,171 @@ The client already sends it (`NXRServerClient.pending`): Load fetches after
 the last question loaded, Load from start without the parameter. Until the
 server reads it, the parameter is ignored and every fetch starts from the
 first.
+
+## 4. Transcription pending fetch: search criteria (implemented 2026-11-17)
+
+`GET /Master/Question/Transcription/Pending?batchSize=1..100&afterId=` (see
+`SConsoleNxt/doc/feature-enhancements/2026-11-17/question-transcription/api-changes.md`)
+returns every pending question by id. The transcriber (QTranscriber, being
+designed) works the queue the topic reviewer's way, by search: the user
+picks syllabuses or topics, and the results come in server id order behind
+a cursor that a new search resets. So the fetch needs the topic review
+fetch's criteria.
+
+Requested: two optional parameters, with the rules of
+`TopicReview/Pending`:
+
+```
+GET /Master/Question/Transcription/Pending?syllabusNames=IIT Physics,IIT Chemistry&batchSize=50&afterId=6155
+GET /Master/Question/Transcription/Pending?topicIds=12,15&batchSize=50
+```
+
+| Query param | Rules |
+|---|---|
+| `syllabusNames` | Optional. Comma-separated syllabus names |
+| `topicIds` | Optional. Comma-separated topic ids. If both are given, `topicIds` is used and `syllabusNames` ignored |
+| `batchSize`, `afterId` | As now |
+
+- Neither given: all pending questions, as now (so existing callers keep
+  working).
+- The result is the first `batchSize` pending questions matching the
+  criteria with `id > afterId`, by id.
+- `totalResults` counts all pending questions matching the criteria,
+  ignoring `afterId`.
+- `data.criteria` echoes the filter as applied, the ignored one `null`, as
+  in `TopicReview/Pending`.
+- Items keep their shape (`question`, `lctCtxId`, `lctCtxTranscribed`).
+- Errors (HTTP 400), as in `TopicReview/Pending`: `Invalid topicIds.`,
+  `Syllabus 'X' not found.`, `Topic 15 not found.`.
+
+Implemented on dev 2026-11-17 (`api-changes.md` rev 2, `feature-design.md`
+decision 11); the Pi deploy is pending. As requested, with these details:
+
+- Blank entries and duplicates are dropped; a blank parameter counts as
+  absent.
+- `data.criteria` is `{syllabusNames, topicIds, afterId}`; `afterId` is
+  null when absent.
+- `batchSize` and `afterId` are checked before the filter. An unknown
+  syllabus is checked only when `topicIds` is absent; the first unknown
+  topic or syllabus is named.
+- The paging parameter stays `batchSize` (not `limit` as in
+  `TopicReview/Pending`), and neither filter is required.
+
+## 5. LCT questions: self-contained content and a passage read (implemented 2026-11-17)
+
+Today an LCT question's transcription holds only its question part, and its
+passage is stored once per group (`api-changes.md`, *LCT groups*). The user
+wants each LCT question to stand on its own: its `content` holds the passage
+as well, so the indexer (and any reader) needs no join to `lctCtx` to get
+the whole question.
+
+The transcriber works an LCT group like this: before a question of the
+group is transcribed, it asks the server for the group's passage. If the
+server has it, only the question part is transcribed, with the passage
+given to the model as context. If not, the passage is transcribed first
+and held in the transcriber's workspace (not saved) until the user saves:
+the first question of the group saved then carries it as `lctCtx`, as now.
+A passage the user marks faulty in a spot check is re-transcribed and the
+group's staged questions rebuilt before anything reaches the server. So no
+passage-only POST is needed.
+
+### 5.1 The content of an LCT question
+
+An LCT question's `content` is the passage, a marker line, then the
+question part:
+
+```
+<passage>
+
+<!-- question -->
+
+<question part>
+```
+
+That is, `content = passage + "\n\n<!-- question -->\n\n" + questionPart`.
+The marker is an HTML comment, so it doesn't show when the markdown is
+rendered, and lets a client split the two parts again.
+
+Requested, on `POST /Master/Question/Transcription`, for an LCT question:
+
+- `content` must start with the group's passage followed by the marker:
+  the `lctCtx.content` sent in the same item if any, else the stored
+  passage. The question part after it must not be blank. Otherwise the
+  item is REJECTED, e.g. `Question 6201: content does not start with the
+  passage of LCT context LK-A-P-11://P/LCT/1.` This keeps an old copy of a
+  passage from being saved.
+- Non-LCT questions are unchanged (the marker is not required or checked).
+- `GET /Master/Question/Transcription/{questionId}`: `content` is the whole
+  question; `lctCtx` may stay in the reply, but rendering `content` alone
+  is now the full question.
+
+### 5.2 Read a group's passage (new)
+
+```
+GET /Master/Question/Transcription/LctCtx?lctCtxId=LK-A-P-11://P/LCT/1
+```
+
+The question part of a pending question can't be transcribed without the
+passage, and today a passage can be read only through a question already
+transcribed.
+
+```json
+{
+  "lctCtxId"  : "LK-A-P-11://P/LCT/1",
+  "aiModel"   : "qwen3.5:27b-q8_0",
+  "content"   : "...",
+  "questions" : [
+    {
+      "id"          : 6201,
+      "questionId"  : "LK-A-P-11://P/LCT/1/49",
+      "transcribed" : true,
+      "current"     : true
+    }
+  ]
+}
+```
+
+- `questions` lists every question of the group, by `id`: `transcribed`
+  whether it has a transcription, `current` whether that transcription
+  starts with the stored passage and the marker (null when not
+  transcribed).
+- When a passage is replaced (an item's `lctCtx` with new content), the
+  group's other saved questions still hold the old copy. `current: false`
+  tells the transcriber which to re-save: it splits off their question
+  part at the marker, puts the new passage in front and saves them again,
+  with no model call.
+- An unknown or untranscribed group: HTTP 404, `LCT context X is not
+  transcribed.` (or a 200 with `content: null` and the `questions` list,
+  whichever fits the server's conventions better; the transcriber needs
+  the list either way to know the group exists).
+- A malformed `lctCtxId` (not `<questionId prefix>/<lctSequence>`): HTTP
+  400.
+
+### 5.3 Existing transcriptions
+
+Any LCT transcription stored before this change holds the question part
+alone; the server decides whether to migrate them (prepend the passage and
+the marker) or delete them so they are pending again.
+
+Implemented and verified on dev 2026-11-17 (`api-changes.md` rev 3,
+`feature-design.md` decision 12); the Pi deploy is pending. As requested,
+with these details:
+
+- The passage + marker prefix is compared exactly. A blank question part
+  has its own message: `Question 6156: the question part after the passage
+  is empty.`
+- The passage read returns 200 with `aiModel`, `content` and `lastUpdateAt`
+  null when the group exists but its passage isn't stored; `questions` is
+  filled either way. `current` is false for a question transcribed while
+  no passage is stored.
+- Errors (HTTP 400): `Invalid lctCtxId.`; `LCT context X not found.` when
+  no LCT question is in the group (no 404).
+- Replacing a passage leaves the group's other transcriptions as they are;
+  the read reports them with `current: false`.
+- Nothing migrated: no transcription had been stored on dev or the Pi.
+- The prefix check runs after the existing checks. The passage compared is
+  the item's `lctCtx.content`, else the stored one, including one stored by
+  an earlier item of the same request. Comparison is exact, with no
+  whitespace normalisation.
+- A malformed `lctCtxId` is one not matching `<non-space prefix>/<digits>`;
+  surrounding whitespace is trimmed. `lastUpdateAt` is an extra field.

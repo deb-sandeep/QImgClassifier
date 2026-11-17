@@ -1,0 +1,2234 @@
+[
+  {
+    "key": "10471",
+    "questionId": "LK-A-C-13://C/LCT/1/41",
+    "kind": "lct-question",
+    "why": "no candidates at all",
+    "response": "responses/10471.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested": [],
+      "C3": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested3": []
+    }
+  },
+  {
+    "key": "5515",
+    "questionId": "AITS-13-A-FT1P2://C/MMT/2",
+    "kind": "question",
+    "why": "matrix-match table; \"mathrm\" vs \"text\" judged the same reading (formatting command removed)",
+    "response": "responses/5515.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested": [
+        {
+          "at": 273,
+          "chosen": "mathrm",
+          "rival": "text",
+          "diff": 0.3408,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested3": []
+    }
+  },
+  {
+    "key": "10392",
+    "questionId": "LK-A-M-28://M/SCA/36",
+    "kind": "question",
+    "why": "notation rivals judged the same reading (spacing, \"+\" vs \"+\\\", \"\\n\" vs \"\\n\\n\"); one contest only at MARGIN 0.5 (\"\\\" vs \"~\")",
+    "response": "responses/10392.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 1
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 1
+      },
+      "Cx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 1
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 1
+      },
+      "contested": [
+        {
+          "at": 36,
+          "chosen": " +",
+          "rival": "+\\",
+          "diff": 0.0831,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": true
+        },
+        {
+          "at": 59,
+          "chosen": " x",
+          "rival": "x",
+          "diff": 0.0605,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 63,
+          "chosen": " \\",
+          "rival": "~",
+          "diff": 0.4688,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 76,
+          "chosen": ".",
+          "rival": " $",
+          "diff": 0.4426,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": true
+        },
+        {
+          "at": 84,
+          "chosen": "\n",
+          "rival": "\n\n",
+          "diff": 0.2571,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 1
+      },
+      "contested3": [
+        {
+          "line": 1,
+          "chosen": " \\",
+          "rival": "~",
+          "diff": 0.4688
+        }
+      ]
+    }
+  },
+  {
+    "key": "9361",
+    "questionId": "LK-A-C-04://C/SCA/6",
+    "kind": "question",
+    "why": "FTFF: \" F\" vs \" FT\" judged the same reading (stray space); \"(I\" vs \"-\" list marker contested by §4.2, not by the md variant",
+    "response": "responses/9361.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 1,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cx": {
+        "0.1": 1,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested": [
+        {
+          "at": 50,
+          "chosen": "(I",
+          "rival": "-",
+          "diff": 0.0392,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 70,
+          "chosen": "\n",
+          "rival": " (",
+          "diff": 0.3869,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 165,
+          "chosen": "\n",
+          "rival": "\n\n",
+          "diff": 0.0021,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 415,
+          "chosen": " F",
+          "rival": " FT",
+          "diff": 0.0261,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 419,
+          "chosen": " F",
+          "rival": "\n",
+          "diff": 0.3601,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 427,
+          "chosen": " FT",
+          "rival": " F",
+          "diff": 0.2611,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested3": []
+    }
+  },
+  {
+    "key": "36404",
+    "questionId": "PYQ-M-240406-S2://M/SCA/10",
+    "kind": "question",
+    "why": "digit-only contest at the source typo (3 vs 2), minorOnly",
+    "response": "responses/36404.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 0,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 2,
+        "0.5": 3
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 1
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested": [
+        {
+          "at": 10,
+          "chosen": " \\",
+          "rival": "\\",
+          "diff": 0.3421,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 40,
+          "chosen": " -",
+          "rival": "-",
+          "diff": 0.4555,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": true
+        },
+        {
+          "at": 66,
+          "chosen": " \\",
+          "rival": " ........",
+          "diff": 0.3581,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": true
+        },
+        {
+          "at": 78,
+          "chosen": " -",
+          "rival": "-",
+          "diff": 0.4951,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": true
+        },
+        {
+          "at": 94,
+          "chosen": "))",
+          "rival": ")).",
+          "diff": 0.4669,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 129,
+          "chosen": "3",
+          "rival": "2",
+          "diff": 0.119,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": true
+        },
+        {
+          "at": 160,
+          "chosen": " $$",
+          "rival": " \\",
+          "diff": 0.0237,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 163,
+          "chosen": "\n",
+          "rival": " is",
+          "diff": 0.1691,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 175,
+          "chosen": "\n\n",
+          "rival": "\n",
+          "diff": 0.1889,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested3": []
+    }
+  },
+  {
+    "key": "37100",
+    "questionId": "PYQ-A-13-P1://C/MCA/34",
+    "kind": "question",
+    "why": "smiles: lines scored; SMILES contests at MARGIN 0.4-0.5",
+    "response": "responses/37100.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 1,
+        "0.5": 3
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 1,
+        "0.5": 3
+      },
+      "Cx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 1,
+        "0.5": 3
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 1,
+        "0.5": 3
+      },
+      "contested": [
+        {
+          "at": 165,
+          "chosen": "CC",
+          "rival": "=",
+          "diff": 0.4616,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 172,
+          "chosen": "\n\n",
+          "rival": "\n",
+          "diff": 0.1512,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 274,
+          "chosen": "=",
+          "rival": "C",
+          "diff": 0.4879,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 536,
+          "chosen": "^\\",
+          "rival": "^",
+          "diff": 0.4644,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 670,
+          "chosen": "=",
+          "rival": "=C",
+          "diff": 0.3019,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 1,
+        "0.5": 3
+      },
+      "contested3": [
+        {
+          "line": 5,
+          "chosen": "CC",
+          "rival": "=",
+          "diff": 0.4616
+        },
+        {
+          "line": 12,
+          "chosen": "=",
+          "rival": "C",
+          "diff": 0.4879
+        },
+        {
+          "line": 26,
+          "chosen": "=",
+          "rival": "=C",
+          "diff": 0.3019
+        }
+      ]
+    }
+  },
+  {
+    "key": "34146",
+    "questionId": "PYQ-M-260121-S2://C/SCA/59",
+    "kind": "question",
+    "why": "diagram block with four structures, description lines skipped",
+    "response": "responses/34146.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 1
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 1
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested": [
+        {
+          "at": 85,
+          "chosen": " $\\",
+          "rival": " KCN",
+          "diff": 0.4097,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 623,
+          "chosen": "```",
+          "rival": "Labels",
+          "diff": 0.4528,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 633,
+          "chosen": " $",
+          "rival": " a",
+          "diff": 0.002,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested3": []
+    }
+  },
+  {
+    "key": "33745",
+    "questionId": "PYQ-M-250404-S2://P/SCA/31",
+    "kind": "question",
+    "why": "graph diagram block; closing-fence contest (spec counts it, md variant does not)",
+    "response": "responses/33745.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 1,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 2,
+        "0.5": 2
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cx": {
+        "0.1": 1,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 2,
+        "0.5": 2
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested": [
+        {
+          "at": 16,
+          "chosen": " $",
+          "rival": " x",
+          "diff": 0.0305,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 856,
+          "chosen": "```",
+          "rival": "D",
+          "diff": 0.0168,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 894,
+          "chosen": " ",
+          "rival": " $",
+          "diff": 0.3628,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 906,
+          "chosen": " ",
+          "rival": " $",
+          "diff": 0.0528,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 1230,
+          "chosen": "\n\n",
+          "rival": "\n",
+          "diff": 0.2112,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 1232,
+          "chosen": "-",
+          "rival": "(",
+          "diff": 0.3298,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested3": []
+    }
+  },
+  {
+    "key": "34139",
+    "questionId": "PYQ-M-260121-S2://C/SCA/52",
+    "kind": "question",
+    "why": "table pipes contested (spec) vs notation (md variant)",
+    "response": "responses/34139.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 1,
+        "0.2": 2,
+        "0.3": 2,
+        "0.4": 2,
+        "0.5": 2
+      },
+      "Cmd": {
+        "0.1": 1,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cx": {
+        "0.1": 1,
+        "0.2": 2,
+        "0.3": 2,
+        "0.4": 2,
+        "0.5": 2
+      },
+      "Cmdx": {
+        "0.1": 1,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "contested": [
+        {
+          "at": 29,
+          "chosen": " |",
+          "rival": " List",
+          "diff": 0.1652,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 38,
+          "chosen": " |",
+          "rival": " Pair",
+          "diff": 0.0609,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 433,
+          "chosen": "\n\n",
+          "rival": "\n",
+          "diff": 0.4664,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 1,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "contested3": [
+        {
+          "line": 3,
+          "chosen": " |",
+          "rival": " Pair",
+          "diff": 0.0609
+        }
+      ]
+    }
+  },
+  {
+    "key": "33998",
+    "questionId": "PYQ-M-250408-S2://C/SCA/61",
+    "kind": "question",
+    "why": "§4.1: code fence with empty info string (ASCII-art structures)",
+    "response": "responses/33998.json",
+    "expected": {
+      "wellFormed": [
+        "fence info string ''"
+      ],
+      "C": {
+        "0.1": 12,
+        "0.2": 12,
+        "0.3": 13,
+        "0.4": 15,
+        "0.5": 15
+      },
+      "Cmd": {
+        "0.1": 11,
+        "0.2": 11,
+        "0.3": 12,
+        "0.4": 14,
+        "0.5": 14
+      },
+      "Cx": {
+        "0.1": 12,
+        "0.2": 12,
+        "0.3": 13,
+        "0.4": 15,
+        "0.5": 15
+      },
+      "Cmdx": {
+        "0.1": 11,
+        "0.2": 11,
+        "0.3": 12,
+        "0.4": 14,
+        "0.5": 14
+      },
+      "contested": [
+        {
+          "at": 3,
+          "chosen": "\n",
+          "rival": "di",
+          "diff": 0.0953,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 15,
+          "chosen": "3",
+          "rival": "",
+          "diff": 0.3362,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": true
+        },
+        {
+          "at": 19,
+          "chosen": "      ",
+          "rival": "       ",
+          "diff": 0.0213,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 31,
+          "chosen": " -",
+          "rival": " —",
+          "diff": 0.2237,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 53,
+          "chosen": "     ",
+          "rival": "      ",
+          "diff": 0.0403,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 58,
+          "chosen": " pH",
+          "rival": " ↓",
+          "diff": 0.0421,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 65,
+          "chosen": "     ",
+          "rival": "    ",
+          "diff": 0.0362,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 85,
+          "chosen": " |",
+          "rival": " ↓",
+          "diff": 0.3253,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 87,
+          "chosen": "           ",
+          "rival": "          ",
+          "diff": 0.2713,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 218,
+          "chosen": " H",
+          "rival": " Structure",
+          "diff": 0.304,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 222,
+          "chosen": " -",
+          "rival": "-",
+          "diff": 0.3724,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": true
+        },
+        {
+          "at": 233,
+          "chosen": "⁻",
+          "rival": "�",
+          "diff": 0.0,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 240,
+          "chosen": "3",
+          "rival": "",
+          "diff": 0.4053,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": true
+        },
+        {
+          "at": 242,
+          "chosen": "⁺",
+          "rival": "�",
+          "diff": 0.0,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 256,
+          "chosen": "      ",
+          "rival": "     ",
+          "diff": 0.1688,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 264,
+          "chosen": "             ",
+          "rival": "              ",
+          "diff": 0.0006,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 280,
+          "chosen": "   ",
+          "rival": "     ",
+          "diff": 0.0067,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 292,
+          "chosen": "     ",
+          "rival": "      ",
+          "diff": 0.3854,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 328,
+          "chosen": "⁻",
+          "rival": "�",
+          "diff": 0.0,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 337,
+          "chosen": "⁺",
+          "rival": "�",
+          "diff": 0.0,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 349,
+          "chosen": "⁻",
+          "rival": "�",
+          "diff": 0.0,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 412,
+          "chosen": "⁺",
+          "rival": "�",
+          "diff": 0.0,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 424,
+          "chosen": "⁻",
+          "rival": "�",
+          "diff": 0.0,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 433,
+          "chosen": "⁺",
+          "rival": "�",
+          "diff": 0.0,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 508,
+          "chosen": "⁺",
+          "rival": "�",
+          "diff": 0.0,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 540,
+          "chosen": "⁻",
+          "rival": "�",
+          "diff": 0.0,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 11,
+        "0.2": 11,
+        "0.3": 11,
+        "0.4": 13,
+        "0.5": 13
+      },
+      "contested3": [
+        {
+          "line": 6,
+          "chosen": " pH",
+          "rival": " ↓",
+          "diff": 0.0421
+        },
+        {
+          "line": 7,
+          "chosen": " |",
+          "rival": " ↓",
+          "diff": 0.3253
+        },
+        {
+          "line": 13,
+          "chosen": " H",
+          "rival": " Structure",
+          "diff": 0.304
+        },
+        {
+          "line": 13,
+          "chosen": "⁻",
+          "rival": "�",
+          "diff": 0.0
+        },
+        {
+          "line": 13,
+          "chosen": "⁺",
+          "rival": "�",
+          "diff": 0.0
+        },
+        {
+          "line": 17,
+          "chosen": "⁻",
+          "rival": "�",
+          "diff": 0.0
+        },
+        {
+          "line": 17,
+          "chosen": "⁺",
+          "rival": "�",
+          "diff": 0.0
+        },
+        {
+          "line": 17,
+          "chosen": "⁻",
+          "rival": "�",
+          "diff": 0.0
+        },
+        {
+          "line": 21,
+          "chosen": "⁺",
+          "rival": "�",
+          "diff": 0.0
+        },
+        {
+          "line": 21,
+          "chosen": "⁻",
+          "rival": "�",
+          "diff": 0.0
+        },
+        {
+          "line": 21,
+          "chosen": "⁺",
+          "rival": "�",
+          "diff": 0.0
+        },
+        {
+          "line": 25,
+          "chosen": "⁺",
+          "rival": "�",
+          "diff": 0.0
+        },
+        {
+          "line": 25,
+          "chosen": "⁻",
+          "rival": "�",
+          "diff": 0.0
+        }
+      ]
+    }
+  },
+  {
+    "key": "36958",
+    "questionId": "PYQ-A-08-P2://P/MMT/44",
+    "kind": "question",
+    "why": "§4.1: diagram fences inside table cells (bad info strings)",
+    "response": "responses/36958.json",
+    "expected": {
+      "wellFormed": [
+        "fence info string '| (p) Real image |'",
+        "fence info string '| (r) Magnified image |'"
+      ],
+      "C": {
+        "0.1": 3,
+        "0.2": 7,
+        "0.3": 9,
+        "0.4": 14,
+        "0.5": 19
+      },
+      "Cmd": {
+        "0.1": 3,
+        "0.2": 5,
+        "0.3": 7,
+        "0.4": 12,
+        "0.5": 17
+      },
+      "Cx": {
+        "0.1": 3,
+        "0.2": 7,
+        "0.3": 9,
+        "0.4": 14,
+        "0.5": 19
+      },
+      "Cmdx": {
+        "0.1": 3,
+        "0.2": 5,
+        "0.3": 7,
+        "0.4": 12,
+        "0.5": 17
+      },
+      "contested": [
+        {
+          "at": 77,
+          "chosen": " **",
+          "rival": " Column",
+          "diff": 0.1332,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 463,
+          "chosen": " <",
+          "rival": " |",
+          "diff": 0.1555,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 468,
+          "chosen": " ```",
+          "rival": " [",
+          "diff": 0.0805,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 480,
+          "chosen": "Object",
+          "rival": "A",
+          "diff": 0.1994,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 488,
+          "chosen": " on",
+          "rival": " is",
+          "diff": 0.2233,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 495,
+          "chosen": " left",
+          "rival": " optic",
+          "diff": 0.3935,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 501,
+          "chosen": " optic",
+          "rival": " a",
+          "diff": 0.3244,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 523,
+          "chosen": ".",
+          "rival": " to",
+          "diff": 0.4944,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 524,
+          "chosen": "\n",
+          "rival": " Component",
+          "diff": 0.488,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 525,
+          "chosen": "To",
+          "rival": "Component",
+          "diff": 0.0882,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 537,
+          "chosen": " is",
+          "rival": " of",
+          "diff": 0.2155,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 559,
+          "chosen": "cur",
+          "rival": "reflect",
+          "diff": 0.4439,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 565,
+          "chosen": " surface",
+          "rival": " inward",
+          "diff": 0.398,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 573,
+          "chosen": " facing",
+          "rival": " faces",
+          "diff": 0.3947,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 586,
+          "chosen": " h",
+          "rival": " shaded",
+          "diff": 0.4359,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 588,
+          "chosen": "atched",
+          "rival": "atching",
+          "diff": 0.3993,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 594,
+          "chosen": " on",
+          "rival": " lines",
+          "diff": 0.1253,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 601,
+          "chosen": " right",
+          "rival": " back",
+          "diff": 0.4792,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 908,
+          "chosen": "double",
+          "rival": "th",
+          "diff": 0.064,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 3,
+        "0.2": 5,
+        "0.3": 8,
+        "0.4": 13,
+        "0.5": 18
+      },
+      "contested3": [
+        {
+          "line": 5,
+          "chosen": " <",
+          "rival": " Object",
+          "diff": 0.2266
+        },
+        {
+          "line": 5,
+          "chosen": " ```",
+          "rival": " [",
+          "diff": 0.0805
+        },
+        {
+          "line": 6,
+          "chosen": "Object",
+          "rival": "A",
+          "diff": 0.1994
+        },
+        {
+          "line": 6,
+          "chosen": " on",
+          "rival": " is",
+          "diff": 0.2233
+        },
+        {
+          "line": 6,
+          "chosen": " left",
+          "rival": " optic",
+          "diff": 0.3935
+        },
+        {
+          "line": 6,
+          "chosen": " optic",
+          "rival": " a",
+          "diff": 0.3244
+        },
+        {
+          "line": 6,
+          "chosen": ".",
+          "rival": " to",
+          "diff": 0.4944
+        },
+        {
+          "line": 6,
+          "chosen": "\n",
+          "rival": " Component",
+          "diff": 0.488
+        },
+        {
+          "line": 7,
+          "chosen": "To",
+          "rival": "Component",
+          "diff": 0.0882
+        },
+        {
+          "line": 7,
+          "chosen": " is",
+          "rival": " of",
+          "diff": 0.2155
+        },
+        {
+          "line": 7,
+          "chosen": "cur",
+          "rival": "reflect",
+          "diff": 0.4439
+        },
+        {
+          "line": 7,
+          "chosen": " surface",
+          "rival": " inward",
+          "diff": 0.398
+        },
+        {
+          "line": 7,
+          "chosen": " facing",
+          "rival": " faces",
+          "diff": 0.3947
+        },
+        {
+          "line": 7,
+          "chosen": " h",
+          "rival": " shaded",
+          "diff": 0.4359
+        },
+        {
+          "line": 7,
+          "chosen": "atched",
+          "rival": "atching",
+          "diff": 0.3993
+        },
+        {
+          "line": 7,
+          "chosen": " on",
+          "rival": " lines",
+          "diff": 0.1253
+        },
+        {
+          "line": 7,
+          "chosen": " right",
+          "rival": " back",
+          "diff": 0.4792
+        },
+        {
+          "line": 15,
+          "chosen": "double",
+          "rival": "th",
+          "diff": 0.064
+        }
+      ]
+    }
+  },
+  {
+    "key": "10470-ctx",
+    "questionId": "LK-A-C-13://C/LCT/1",
+    "kind": "lct-passage",
+    "why": "LCT passage",
+    "response": "responses/10470-ctx.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "contested": [
+        {
+          "at": 242,
+          "chosen": "A",
+          "rival": "$\\",
+          "diff": 0.3045,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 243,
+          "chosen": " B",
+          "rival": " &",
+          "diff": 0.3978,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 388,
+          "chosen": " $",
+          "rival": " [",
+          "diff": 0.1659,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 392,
+          "chosen": "ce",
+          "rival": "mathrm",
+          "diff": 0.449,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 420,
+          "chosen": " |",
+          "rival": "\n",
+          "diff": 0.4947,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "contested3": [
+        {
+          "line": 4,
+          "chosen": " B",
+          "rival": " &",
+          "diff": 0.3978
+        }
+      ]
+    }
+  },
+  {
+    "key": "10470",
+    "questionId": "LK-A-C-13://C/LCT/1/40",
+    "kind": "lct-question",
+    "why": "LCT question part (passage in the prompt)",
+    "response": "responses/10470.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested": [
+        {
+          "at": 41,
+          "chosen": "d",
+          "rival": "dt",
+          "diff": 0.487,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 348,
+          "chosen": " |",
+          "rival": "",
+          "diff": 0.265,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested3": []
+    }
+  },
+  {
+    "key": "10665",
+    "questionId": "LK-A-C-17://C/ART/16",
+    "kind": "question",
+    "why": "spec and md variant differ at MARGIN 0.3",
+    "response": "responses/10665.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 0,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 2
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cx": {
+        "0.1": 0,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 2
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested": [
+        {
+          "at": 15,
+          "chosen": ":**",
+          "rival": "**:",
+          "diff": 0.4883,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 281,
+          "chosen": "\n\n",
+          "rival": "\n",
+          "diff": 0.0203,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 447,
+          "chosen": " NOT",
+          "rival": " **",
+          "diff": 0.118,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested3": []
+    }
+  },
+  {
+    "key": "11736-ctx",
+    "questionId": "LK-A-M-08://M/LCT/3",
+    "kind": "lct-passage",
+    "why": "minor rule changes C at MARGIN 0.5",
+    "response": "responses/11736-ctx.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 2
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 1
+      },
+      "Cx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested": [
+        {
+          "at": 34,
+          "chosen": " ....",
+          "rival": " .....",
+          "diff": 0.4948,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": true
+        },
+        {
+          "at": 79,
+          "chosen": " $",
+          "rival": " ${",
+          "diff": 0.4389,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 89,
+          "chosen": ",",
+          "rival": "$,",
+          "diff": 0.2287,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": true
+        },
+        {
+          "at": 109,
+          "chosen": " ....",
+          "rival": ",",
+          "diff": 0.4761,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": true
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested3": []
+    }
+  },
+  {
+    "key": "15933",
+    "questionId": "PYQ-M-210226-S2://M/IVT/7",
+    "kind": "question",
+    "why": "spec and md variant differ at MARGIN 0.3",
+    "response": "responses/15933.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 0,
+        "0.2": 2,
+        "0.3": 2,
+        "0.4": 2,
+        "0.5": 2
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cx": {
+        "0.1": 0,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "contested": [
+        {
+          "at": 14,
+          "chosen": " \\",
+          "rival": " ...,",
+          "diff": 0.129,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": true
+        },
+        {
+          "at": 20,
+          "chosen": ",",
+          "rival": " X",
+          "diff": 0.1181,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 251,
+          "chosen": " $",
+          "rival": " ",
+          "diff": 0.0756,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 296,
+          "chosen": " \\",
+          "rival": " ......",
+          "diff": 0.28,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": true
+        },
+        {
+          "at": 306,
+          "chosen": "_.",
+          "rival": "_",
+          "diff": 0.4914,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": true
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "contested3": [
+        {
+          "line": 1,
+          "chosen": ",",
+          "rival": " X",
+          "diff": 0.1181
+        }
+      ]
+    }
+  },
+  {
+    "key": "24257",
+    "questionId": "RB-PM-M-21://M/ART/1",
+    "kind": "question",
+    "why": "spec and md variant differ at MARGIN 0.3",
+    "response": "responses/24257.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 0,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cx": {
+        "0.1": 0,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested": [
+        {
+          "at": 94,
+          "chosen": "\n",
+          "rival": "\n\n",
+          "diff": 0.1583,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 96,
+          "chosen": " **",
+          "rival": " Statement",
+          "diff": 0.1485,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 346,
+          "chosen": " ",
+          "rival": "1",
+          "diff": 0.1382,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": true
+        },
+        {
+          "at": 380,
+          "chosen": "\n",
+          "rival": "\n\n",
+          "diff": 0.0282,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested3": []
+    }
+  },
+  {
+    "key": "24320",
+    "questionId": "RB-PM-M-32://M/ART/2",
+    "kind": "question",
+    "why": "spec and md variant differ at MARGIN 0.3",
+    "response": "responses/24320.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 1,
+        "0.2": 3,
+        "0.3": 3,
+        "0.4": 3,
+        "0.5": 3
+      },
+      "Cmd": {
+        "0.1": 1,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cx": {
+        "0.1": 1,
+        "0.2": 3,
+        "0.3": 3,
+        "0.4": 3,
+        "0.5": 3
+      },
+      "Cmdx": {
+        "0.1": 1,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "contested": [
+        {
+          "at": 1,
+          "chosen": " Statement",
+          "rival": " **",
+          "diff": 0.1311,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 11,
+          "chosen": " –",
+          "rival": " -",
+          "diff": 0.0777,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        },
+        {
+          "at": 76,
+          "chosen": " -",
+          "rival": "-",
+          "diff": 0.2105,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": true
+        },
+        {
+          "at": 239,
+          "chosen": "\n\n",
+          "rival": "\n",
+          "diff": 0.0379,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 310,
+          "chosen": " **",
+          "rival": " not",
+          "diff": 0.1467,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested3": []
+    }
+  },
+  {
+    "key": "24683",
+    "questionId": "AL-A-19://C/IVT/8",
+    "kind": "question",
+    "why": "SMILES present",
+    "response": "responses/24683.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 0,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cx": {
+        "0.1": 0,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "contested": [
+        {
+          "at": 101,
+          "chosen": "\n\n",
+          "rival": "\n",
+          "diff": 0.1621,
+          "contested": false,
+          "contestedMd": false,
+          "minorOnly": false
+        },
+        {
+          "at": 226,
+          "chosen": "\n\n",
+          "rival": " A",
+          "diff": 0.1165,
+          "contested": true,
+          "contestedMd": true,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 1,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "contested3": [
+        {
+          "line": 8,
+          "chosen": "\n\n",
+          "rival": " A",
+          "diff": 0.1165
+        }
+      ]
+    }
+  },
+  {
+    "key": "24808",
+    "questionId": "AL-A-23://P/IVT/1",
+    "kind": "question",
+    "why": "spec and md variant differ at MARGIN 0.3",
+    "response": "responses/24808.json",
+    "expected": {
+      "wellFormed": [],
+      "C": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cmd": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "Cx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 1,
+        "0.4": 1,
+        "0.5": 1
+      },
+      "Cmdx": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested": [
+        {
+          "at": 733,
+          "chosen": "```",
+          "rival": "The",
+          "diff": 0.2292,
+          "contested": true,
+          "contestedMd": false,
+          "minorOnly": false
+        }
+      ],
+      "C3": {
+        "0.1": 0,
+        "0.2": 0,
+        "0.3": 0,
+        "0.4": 0,
+        "0.5": 0
+      },
+      "contested3": []
+    }
+  }
+]

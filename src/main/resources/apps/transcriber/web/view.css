@@ -1,0 +1,89 @@
+/* QTranscriber's rendered view: close to how the question will read. */
+
+body {
+  margin      : 0 ;
+  padding     : 10px 14px ;
+  font-family : Helvetica, Arial, sans-serif ;
+  font-size   : 15px ;
+  line-height : 1.5 ;
+  color       : #222 ;
+  background  : #fff ;
+}
+
+p { margin : 0.4em 0 ; }
+
+ol, ul { margin : 0.3em 0 ; padding-left : 1.6em ; }
+
+table {
+  border-collapse : collapse ;
+  margin          : 0.5em 0 ;
+}
+
+th, td {
+  border  : 1px solid #bbb ;
+  padding : 3px 8px ;
+}
+
+th { background : #f2f2f2 ; }
+
+/* A figure: its description in a frame, a structure drawn under it. */
+.diagram {
+  border        : 1px solid #8aa4c8 ;
+  border-left   : 4px solid #8aa4c8 ;
+  background    : #f4f7fc ;
+  border-radius : 3px ;
+  padding       : 6px 10px ;
+  margin        : 0.5em 0 ;
+  font-size     : 14px ;
+}
+
+.diagram .label {
+  font-size   : 11px ;
+  color       : #5b7399 ;
+  font-weight : bold ;
+}
+
+.smiles svg {
+  display    : block ;
+  width      : 320px ;
+  height     : 220px ;
+  margin-top : 4px ;
+}
+
+.smiles .code { font-family : Menlo, monospace ; font-size : 12px ;
+                color : #555 ; }
+
+.bad { color : #c62828 ; font-weight : bold ; }
+
+/* A reading the model wasn't sure of. */
+.uncertain {
+  border     : 1px dashed #e0a030 ;
+  background : #fff6e0 ;
+  padding    : 4px 8px ;
+  margin     : 0.5em 0 ;
+  white-space: pre-wrap ;
+}
+
+/* Between an LCT passage and the question part. */
+hr.lct {
+  border     : none ;
+  border-top : 2px dashed #9575cd ;
+  margin     : 1em 0 ;
+}
+
+.math-error {
+  color       : #c62828 ;
+  font-family : Menlo, monospace ;
+  font-size   : 13px ;
+}
+
+pre {
+  background : #f6f6f6 ;
+  padding    : 6px 8px ;
+  overflow-x : auto ;
+}
+
+#error {
+  color      : #c62828 ;
+  white-space: pre-wrap ;
+}

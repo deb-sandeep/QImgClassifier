@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<!--
+  QTranscriber's rendered view of a transcription (feature-design.md §8.1),
+  loaded once by MarkdownView; the app calls show( markdown ). Everything is
+  bundled in lib/, pinned; nothing comes from the network.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="view.css">
+  <script>
+    // Typeset only on request: show() converts each formula itself.
+    window.MathJax = {
+      startup : { typeset : false },
+      tex     : { packages : { '[+]' : [ 'mhchem' ] } },
+      svg     : { fontCache : 'local' },
+      options : { enableMenu   : false,
+                  menuOptions  : { settings : { assistiveMml : false } } }
+    } ;
+  </script>
+  <script src="lib/markdown-it-14.1.0.min.js"></script>
+  <script src="lib/smiles-drawer-2.1.7.min.js"></script>
+  <script src="lib/mathjax-3.2.2-tex-svg-full.js"></script>
+  <script src="view.js"></script>
+</head>
+<body>
+  <div id="content"></div>
+</body>
+</html>

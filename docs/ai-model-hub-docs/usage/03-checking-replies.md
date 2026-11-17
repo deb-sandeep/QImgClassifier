@@ -89,3 +89,41 @@ with input, output, reasoning and cached tokens and the cost in USD, or
 the attempt's
 `AttemptResult`,
 reported to `attemptFinished` (see [Monitoring](08-monitoring.md)).
+
+## Token log probabilities
+
+A model whose app entry sets `logprobs` (Ollama only) returns each reply
+token with its log probability and the `logprobs` most likely alternatives
+at its place, in `AIReply.tokens()` (`null` otherwise): a list of
+`TokenLogprob( token, logprob, bytes, top )`, where `top` is a list of
+`TokenLogprob.Alternative( token, logprob, bytes )`. `bytes` are the
+token's UTF-8 bytes as the model gave them: a token can be part of a
+multi-byte character, which its text shows as `�`.
+
+They let the app judge how sure the model was. Read them in the reply
+check: a `TaskPrompter`-style adapter overrides a parse that takes the
+whole `AIReply`, and the `JobListener.check` can then escalate a reply the
+model was unsure of (see [Escalation](06-escalation.md)).
+
+Log probabilities only mean something if the model writes its most likely
+token. Ollama models often ship with sampling and penalties in their
+Modelfile (e.g. `temperature 1`, `presence_penalty 1.5`), so set a greedy,
+unpenalised `sampler` with them:
+
+```json
+"qwen3.5:27b-q8_0" : {
+  "logprobs" : 5,
+  "sampler"  : {
+    "temperature"      : 0,
+    "topK"             : 1,
+    "presencePenalty"  : 0,
+    "frequencyPenalty" : 0,
+    "repeatPenalty"    : 1
+  }
+}
+```
+
+Logprobs slow generation (about 40% on Qwen 3.5 27B at one request in
+flight). They are not written to the transcripts: a long reply's list is
+large. Keep what you need from them yourself.
+

@@ -6,6 +6,7 @@ import com.sandy.sconsole.ai.FailureKind;
 import com.sandy.sconsole.ai.TokenUsage;
 import com.sandy.sconsole.ai.config.GatewayInfo;
 import com.sandy.sconsole.ai.config.ModelInfo;
+import com.sandy.sconsole.ai.config.Sampler;
 import com.sandy.sconsole.ai.internal.GatewayException.RateLimited;
 import com.sandy.sconsole.ai.internal.GatewayException.Scope;
 
@@ -70,6 +71,7 @@ final class OpenRouterGateway extends Gateway {
             ObjectNode payload = mapper.createObjectNode() ;
             payload.put( "model", id ) ;
             payload.put( "temperature", 0 ) ;
+            putSampler( payload, model.sampler() ) ;
 
             // Off unless asked for: for a short answer reasoning only adds
             // output tokens and time.
@@ -350,6 +352,29 @@ final class OpenRouterGateway extends Gateway {
     private static String provider( JsonNode error ) {
         String name = error.path( "metadata" ).path( "provider_name" ).asText( "" ) ;
         return name.isBlank() || name.equals( "null" ) ? null : name ;
+    }
+
+    /**
+     * A model's sampler settings, in OpenRouter's names; its
+     * {@code temperature} replaces the default 0.
+     */
+    private static void putSampler( ObjectNode payload, Sampler sampler ) {
+
+        if( sampler == null ) return ;
+        if( sampler.temperature() != null ) {
+            payload.put( "temperature", sampler.temperature() ) ;
+        }
+        if( sampler.topK() != null ) payload.put( "top_k", sampler.topK() ) ;
+        if( sampler.topP() != null ) payload.put( "top_p", sampler.topP() ) ;
+        if( sampler.presencePenalty() != null ) {
+            payload.put( "presence_penalty", sampler.presencePenalty() ) ;
+        }
+        if( sampler.frequencyPenalty() != null ) {
+            payload.put( "frequency_penalty", sampler.frequencyPenalty() ) ;
+        }
+        if( sampler.repeatPenalty() != null ) {
+            payload.put( "repetition_penalty", sampler.repeatPenalty() ) ;
+        }
     }
 
     /**

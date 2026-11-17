@@ -3,9 +3,11 @@ package com.sandy.sconsole.ai.internal;
 import com.sandy.sconsole.ai.AIReply;
 import com.sandy.sconsole.ai.AIRequest;
 import com.sandy.sconsole.ai.FailureKind;
+import com.sandy.sconsole.ai.TokenLogprob;
 import com.sandy.sconsole.ai.TokenUsage;
 import com.sandy.sconsole.ai.config.GatewayInfo;
 import com.sandy.sconsole.ai.config.ModelInfo;
+import com.sandy.sconsole.ai.config.Sampler;
 import com.sandy.sconsole.ai.internal.GatewayException.RateLimited;
 import com.sandy.sconsole.ai.internal.GatewayException.Scope;
 
@@ -19,6 +21,9 @@ import org.slf4j.LoggerFactory;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 /** Models served by an Ollama server ({@code /api/generate}). */
 final class OllamaGateway extends Gateway {
@@ -43,7 +48,10 @@ final class OllamaGateway extends Gateway {
      * ({@code num_predict}) when set; a reply cut off there fails as
      * {@link FailureKind#TRUNCATED}. A model with {@code structuredOutput}
      * is sent the request's schema as {@code format}, which holds its reply
-     * to that JSON: no prose around it.
+     * to that JSON: no prose around it. A model's {@code sampler} settings
+     * go in {@code options}, overriding its Modelfile's; with
+     * {@code logprobs} set, the reply's tokens come back with their log
+     * probabilities and that many alternatives ({@link AIReply#tokens}).
      */
     @Override
     AIReply complete( ModelInfo model, AIRequest request, Call call )
@@ -64,16 +72,19 @@ final class OllamaGateway extends Gateway {
             if( schema != null && model.structuredOutput() ) {
                 payload.set( "format", schema.schema() ) ;
             }
-            if( model.contextTokens() != null
-                || model.maxOutputTokens() != null ) {
-                ObjectNode options = payload.putObject( "options" ) ;
-                if( model.contextTokens() != null ) {
-                    options.put( "num_ctx", model.contextTokens() ) ;
-                }
-                if( model.maxOutputTokens() != null ) {
-                    options.put( "num_predict", model.maxOutputTokens() ) ;
-                }
+            if( model.logprobs() != null ) {
+                payload.put( "logprobs", true ) ;
+                payload.put( "top_logprobs", model.logprobs() ) ;
             }
+            ObjectNode options = mapper.createObjectNode() ;
+            if( model.contextTokens() != null ) {
+                options.put( "num_ctx", model.contextTokens() ) ;
+            }
+            if( model.maxOutputTokens() != null ) {
+                options.put( "num_predict", model.maxOutputTokens() ) ;
+            }
+            putSampler( options, model.sampler() ) ;
+            if( !options.isEmpty() ) payload.set( "options", options ) ;
 
             HttpRequest httpRequest = HttpRequest.newBuilder()
                     .uri( URI.create( info.url() ) )
@@ -126,7 +137,9 @@ final class OllamaGateway extends Gateway {
             }
             String thinking = body.path( "thinking" ).asText( "" ) ;
             return new AIReply( reply, thinking.isBlank() ? null : thinking,
-                                usage ) ;
+                                usage,
+                                model.logprobs() == null
+                                ? null : tokens( body.path( "logprobs" ) ) ) ;
         }
         catch( GatewayException e ) {
             throw e ;
@@ -139,10 +152,79 @@ final class OllamaGateway extends Gateway {
         }
     }
 
-    /** The failure for an error status from Ollama. */
+    /** The sampler settings as Ollama options. */
+    private static void putSampler( ObjectNode options, Sampler sampler ) {
+
+        if( sampler == null ) return ;
+        if( sampler.temperature() != null ) {
+            options.put( "temperature", sampler.temperature() ) ;
+        }
+        if( sampler.topK() != null ) options.put( "top_k", sampler.topK() ) ;
+        if( sampler.topP() != null ) options.put( "top_p", sampler.topP() ) ;
+        if( sampler.presencePenalty() != null ) {
+            options.put( "presence_penalty", sampler.presencePenalty() ) ;
+        }
+        if( sampler.frequencyPenalty() != null ) {
+            options.put( "frequency_penalty", sampler.frequencyPenalty() ) ;
+        }
+        if( sampler.repeatPenalty() != null ) {
+            options.put( "repeat_penalty", sampler.repeatPenalty() ) ;
+        }
+    }
+
+    /**
+     * Ollama's {@code logprobs} array, each entry
+     * {@code {token, logprob, bytes, top_logprobs}}; null if absent.
+     */
+    private static List<TokenLogprob> tokens( JsonNode logprobs ) {
+
+        if( !logprobs.isArray() ) return null ;
+
+        List<TokenLogprob> tokens = new ArrayList<>( logprobs.size() ) ;
+        for( JsonNode t : logprobs ) {
+            List<TokenLogprob.Alternative> top = new ArrayList<>() ;
+            for( JsonNode a : t.path( "top_logprobs" ) ) {
+                top.add( new TokenLogprob.Alternative(
+                        a.path( "token" ).asText(),
+                        a.path( "logprob" ).asDouble(),
+                        bytes( a ) ) ) ;
+            }
+            tokens.add( new TokenLogprob( t.path( "token" ).asText(),
+                                          t.path( "logprob" ).asDouble(),
+                                          bytes( t ), top ) ) ;
+        }
+        return tokens ;
+    }
+
+    /** A token's {@code bytes} (an array of 0–255), else its text's UTF-8. */
+    private static byte[] bytes( JsonNode token ) {
+
+        JsonNode b = token.path( "bytes" ) ;
+        if( !b.isArray() ) {
+            return token.path( "token" ).asText()
+                        .getBytes( StandardCharsets.UTF_8 ) ;
+        }
+        byte[] bytes = new byte[b.size()] ;
+        for( int i = 0 ; i < bytes.length ; i++ ) {
+            bytes[i] = (byte)b.get( i ).asInt() ;
+        }
+        return bytes ;
+    }
+
+    /**
+     * The failure for an error status from Ollama, with the server's own
+     * message when it gives one (e.g. {@code prediction aborted, token
+     * repeat limit reached}, a failure of this request only).
+     */
     private GatewayException failure( int status, String body ) {
 
         String server = "the " + info.name() + " server" ;
+        String error  = errorText( body ) ;
+
+        if( status >= 500 && error != null ) {
+            return new GatewayException( FailureKind.SERVER_ERROR,
+                    server + " error (HTTP " + status + "): " + error, body ) ;
+        }
         return switch( status ) {
             case 404 -> new GatewayException( FailureKind.OTHER,
                     "model not installed on " + server, body ) ;
@@ -152,5 +234,17 @@ final class OllamaGateway extends Gateway {
                     status >= 500 ? FailureKind.SERVER_ERROR : FailureKind.OTHER,
                     server + " error (HTTP " + status + ")", body ) ;
         } ;
+    }
+
+    /** The {@code error} of an Ollama error body; null if there is none. */
+    private String errorText( String body ) {
+
+        try {
+            String error = mapper.readTree( body ).path( "error" ).asText( "" ) ;
+            return error.isBlank() ? null : error.trim() ;
+        }
+        catch( Exception e ) {
+            return null ;
+        }
     }
 }

@@ -1,5 +1,6 @@
 package com.sandy.sconsole.qimgtools.core.scheduler;
 
+import com.sandy.sconsole.ai.AIReply;
 import com.sandy.sconsole.ai.AIRequest;
 import com.sandy.sconsole.qimgtools.core.model.QTask;
 
@@ -45,4 +46,16 @@ public interface TaskPrompter<R> {
      * @throws BadReply with a short readable reason if it can't be read
      */
     R parse( String reply, QTask task ) throws BadReply ;
+
+    /**
+     * The whole {@code reply} read as the answer for {@code task}: for a
+     * prompter that needs more than the text (e.g. the tokens' log
+     * probabilities). By default the text alone, through
+     * {@link #parse(String, QTask)}.
+     *
+     * @throws BadReply with a short readable reason if it can't be read
+     */
+    default R parse( AIReply reply, QTask task ) throws BadReply {
+        return parse( reply.text(), task ) ;
+    }
 }

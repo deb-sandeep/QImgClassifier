@@ -409,7 +409,7 @@ public class TaskScheduler<R> {
             QTask task = job.payload().task ;
             R     value ;
             try {
-                value = prompter.parse( reply.text(), task ) ;
+                value = prompter.parse( reply, task ) ;
             }
             catch( TaskPrompter.BadReply ex ) {
                 log.error( "[{}] Error parsing the reply of {} (attempt {}): " +
@@ -424,7 +424,8 @@ public class TaskScheduler<R> {
             return root == null
                    ? ReplyCheck.accept( value )
                    : ReplyCheck.escalate( value, root,
-                                          outcomes.secondOpinionReason() ) ;
+                                          outcomes.secondOpinionReason(
+                                                  task, value ) ) ;
         }
 
         @Override
@@ -451,7 +452,7 @@ public class TaskScheduler<R> {
             Entry e = job.payload() ;
             try {
                 outcomes.succeeded( e.task, value, agentOf( model ), model.id(),
-                                    job.attempts() ) ;
+                                    job.attempts(), provisional ) ;
             }
             finally {
                 ended( e ) ;

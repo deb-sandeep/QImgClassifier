@@ -33,6 +33,11 @@ import java.time.Duration;
  * @param maxOutputTokens   the most tokens a reply may have (reasoning
  *                          included where the provider counts it); null for
  *                          no limit
+ * @param sampler           the sampler settings sent with every request;
+ *                          null for the model's defaults
+ * @param logprobs          the alternatives to return with each reply
+ *                          token's log probability (1–20); null for no
+ *                          logprobs (Ollama only)
  * @param fallback          where a job goes after it fails the job for good
  * @param reachable         a job can get to it: it is in one of the app's
  *                          roots, or in the fallback of a usable model the
@@ -46,6 +51,7 @@ public record ModelInfo( String id, GatewayInfo gateway, String displayName,
                          boolean reasoning, boolean promptCaching,
                          boolean structuredOutput, String reasoningEffort,
                          Integer reasoningMaxTokens, Integer maxOutputTokens,
+                         Sampler sampler, Integer logprobs,
                          FallbackInfo fallback,
                          boolean reachable ) {
 
@@ -63,8 +69,8 @@ public record ModelInfo( String id, GatewayInfo gateway, String displayName,
                               appRateLimit, maxParallel, requestTimeout,
                               retries, reasoning, promptCaching,
                               structuredOutput, reasoningEffort,
-                              reasoningMaxTokens, maxOutputTokens, fallback,
-                              false ) ;
+                              reasoningMaxTokens, maxOutputTokens, sampler,
+                              logprobs, fallback, false ) ;
     }
 
     /** Why the model is not {@link #usable()}; null if it is. */
@@ -115,6 +121,8 @@ public record ModelInfo( String id, GatewayInfo gateway, String displayName,
                  ? ", max output " + maxOutputTokens + " tokens" : "" ) +
                ( promptCaching ? ", prompt caching" : "" ) +
                ( structuredOutput ? ", structured output" : "" ) +
+               ( sampler != null ? ", sampler " + sampler : "" ) +
+               ( logprobs != null ? ", logprobs (top " + logprobs + ")" : "" ) +
                ", fallback " + fallback + ")" ;
     }
 }

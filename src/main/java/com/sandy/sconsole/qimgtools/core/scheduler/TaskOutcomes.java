@@ -37,6 +37,17 @@ public interface TaskOutcomes<R> {
                        int attempts ) ;
 
     /** The task failed for good. */
+    /**
+     * A model answered the task; {@code provisional} if the answer is one
+     * kept from before an escalation whose root gave none. By default
+     * {@link #succeeded(QTask, Object, AIAgent, String, int)}.
+     */
+    default boolean succeeded( QTask task, R value, AIAgent agent,
+                               String model, int attempts,
+                               boolean provisional ) {
+        return succeeded( task, value, agent, model, attempts ) ;
+    }
+
     void failed( QTask task, int attempts, String reason ) ;
 
     /**
@@ -60,6 +71,15 @@ public interface TaskOutcomes<R> {
     /** Why a reply is sent for a second opinion, for the logs. */
     default String secondOpinionReason() {
         return "the top topic is not confident enough" ;
+    }
+
+    /**
+     * Why {@code value}, the reply for {@code task}, is sent for a second
+     * opinion, for the logs and the hub's status; by default
+     * {@link #secondOpinionReason()}.
+     */
+    default String secondOpinionReason( QTask task, R value ) {
+        return secondOpinionReason() ;
     }
 
     /**
