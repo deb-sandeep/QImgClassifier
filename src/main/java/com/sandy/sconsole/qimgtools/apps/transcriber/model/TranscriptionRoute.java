@@ -22,6 +22,12 @@ public record TranscriptionRoute( Kind kind, String model, String reason ) {
         /** Qwen was down or held back: Nemotron stood in. */
         STAND_IN,
 
+        /**
+         * Taken by another model of Qwen's root, which shares the work with
+         * it.
+         */
+        SHARED,
+
         /** Re-sent after the user marked the earlier one faulty. */
         RESENT,
 

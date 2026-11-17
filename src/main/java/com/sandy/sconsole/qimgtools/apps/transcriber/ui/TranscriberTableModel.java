@@ -338,6 +338,7 @@ final class TranscriberTableModel extends AbstractTableModel
             case QWEN      -> model ;
             case ESCALATED -> "Qwen → " + model ;
             case STAND_IN  -> model + " (Qwen down)" ;
+            case SHARED    -> model ;
             case RESENT    -> model + " (re-sent)" ;
             case CHOSEN    -> model + " (chosen)" ;
             case EDITED    -> r.model() == null ? "Typed"

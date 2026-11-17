@@ -1,8 +1,10 @@
 // The transcriber's AI models (feature-design.md §4.2). Override with
 // -Dai.app.config=<file>.
 //
-// Every question starts on "transcribe" (Qwen, local, with token log
-// probabilities for the gate). Qwen has no retries: at temperature 0 a
+// Every question starts on "transcribe": Qwen (local, with token log
+// probabilities for the gate) and the free Nemotron share its queue, each
+// taking the next question as a slot frees (Nemotron's have no C; their
+// route is "shared"). Qwen has no retries: at temperature 0 a
 // retry gives the same reply. A malformed, cut-off or timed-out reply, a
 // server error, or Qwen being unreachable sends the question to the free
 // Nemotron at once, by Qwen's fallback guards; the paid Nemotron takes over
@@ -17,7 +19,7 @@
   "parent" : "classpath:/common/ai-model-config.json",
 
   "roots" : {
-    "transcribe" : [ "qwen3.5:27b-q8_0" ],
+    "transcribe" : [ "qwen3.5:27b-q8_0", "nvidia/nemotron-3.5-super-vl:free" ],
     "escalate"   : [ "nvidia/nemotron-3.5-super-vl:free" ],
     "recheck"    : [ "z-ai/glm-5.3-flash" ]
   },

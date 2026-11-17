@@ -5,6 +5,7 @@ import com.sandy.sconsole.ai.HubStatus;
 import com.sandy.sconsole.ai.RoutingPolicy;
 import com.sandy.sconsole.ai.config.AIConfig;
 import com.sandy.sconsole.ai.config.FallbackInfo;
+import com.sandy.sconsole.ai.config.GatewayType;
 import com.sandy.sconsole.ai.config.ModelInfo;
 import com.sandy.sconsole.qimgtools.apps.transcriber.gate.GoldenCases;
 import com.sandy.sconsole.qimgtools.apps.transcriber.model.Passage;
@@ -161,7 +162,8 @@ public class QTranscriber implements TranscriberFrame.Controller,
         this.outcomes  = new TranscriberOutcomes(
                 this, new TranscriptStore( config.getWorkspaceDir() ),
                 new UsageLog( config.getUsageLogFile() ),
-                config.isGateRouteOnC(), config.getGateCMax() ) ;
+                config.isGateRouteOnC(), config.getGateCMax(),
+                sharedModels( config.getAi() ) ) ;
         this.prompter  = new TranscriptionPrompter(
                 prompt, outcomes::job, config.getGateMargin(),
                 outcomes::note ) ;
@@ -1145,7 +1147,8 @@ public class QTranscriber implements TranscriberFrame.Controller,
         HubStatus   hs   = scheduler.hubStatus() ;
         Set<String> qwen = new HashSet<>() ;
 
-        config.getAi().root( TranscriberOutcomes.TRANSCRIBE )
+        config.getAi().root( TranscriberOutcomes.TRANSCRIBE ).stream()
+              .filter( m -> m.gateway().type() == GatewayType.OLLAMA )
               .forEach( m -> qwen.add( m.gateway().name() ) ) ;
         for( HubStatus.GatewayStatus g : hs.gateways() ) {
             if( qwen.contains( g.name() ) && !g.reachable() ) {
@@ -1153,6 +1156,19 @@ public class QTranscriber implements TranscriberFrame.Controller,
             }
         }
         return null ;
+    }
+
+    /**
+     * The models of the {@code transcribe} root other than Qwen's (those
+     * on Ollama), which share its work.
+     */
+    private static Set<String> sharedModels( AIConfig ai ) {
+
+        Set<String> ids = new HashSet<>() ;
+        ai.root( TranscriberOutcomes.TRANSCRIBE ).stream()
+          .filter( m -> m.gateway().type() != GatewayType.OLLAMA )
+          .forEach( m -> ids.add( m.id() ) ) ;
+        return ids ;
     }
 
     /**

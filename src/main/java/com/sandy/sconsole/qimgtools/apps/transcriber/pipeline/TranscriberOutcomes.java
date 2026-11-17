@@ -54,6 +54,7 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
     private final UsageLog            usageLog ;
     private final boolean             routeOnC ;
     private final int                 cMax ;
+    private final Set<String>         shared ;
 
     /** The job each task sent is, by task. */
     private final Map<QTask,TranscriptionJob> jobs = new ConcurrentHashMap<>() ;
@@ -73,15 +74,20 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
     /**
      * @param routeOnC true to escalate a Qwen reply with C above
      *        {@code cMax}
+     * @param shared   the models besides Qwen in the {@link #TRANSCRIBE}
+     *        root, which share its work: a question one takes without Qwen
+     *        having tried it is {@link Kind#SHARED}
      */
     public TranscriberOutcomes( TranscriberListener listener,
                                 TranscriptStore transcripts, UsageLog usageLog,
-                                boolean routeOnC, int cMax ) {
+                                boolean routeOnC, int cMax,
+                                Set<String> shared ) {
         this.listener    = listener ;
         this.transcripts = transcripts ;
         this.usageLog    = usageLog ;
         this.routeOnC    = routeOnC ;
         this.cMax        = cMax ;
+        this.shared      = Set.copyOf( shared ) ;
     }
 
     /**
@@ -199,6 +205,9 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
             && qwen.outcome() == AttemptTranscript.Outcome.FAILED ) {
             return new TranscriptionRoute( Kind.ESCALATED, model,
                                            qwen.failure() ) ;
+        }
+        if( qwen == null && shared.contains( model ) ) {
+            return new TranscriptionRoute( Kind.SHARED, model, null ) ;
         }
         return new TranscriptionRoute( Kind.STAND_IN, model,
                                        qwen != null ? qwen.failure()
