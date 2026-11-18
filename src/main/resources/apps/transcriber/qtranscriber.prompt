@@ -1,4 +1,4 @@
-# QTranscriber prompt, version 4 (2026-11-17: figures as blockquotes)
+# QTranscriber prompt, version 5 (2026-11-18: a dotted blank is a blank)
 #
 # Lines starting with '#' are comments and are not sent. The file has
 # sections, each starting with a line '=== <name> ==='.
@@ -25,6 +25,11 @@
 # Version 3: a blank is exactly five escaped underscores, however long it
 # is printed (calibration-results.md §5.5: Qwen otherwise wrote underscores
 # without end until Ollama aborted).
+#
+# Version 4: figures as blockquotes (design rev 1.6).
+#
+# Version 5: a row of dots left for the answer is a blank as well
+# (LK-A-M-22/M_SCA_12: Qwen and Nemotron both wrote \ldots without end).
 
 === PROMPT ===
 You transcribe images of JEE exam questions into markdown. The
@@ -79,7 +84,9 @@ Notation, so that every transcription is written the same way:
 - No \left and \right unless the printed brackets are visibly sized to
   their contents.
 - A blank to fill in is written as exactly five escaped underscores,
-  \_\_\_\_\_, however long the printed blank is.
+  \_\_\_\_\_, however long the printed blank is. A row of dots left for
+  the answer (= ........ or = ……) is a blank too: write \_\_\_\_\_,
+  never the dots one by one.
 - Leave out the question number printed before the question, any heading
   that only names question numbers (such as "Paragraph for Questions 45
   and 46"), and any page furniture (headers, footers, watermarks, marks

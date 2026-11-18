@@ -904,6 +904,11 @@ public class QTranscriber implements TranscriberFrame.Controller,
     }
 
     @Override
+    public String rejectedQuestion( TranscriptionItem item ) {
+        return prompter.rejectedQuestion( item.id() ) ;
+    }
+
+    @Override
     public void mark( TranscriptionItem item, String mark,
                       TranscriptionRoute route ) {
         try {

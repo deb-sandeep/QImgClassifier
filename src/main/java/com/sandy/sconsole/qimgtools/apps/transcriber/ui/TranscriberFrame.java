@@ -209,6 +209,12 @@ public class TranscriberFrame extends JFrame
          */
         String rejectedPassage( String lctCtxId ) ;
 
+        /**
+         * The last reply the gate refused for {@code item} (an LCT
+         * question's part only), this session; null if none.
+         */
+        String rejectedQuestion( TranscriptionItem item ) ;
+
         /** Note the user's mark in the audit log. */
         void mark( TranscriptionItem item, String mark,
                    TranscriptionRoute route ) ;
@@ -1561,7 +1567,9 @@ public class TranscriberFrame extends JFrame
             case 3 -> canSend() && rows.stream().anyMatch(
                     r -> r.item.isLct() && r.isMarkable()
                          && controller.passage( r.item.lctCtxId() ) != null ) ;
-            case 4 -> rows.size() == 1 && rows.get( 0 ).isMarkable() ;
+            case 4 -> rows.size() == 1
+                      && ( rows.get( 0 ).isMarkable()
+                           || canType( rows.get( 0 ) ) ) ;
             default -> false ;
         } ;
     }
@@ -1671,10 +1679,25 @@ public class TranscriberFrame extends JFrame
     }
 
     /**
+     * True if {@code row}, with no transcription, may be typed by hand:
+     * pending or failed, not with a model or being saved, and for an LCT
+     * question only once its passage is known (the edit is its part).
+     */
+    private boolean canType( Row row ) {
+        return row.staged == null
+               && ( row.status == TranscriptionStatus.PENDING
+                    || row.status == TranscriptionStatus.FAILED )
+               && ( !row.item.isLct()
+                    || controller.passage( row.item.lctCtxId() ) != null ) ;
+    }
+
+    /**
      * Key 4: edit the selected row's transcription by hand beside its
      * rendering (for an LCT question, its question part). Done stages the
      * edit, checked, its route {@code Edited} with the model whose text it
-     * was; it is saved with {@code aiModel} {@code user}.
+     * was; it is saved with {@code aiModel} {@code user}. A row with no
+     * transcription (every reply failed) is typed from the last reply the
+     * gate refused, else from nothing, route {@code Typed}.
      */
     private void edit( List<Row> rows ) {
 
@@ -1683,7 +1706,10 @@ public class TranscriberFrame extends JFrame
         Transcription      t      = row.transcription() ;
         TranscriptionRoute before = row.route() ;
 
-        if( t == null ) return ;
+        if( t == null ) {
+            if( canType( row ) ) type( row ) ;
+            return ;
+        }
         startEdit( t.content(), false, text -> {
             if( model.rowOf( row.item ) != row ) return ;
             row.staged  = new Staged(
@@ -1696,6 +1722,33 @@ public class TranscriberFrame extends JFrame
             row.message = "Edited: " + describe( row ) ;
             controller.stage( row.item, row.staged ) ;
             controller.edited( row.item, "question", t.content(), text ) ;
+            rowChanged( row ) ;
+            select( nextToCheck( row ) ) ;
+        } ) ;
+    }
+
+    /**
+     * Type {@code row}'s transcription by hand, starting from the last
+     * reply the gate refused for it, else from nothing; staged checked,
+     * route {@code Typed}, saved with {@code aiModel} {@code user}.
+     */
+    private void type( Row row ) {
+
+        String rejected = controller.rejectedQuestion( row.item ) ;
+        String start    = rejected == null ? "" : rejected ;
+
+        startEdit( start, true, text -> {
+            if( model.rowOf( row.item ) != row ) return ;
+            row.staged  = new Staged(
+                    Transcription.unscored( text, null ),
+                    new TranscriptionRoute( TranscriptionRoute.Kind.EDITED,
+                                            null, null ),
+                    true, false ) ;
+            row.saved   = false ;
+            row.status  = row.restingStatus() ;
+            row.message = "Typed by hand" ;
+            controller.stage( row.item, row.staged ) ;
+            controller.edited( row.item, "question", start, text ) ;
             rowChanged( row ) ;
             select( nextToCheck( row ) ) ;
         } ) ;

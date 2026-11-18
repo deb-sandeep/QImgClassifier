@@ -48,6 +48,13 @@ public final class TranscriptionPrompter
             new ConcurrentHashMap<>() ;
 
     /**
+     * The last question reply the gate refused (an LCT question's part
+     * only), by the question's server id.
+     */
+    private final Map<Integer,String> rejectedQuestions =
+            new ConcurrentHashMap<>() ;
+
+    /**
      * @param file   the prompt file
      * @param jobs   the job each task sent is
      * @param margin the gate's margin: C counts the positions contested
@@ -70,6 +77,14 @@ public final class TranscriptionPrompter
      */
     public String rejectedPassage( String lctCtxId ) {
         return lctCtxId == null ? null : rejectedPassages.get( lctCtxId ) ;
+    }
+
+    /**
+     * The last reply the gate refused for the question with server id
+     * {@code id} (an LCT question's part only), this session; null if none.
+     */
+    public String rejectedQuestion( int id ) {
+        return rejectedQuestions.get( id ) ;
     }
 
     /** The subject's name in the prompt; null for an unknown subject. */
@@ -141,6 +156,9 @@ public final class TranscriptionPrompter
         if( !problems.isEmpty() ) {
             if( passage && !content.isBlank() ) {
                 rejectedPassages.put( job.lctCtxId(), content ) ;
+            }
+            else if( job != null && !content.isBlank() ) {
+                rejectedQuestions.put( job.item().id(), content ) ;
             }
             notes.accept( task, "Well formed : no - " +
                                 String.join( "; ", problems ) + "\n" ) ;
