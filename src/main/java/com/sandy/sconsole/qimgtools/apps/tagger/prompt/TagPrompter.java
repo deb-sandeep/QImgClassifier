@@ -5,7 +5,6 @@ import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.Decision;
 import com.sandy.sconsole.qimgtools.core.model.QTask;
 import com.sandy.sconsole.qimgtools.core.scheduler.TaskPrompter;
-import com.sandy.sconsole.qimgtools.core.util.ImagePrep;
 import com.sandy.sconsole.qimgtools.core.workspace.JsonFiles;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -20,7 +19,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * What the models are asked, and reading their replies. The request is the
- * topic's {@code llm-prompt.md} filled in for the question, with its image. A
+ * topic's {@code llm-prompt.md} filled in with the question's transcription,
+ * and no image: the transcription describes the figures, so text-only models
+ * can tag. A
  * reply is held strictly to the format: one tag that isn't in the prompt's
  * table rejects the whole answer, with no mending. Thread-safe.
  */
@@ -31,19 +32,15 @@ public final class TagPrompter implements TaskPrompter<TagReply> {
      *
      * @param prompt     the topic's prompt
      * @param questionId the question's text id
-     * @param ocrText    its OCR text
+     * @param text       its transcription, as stored
      * @param decision   the regression's decision, whose lists are the hints
+     * @param others     the syllabus' other topics by id, names as the server
+     *                   has them: those a reply may move the question to
      */
-    public record Context( TopicPrompt prompt, String questionId, String ocrText,
-                           Decision decision ) {}
+    public record Context( TopicPrompt prompt, String questionId, String text,
+                           Decision decision, Map<Integer,String> others ) {}
 
-    private final ImagePrep          imagePrep ;
     private final Map<QTask,Context> contexts = new ConcurrentHashMap<>() ;
-
-    /** @param imagePrep how images are made smaller before they are sent */
-    public TagPrompter( ImagePrep imagePrep ) {
-        this.imagePrep = imagePrep ;
-    }
 
     /** Note what to ask about {@code task}, which can then be sent. */
     public void track( QTask task, Context context ) {
@@ -61,27 +58,30 @@ public final class TagPrompter implements TaskPrompter<TagReply> {
         Context  c = context( task ) ;
         Decision d = c.decision() ;
 
-        return c.prompt().fill( c.questionId(), c.ocrText(), d.accepted(),
+        return c.prompt().fill( c.questionId(), c.text(), d.accepted(),
                                 d.undecided(), d.triggered() ) ;
     }
 
+    /** None: the prompt is written for the transcription alone. */
     @Override
-    public AIRequest.Image prepareImage( QTask task ) throws IOException {
-        return AIRequest.Image.of( imagePrep.bytes( task.getImgFiles() ),
-                                   imagePrep.mimeType( task.getImgFiles() ) ) ;
+    public AIRequest.Image prepareImage( QTask task ) {
+        return null ;
     }
 
     @Override
     public TagReply parse( String reply, QTask task ) throws BadReply {
-        return read( reply, context( task ).prompt().tagNames() ) ;
+        Context c = context( task ) ;
+        return read( reply, c.prompt().tagNames(), c.others() ) ;
     }
 
     /**
-     * {@code reply} read and checked against the tags {@code allowed}.
+     * {@code reply} read and checked against the tags {@code allowed}, and
+     * the topics {@code others} it may move the question to.
      *
      * @throws BadReply if it isn't a reply the format allows
      */
-    static TagReply read( String reply, Set<String> allowed ) throws BadReply {
+    static TagReply read( String reply, Set<String> allowed,
+                          Map<Integer,String> others ) throws BadReply {
 
         JsonNode node = object( reply ) ;
 
@@ -98,15 +98,46 @@ public final class TagPrompter implements TaskPrompter<TagReply> {
         boolean      noTagFits = node.get( "noTagFits" ).asBoolean() ;
         List<String> tags      = tags( node, allowed ) ;
 
+        TagReply.OtherTopic other = otherTopic( node, others ) ;
+        if( other != null && ( noTagFits || !tags.isEmpty() ) ) {
+            throw new BadReply( "the reply named another topic, and " +
+                                ( noTagFits ? "said no tag fits" : "tags" ) ) ;
+        }
         if( noTagFits && !tags.isEmpty() ) {
             throw new BadReply( "the reply named tags, and said no tag fits" ) ;
         }
-        if( !noTagFits && tags.isEmpty() ) {
+        if( other == null && !noTagFits && tags.isEmpty() ) {
             throw new BadReply( "the reply named no tags, and didn't say no " +
                                 "tag fits" ) ;
         }
         return new TagReply( tags, confidence, noTagFits,
-                             text( node, "framing" ), text( node, "reason" ) ) ;
+                             text( node, "framing" ), other,
+                             text( node, "reason" ) ) ;
+    }
+
+    /**
+     * The reply's {@code otherTopic}, one of {@code others}, named as the
+     * server names it; null if absent or null.
+     *
+     * @throws BadReply if it is set but names no topic of {@code others}
+     */
+    private static TagReply.OtherTopic otherTopic( JsonNode node,
+                                                   Map<Integer,String> others )
+            throws BadReply {
+
+        JsonNode o = node.get( "otherTopic" ) ;
+        if( o == null || o.isNull() ) return null ;
+        if( !o.isObject() || !o.path( "topicId" ).isIntegralNumber() ) {
+            throw new BadReply( "the reply's otherTopic had no topic id" ) ;
+        }
+
+        int    id   = o.get( "topicId" ).asInt() ;
+        String name = others.get( id ) ;
+        if( name == null ) {
+            throw new BadReply( "the reply's otherTopic, " + id + ", is not " +
+                                "another topic of the syllabus" ) ;
+        }
+        return new TagReply.OtherTopic( id, name, text( o, "reason" ) ) ;
     }
 
     private Context context( QTask task ) {

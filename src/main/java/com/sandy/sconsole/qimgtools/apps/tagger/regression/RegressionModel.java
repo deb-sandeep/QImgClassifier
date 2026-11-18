@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -16,15 +18,17 @@ import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 /**
- * One topic's {@code regression-model.json} (format version 3, see the tag
+ * One topic's {@code regression-model.json} (format version 4, see the tag
  * workspace's {@code file-formats/regression-model.md}), read and checked, with
- * its patterns compiled. Immutable, so scoring threads can share it. Tags are
- * identified by name; the arrays it hands out must not be changed.
+ * its patterns compiled. Version 4 reads the question's transcription; a
+ * version 3 model was trained on tesseract text and is refused. Immutable,
+ * so scoring threads can share it. Tags are identified by name; the arrays it
+ * hands out must not be changed.
  */
 public final class RegressionModel {
 
     public static final String FORMAT         = "sconsole-tag-regression" ;
-    public static final int    FORMAT_VERSION = 3 ;
+    public static final int    FORMAT_VERSION = 4 ;
 
     /**
      * The patterns are written for Python, whose {@code \d}, {@code \w},
@@ -57,10 +61,80 @@ public final class RegressionModel {
         }
     }
 
-    /** How text is turned into terms. */
-    public record Preprocessing( Pattern optionMarker, Pattern drop,
-                                 int minWordLength, Pattern token,
-                                 Set<String> stopWords ) {}
+    /** A part of the transcription besides its stem. */
+    public enum Part {
+
+        FIGURE( "figure" ), OPTIONS( "options" ), PASSAGE( "passage" ) ;
+
+        private final String wire ;
+
+        Part( String wire ) {
+            this.wire = wire ;
+        }
+
+        public String wire() {
+            return wire ;
+        }
+
+        static Part of( String wire ) {
+            return Arrays.stream( values() )
+                         .filter( p -> p.wire.equals( wire ) )
+                         .findFirst().orElse( null ) ;
+        }
+    }
+
+    /** How a part's words join the stem's. */
+    public enum PartUse {
+
+        /** Its words, as they are. */
+        PLAIN( "plain" ),
+
+        /** Its words, each with the part's prefix. */
+        PREFIXED( "prefixed" ),
+
+        /** Its plain words, then its prefixed ones. */
+        BOTH( "both" ),
+
+        /** None of its words. */
+        DROP( "drop" ) ;
+
+        private final String wire ;
+
+        PartUse( String wire ) {
+            this.wire = wire ;
+        }
+
+        static PartUse of( String wire ) {
+            return Arrays.stream( values() )
+                         .filter( u -> u.wire.equals( wire ) )
+                         .findFirst().orElse( null ) ;
+        }
+    }
+
+    /**
+     * How a transcription is turned into terms: the {@code preprocessing} of
+     * the file, its patterns compiled.
+     *
+     * @param questionMarker before its first occurrence is the passage zone
+     * @param figureLine     a line it matches at its start is figure text
+     * @param figureStrip    its first match is taken off a figure line
+     * @param optionLine     a body line it matches at its start is options
+     * @param partOrder      the parts appended after the stem, in order
+     * @param partUse        how each part of {@code partOrder} is appended
+     * @param partPrefix     the prefix of each part that is prefixed
+     * @param blankOut       strings replaced with a space first
+     * @param layoutCommand  LaTeX layout commands, replaced with a space
+     * @param command        any other command: its group 1 becomes a word
+     */
+    public record Preprocessing( String questionMarker, Pattern figureLine,
+                                 Pattern figureStrip, Pattern optionLine,
+                                 List<Part> partOrder,
+                                 Map<Part,PartUse> partUse,
+                                 Map<Part,String> partPrefix,
+                                 List<String> blankOut, Pattern layoutCommand,
+                                 Pattern command, Pattern optionMarker,
+                                 Pattern drop, int minWordLength,
+                                 Pattern token, Set<String> stopWords ) {}
 
     /**
      * One tag.
@@ -73,10 +147,13 @@ public final class RegressionModel {
      * @param rejectBelow  a score up to here rejects it; {@link Route#MODEL} only
      * @param trigger      sends a question to the LLM; {@link Route#LLM_ONLY}
      *                     only, and may be null
+     * @param fallback     it applies only when no other tag fits: its trigger
+     *                     is ignored when any tag is accepted
      */
     public record TagModel( String tagText, Route route, double intercept,
                             double[] coefficients, Double acceptAt,
-                            double rejectBelow, Pattern trigger ) {}
+                            double rejectBelow, Pattern trigger,
+                            boolean fallback ) {}
 
     /** A child tag that implies a parent. */
     public record Implication( String child, String parent ) {}
@@ -187,14 +264,93 @@ public final class RegressionModel {
     private static Preprocessing preprocessing( JsonNode n )
             throws TopicFileException {
 
-        Set<String> stop = new LinkedHashSet<>() ;
-        for( JsonNode w : array( n, "stopWords" ) ) stop.add( w.asText() ) ;
+        List<Part>        order  = partOrder( array( n, "partOrder" ) ) ;
+        Map<Part,PartUse> use    = partUse( object( n, "partUse" ), order ) ;
+        Map<Part,String>  prefix = partPrefix( object( n, "partPrefix" ), use ) ;
 
-        return new Preprocessing( pattern( text( n, "optionMarkerPattern" ) ),
+        String marker = text( n, "questionMarker" ) ;
+        if( marker.isEmpty() ) throw problem( "questionMarker is empty" ) ;
+
+        return new Preprocessing( marker,
+                                  pattern( text( n, "figureLinePattern" ) ),
+                                  pattern( text( n, "figureStripPattern" ) ),
+                                  pattern( text( n, "optionLinePattern" ) ),
+                                  order, use, prefix,
+                                  strings( array( n, "blankOut" ) ),
+                                  pattern( text( n, "layoutCommandPattern" ) ),
+                                  command( text( n, "commandPattern" ) ),
+                                  pattern( text( n, "optionMarkerPattern" ) ),
                                   pattern( text( n, "dropPattern" ) ),
                                   whole( n, "minWordLength" ),
                                   pattern( text( n, "tokenPattern" ) ),
-                                  Set.copyOf( stop ) ) ;
+                                  Set.copyOf( strings( array( n,
+                                                       "stopWords" ) ) ) ) ;
+    }
+
+    /** The parts after the stem, each known and named once. */
+    private static List<Part> partOrder( JsonNode array )
+            throws TopicFileException {
+
+        List<Part> order = new ArrayList<>() ;
+        for( JsonNode w : array ) {
+            Part p = Part.of( w.asText() ) ;
+            if( p == null ) throw problem( "partOrder names " + w ) ;
+            if( order.contains( p ) ) throw problem( "partOrder repeats " + w ) ;
+            order.add( p ) ;
+        }
+        return List.copyOf( order ) ;
+    }
+
+    /** How each part of {@code order} is used; every one must be given. */
+    private static Map<Part,PartUse> partUse( JsonNode n, List<Part> order )
+            throws TopicFileException {
+
+        Map<Part,PartUse> use = new EnumMap<>( Part.class ) ;
+        for( Part p : order ) {
+            PartUse u = PartUse.of( text( n, p.wire() ) ) ;
+            if( u == null ) {
+                throw problem( "partUse." + p.wire() + " is " +
+                               n.get( p.wire() ) ) ;
+            }
+            use.put( p, u ) ;
+        }
+        return Collections.unmodifiableMap( use ) ;
+    }
+
+    /** The prefix of every part that is prefixed. */
+    private static Map<Part,String> partPrefix( JsonNode n,
+                                                Map<Part,PartUse> use )
+            throws TopicFileException {
+
+        Map<Part,String> prefix = new EnumMap<>( Part.class ) ;
+        for( Map.Entry<Part,PartUse> e : use.entrySet() ) {
+            if( e.getValue() == PartUse.PREFIXED
+                || e.getValue() == PartUse.BOTH ) {
+                prefix.put( e.getKey(), text( n, e.getKey().wire() ) ) ;
+            }
+        }
+        return Collections.unmodifiableMap( prefix ) ;
+    }
+
+    /** The command pattern, which must have the group that is kept. */
+    private static Pattern command( String regex ) throws TopicFileException {
+
+        Pattern p = pattern( regex ) ;
+        if( p.matcher( "" ).groupCount() < 1 ) {
+            throw problem( "commandPattern has no group" ) ;
+        }
+        return p ;
+    }
+
+    private static List<String> strings( JsonNode array )
+            throws TopicFileException {
+
+        List<String> list = new ArrayList<>() ;
+        for( JsonNode w : array ) {
+            if( !w.isTextual() ) throw problem( "a list holds " + w ) ;
+            list.add( w.asText() ) ;
+        }
+        return List.copyOf( list ) ;
     }
 
     private static Map<String,Integer> termIndex( JsonNode vocabulary )
@@ -233,9 +389,10 @@ public final class RegressionModel {
             throw problem( name + " has route " + n.path( "route" ) ) ;
         }
         return switch( route ) {
-            case NEVER    -> new TagModel( name, route, 0, null, null, 0, null ) ;
+            case NEVER    -> new TagModel( name, route, 0, null, null, 0, null,
+                                           fallback( n ) ) ;
             case LLM_ONLY -> new TagModel( name, route, 0, null, null, 0,
-                                           trigger( n ) ) ;
+                                           trigger( n ), fallback( n ) ) ;
             case MODEL    -> modelTag( n, name ) ;
         } ;
     }
@@ -257,7 +414,20 @@ public final class RegressionModel {
                              coefficients,
                              accept == null || accept.isNull()
                              ? null : Double.valueOf( accept.asDouble() ),
-                             number( n, "rejectBelow" ), null ) ;
+                             number( n, "rejectBelow" ), null,
+                             fallback( n ) ) ;
+    }
+
+    /** Optional: absent or null is false. */
+    private static boolean fallback( JsonNode n ) throws TopicFileException {
+
+        JsonNode v = n.get( "fallback" ) ;
+        if( v == null || v.isNull() ) return false ;
+        if( !v.isBoolean() ) {
+            throw problem( text( n, "tagText" ) + ": fallback is not true or " +
+                           "false" ) ;
+        }
+        return v.asBoolean() ;
     }
 
     private static Pattern trigger( JsonNode n ) throws TopicFileException {

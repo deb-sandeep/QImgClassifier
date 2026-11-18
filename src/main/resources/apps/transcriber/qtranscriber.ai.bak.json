@@ -1,0 +1,85 @@
+// The transcriber's AI models (feature-design.md §4.2). Override with
+// -Dai.app.config=<file>.
+//
+// Every question starts on "transcribe": Qwen (local, with token log
+// probabilities for the gate) and the free Nemotron share its queue, each
+// taking the next question as a slot frees (Nemotron's have no C; their
+// route is "shared"). Qwen has no retries: at temperature 0 a
+// retry gives the same reply. A malformed, cut-off or timed-out reply, a
+// server error, or Qwen being unreachable sends the question to the free
+// Nemotron at once, by Qwen's fallback guards; the paid Nemotron takes over
+// once the free one's daily quota is used up. Cascade (the Models tab)
+// passes Qwen's questions straight to the free Nemotron.
+//
+// "escalate" (the free Nemotron) is reached by a re-send of a faulty Qwen
+// transcription, and by a second opinion if gate.route.on.c is set;
+// "recheck" (GLM) only by a re-send of a faulty Nemotron transcription
+// (the paid Nemotron is the same model, so no help there).
+{
+  "parent" : "classpath:/common/ai-model-config.json",
+
+  "roots" : {
+    "transcribe" : [ "qwen3.5:27b-q8_0", "nvidia/nemotron-3.5-super-vl:free" ],
+    "escalate"   : [ "nvidia/nemotron-3.5-super-vl:free" ],
+    "recheck"    : [ "z-ai/glm-5.3-flash" ]
+  },
+
+  "models" : {
+    "qwen3.5:27b-q8_0" : {
+      "enabled"               : true,
+      "maxParallel"           : 1,
+      "requestTimeoutSeconds" : 180,
+      "retries"               : 0,
+      "reasoning"             : false,
+      "maxOutputTokens"       : 4096,
+      "logprobs"              : 5,
+      "sampler"               : {
+        "temperature"      : 0,
+        "topK"             : 1,
+        "presencePenalty"  : 0,
+        "frequencyPenalty" : 0,
+        "repeatPenalty"    : 1
+      },
+      "fallback"              : {
+        "unreachable" : [ "nvidia/nemotron-3.5-super-vl:free" ],
+        "serverError" : [ "nvidia/nemotron-3.5-super-vl:free" ],
+        "timeout"     : [ "nvidia/nemotron-3.5-super-vl:free" ],
+        "badReply"    : [ "nvidia/nemotron-3.5-super-vl:free" ],
+        "truncated"   : [ "nvidia/nemotron-3.5-super-vl:free" ],
+        "passthrough" : [ "nvidia/nemotron-3.5-super-vl:free" ]
+      }
+    },
+    "nvidia/nemotron-3.5-super-vl:free" : {
+      "enabled"               : true,
+      "maxParallel"           : 4,
+      "requestTimeoutSeconds" : 180,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "maxOutputTokens"       : 4096,
+      "promptCaching"         : true,
+      "fallback"              : {
+        "rateLimitedRPD" : [ "nvidia/nemotron-3.5-super-vl" ],
+        "serverError"    : [ "nvidia/nemotron-3.5-super-vl" ],
+        "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ]
+      }
+    },
+    "nvidia/nemotron-3.5-super-vl" : {
+      "enabled"               : true,
+      "maxParallel"           : 3,
+      "requestTimeoutSeconds" : 180,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "maxOutputTokens"       : 4096,
+      "promptCaching"         : true
+    },
+    "z-ai/glm-5.3-flash" : {
+      "enabled"               : true,
+      "maxParallel"           : 3,
+      "requestTimeoutSeconds" : 180,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "maxOutputTokens"       : 4096,
+      "promptCaching"         : true
+    }
+  }
+}

@@ -8,14 +8,17 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum TaggerStatus {
 
-    /** Its text is being read and scored. */
-    READING( "Reading" ),
+    /** Its transcription is being scored. */
+    READING( "Scoring" ),
 
     /** Loaded; not sent to the models yet. */
     PENDING( "Pending" ),
 
-    /** The question's images are not in the question bank. */
-    NO_IMAGES( "No local images" ),
+    /**
+     * It has no transcription in the local database, or the server says it
+     * awaits one: it is not scored, sent to the models or tagged.
+     */
+    NOT_TRANSCRIBED( "Not transcribed" ),
 
     /**
      * It has tags to save, whoever gave them: the regression, the LLM or the
@@ -29,7 +32,7 @@ public enum TaggerStatus {
      */
     AWAITING_LLM( "Awaiting LLM" ),
 
-    /** Handed to the user: its text could not be read. */
+    /** Handed to the user: its transcription could not be scored. */
     NEEDS_HUMAN( "Needs human" ),
 
     /**
@@ -37,6 +40,13 @@ public enum TaggerStatus {
      * not sent to the models again in this cycle.
      */
     ESCALATED( "Escalated" ),
+
+    /**
+     * The model says the question plainly belongs to another topic: held out
+     * for the user to move it (or tag it here), and not sent to the models
+     * again in this build.
+     */
+    MOVE_SUGGESTED( "Move suggested" ),
 
     /** Noted for later: stays pending on the server. */
     DEFERRED( "Deferred" ),
@@ -61,6 +71,7 @@ public enum TaggerStatus {
     public boolean isDecidable() {
         return isAccepted() || this == AWAITING_LLM
                || this == NEEDS_HUMAN || this == ESCALATED
+               || this == MOVE_SUGGESTED
                || this == DEFERRED || this == ERROR ;
     }
 

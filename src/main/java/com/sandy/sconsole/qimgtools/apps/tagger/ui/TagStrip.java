@@ -239,6 +239,13 @@ final class TagStrip extends JPanel {
                                         ? ": " + r.framing() : "" ) ) ;
             return ;
         }
+        if( r.suggestsMove() ) {
+            TagReply.OtherTopic o = r.otherTopic() ;
+            llm.note( "Belongs to " + o.label() + " - move it from the row " +
+                      "menu" ) ;
+            llm.setToolTipText( o.reason() != null ? o.reason() : r.reason() ) ;
+            return ;
+        }
 
         List<String> chosen = d == null ? row.startingSet().tags() : d.tags() ;
         for( String t : r.tags() ) {

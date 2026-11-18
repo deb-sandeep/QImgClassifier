@@ -15,16 +15,17 @@ import com.sandy.sconsole.qimgtools.apps.tagger.model.TaggerSettings;
 import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerListener;
 import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerOutcomes;
 import com.sandy.sconsole.qimgtools.apps.tagger.prompt.TagPrompter;
-import com.sandy.sconsole.qimgtools.apps.tagger.ocr.QuestionOcr;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.Assessment;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.Decision;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.RegressionScorer;
+import com.sandy.sconsole.qimgtools.apps.tagger.regression.ScoringVectors;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.TopicFileException;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.TopicFileFinder;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.TopicFiles;
 import com.sandy.sconsole.qimgtools.apps.tagger.server.RefreshItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.server.RefreshResult;
 import com.sandy.sconsole.qimgtools.apps.tagger.server.TaggerServerClient;
+import com.sandy.sconsole.qimgtools.apps.tagger.text.TranscriptionStore;
 import com.sandy.sconsole.qimgtools.apps.tagger.ui.TaggerFrame;
 import com.sandy.sconsole.qimgtools.apps.tagger.ui.TaggerFrame.Loaded;
 import com.sandy.sconsole.qimgtools.apps.tagger.ui.TaggerFrame.SaveItem;
@@ -45,7 +46,6 @@ import com.sandy.sconsole.qimgtools.core.server.PendingResult;
 import com.sandy.sconsole.qimgtools.core.server.SConsoleServer;
 import com.sandy.sconsole.qimgtools.core.server.SConsoleServer.ServerException;
 import com.sandy.sconsole.qimgtools.core.server.ServerQuestion;
-import com.sandy.sconsole.qimgtools.core.util.ImagePrep;
 import com.sandy.sconsole.qimgtools.core.util.ModelNames;
 import com.sandy.sconsole.qimgtools.core.workspace.TranscriptStore;
 import com.sandy.sconsole.qimgtools.core.workspace.UsageLog;
@@ -73,8 +73,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * {@link TagAuditLog}.
  * <p>
  * Setting a scope also reads the topic's regression model and LLM prompt from
- * the tag workspace ({@link TopicFiles}); a topic without usable ones can't be
- * scoped. The tags of the LLM's reply are accepted, until the user changes them.
+ * the tag workspace ({@link TopicFiles}) and checks the scorer against the
+ * build's test vectors ({@link ScoringVectors}); a topic without usable ones
+ * can't be scoped. Questions are tagged from their transcriptions, read from
+ * the local database ({@link TranscriptionStore}): one without is
+ * <i>Not transcribed</i> and left alone. The tags of the LLM's reply are
+ * accepted, until the user changes them.
  * Settings come from {@code qtagger.properties} ({@link TaggerConfig}).
  */
 @Slf4j
@@ -92,7 +96,7 @@ public class QTagger implements TaggerFrame.Controller {
     private final ScopeStore              scopeStore ;
     private final SettingsStore           settingsStore ;
     private final QuestionLocator         locator ;
-    private final QuestionOcr             ocr ;
+    private final TranscriptionStore      transcriptions ;
     private final TagPrompter             prompter ;
     private final TaggerOutcomes          outcomes ;
     private final TaskScheduler<TagReply> scheduler ;
@@ -122,6 +126,12 @@ public class QTagger implements TaggerFrame.Controller {
     /** What they don't cover; null if nothing, or there is no scope. */
     private volatile String topicFilesNotice ;
 
+    /**
+     * How many of the scoped topic's questions await transcription, as a
+     * note; null if none, or unknown.
+     */
+    private volatile String transcriptionNotice ;
+
     public QTagger( TaggerConfig config, TaggerServerClient server,
                     Map<String,List<Topic>> topics, TaggerFrame frame ) {
 
@@ -137,22 +147,20 @@ public class QTagger implements TaggerFrame.Controller {
         this.settings   = settingsStore.load( TaggerServerClient.MAX_LIMIT,
                                               scopeStore.oldBatchSize() ) ;
         this.locator    = new QuestionLocator( config.getQBankDir() ) ;
-        this.ocr        = new QuestionOcr( config.getTesseractBin(),
-                                           config.getOcrTimeout() ) ;
+        this.transcriptions = new TranscriptionStore(
+                config.getDbHost(), config.getDbPort(), config.getDbName(),
+                config.getDbUser(), config.getDbPassword() ) ;
 
         AIHub hub = AIHub.create( config.getAi(), new AIHub.Options(
                 config.getRequestHistoryFile(), RoutingPolicy.inOrder(),
                 "qtagger" ) ) ;
 
-        ImagePrep prep = new ImagePrep( config.getImagePrepWidth(),
-                                        config.isImagePrepGreyscale() ) ;
-
-        this.prompter  = new TagPrompter( prep ) ;
+        this.prompter  = new TagPrompter() ;
         this.outcomes  = new TaggerOutcomes(
                 frame, pending, audit,
                 new TranscriptStore( config.getWorkspaceDir() ),
                 new UsageLog( config.getUsageLogFile() ),
-                () -> scope.topicId(), () -> topicFiles.cycle() ) ;
+                () -> scope.topicId(), () -> topicFiles.buildTag() ) ;
         this.scheduler = new TaskScheduler<>( hub, prompter, outcomes ) ;
     }
 
@@ -170,12 +178,6 @@ public class QTagger implements TaggerFrame.Controller {
         }
         catch( IllegalStateException e ) {
             fail( "Invalid configuration", e.getMessage(), e ) ;
-            return ;
-        }
-
-        if( !config.getTesseractBin().canExecute() ) {
-            fail( "Tesseract", "Tesseract can't be run at " +
-                  config.getTesseractBin() + "\nCheck tesseract.bin", null ) ;
             return ;
         }
 
@@ -205,8 +207,7 @@ public class QTagger implements TaggerFrame.Controller {
             SwingUtilities.invokeAndWait( () -> {
                 frame[0] = new TaggerFrame(
                         new TranscriptStore( config.getWorkspaceDir() ),
-                        ModelNames.of( config.getAi() ),
-                        config.getOcrThreads() ) ;
+                        ModelNames.of( config.getAi() ) ) ;
                 app[0] = new QTagger( config, server, topics, frame[0] ) ;
                 frame[0].setController( app[0] ) ;
             } ) ;
@@ -311,19 +312,17 @@ public class QTagger implements TaggerFrame.Controller {
 
         TopicFiles files = topicFiles ;
         if( files == null ) return Assessment.failed( "no scope in effect" ) ;
+        if( !item.isTranscribed() ) {
+            return Assessment.failed( item.textProblem() ) ;
+        }
         try {
-            QuestionOcr.Result text = ocr.read( item.task().getImgFiles() ) ;
-            if( text.failure() != null ) {
-                log.warn( "{}: {}", item, text.failure() ) ;
-                return Assessment.failed( text.failure() ) ;
-            }
-            Decision d = new RegressionScorer( files.model() )
-                                 .decide( text.text() ) ;
+            String   text = item.text() ;
+            Decision d    = new RegressionScorer( files.model() ).decide( text ) ;
 
             prompter.track( item.task(), new TagPrompter.Context(
-                    files.prompt(), item.question().getQuestionId(),
-                    text.text(), d ) ) ;
-            return new Assessment( text.text(), d, null ) ;
+                    files.prompt(), item.question().getQuestionId(), text,
+                    d, otherTopicNames() ) ) ;
+            return new Assessment( text, d, null ) ;
         }
         catch( RuntimeException e ) {
             log.error( "Could not assess {}", item, e ) ;
@@ -331,9 +330,35 @@ public class QTagger implements TaggerFrame.Controller {
         }
     }
 
+    /** What the scope's files don't cover, and the topic's untranscribed. */
     @Override
-    public String topicFilesNotice() {
-        return topicFilesNotice ;
+    public String scopeNotice() {
+
+        String files = topicFilesNotice ;
+        String text  = transcriptionNotice ;
+
+        if( files == null ) return text ;
+        return text == null ? files : text + "   |   " + files ;
+    }
+
+    /**
+     * Note how many of topic {@code topicId}'s questions await transcription,
+     * from the server; a failure only leaves no note.
+     */
+    private void noteUntranscribed( int topicId ) {
+        try {
+            Integer n = server.untranscribed( topicId ) ;
+            transcriptionNotice = n == null || n == 0 ? null
+                    : n + " of the topic's questions await transcription" ;
+            if( transcriptionNotice != null ) {
+                log.warn( "Topic {}: {}", topicId, transcriptionNotice ) ;
+            }
+        }
+        catch( ServerException e ) {
+            log.warn( "Could not read the repository status: {}",
+                      e.getMessage() ) ;
+            transcriptionNotice = null ;
+        }
     }
 
     /**
@@ -377,11 +402,16 @@ public class QTagger implements TaggerFrame.Controller {
         scope            = s ;
 
         saveScope() ;
-        log.info( "Scope: topic {} {}, {} tags, cycle {}", topic.getId(),
-                  topic.getTopicName(), tags.size(), files.cycle() ) ;
+        noteUntranscribed( topic.getId() ) ;
+        log.info( "Scope: topic {} {}, {} tags, build {} (cycle {})",
+                  topic.getId(), topic.getTopicName(), tags.size(),
+                  files.buildTag(), files.cycle() ) ;
     }
 
-    /** Read {@code topic}'s files and check them against the server's tags. */
+    /**
+     * Read {@code topic}'s files, check them against the server's tags, and
+     * the scorer against the build's test vectors.
+     */
     private TopicFiles readTopicFiles( Topic topic, TagCatalogue tags )
             throws TopicFileException {
 
@@ -393,6 +423,9 @@ public class QTagger implements TaggerFrame.Controller {
             throw new TopicFileException( "These tags are not on the server: " +
                                           String.join( ", ", missing ) ) ;
         }
+        ScoringVectors.check( files.build(),
+                              new RegressionScorer( files.model() ),
+                              transcriptions::read ) ;
         return files ;
     }
 
@@ -412,6 +445,8 @@ public class QTagger implements TaggerFrame.Controller {
         catalogue        = null ;
         topicFiles       = null ;
         topicFilesNotice = null ;
+
+        transcriptionNotice = null ;
     }
 
     private void saveScope() {
@@ -474,6 +509,7 @@ public class QTagger implements TaggerFrame.Controller {
                                 .max( Integer::compare )
                                 .orElse( s.afterId() ) ) ;
         saveScope() ;
+        noteUntranscribed( s.topicId() ) ;
         log.info( "Loaded {} questions{}; {} await tags", qs.size(),
                   fromStart ? " from the start" : "",
                   found.getTotalResults() ) ;
@@ -481,18 +517,19 @@ public class QTagger implements TaggerFrame.Controller {
     }
 
     /**
-     * The escalated questions still awaiting tags, found by walking the
-     * topic's whole queue, as the server has no read by id for them. One no
-     * longer in the queue has been tagged elsewhere, so its hold is dropped.
+     * The held-out questions still awaiting tags (escalated, or with a move
+     * suggested), found by walking the topic's whole queue, as the server
+     * has no read by id for them. One no longer in the queue has been tagged
+     * or moved elsewhere, so its hold is dropped.
      */
     @Override
-    public Loaded loadEscalated() throws Exception {
+    public Loaded loadHeldOut() throws Exception {
 
         prompter.clear() ;
 
         Scope        s    = scope ;
-        Set<Integer> held = pending.escalated( s.topicId(),
-                                               topicFiles.cycle() ) ;
+        Set<Integer> held = pending.heldOut( s.topicId(),
+                                               topicFiles.buildTag() ) ;
 
         List<ServerQuestion> found = new ArrayList<>() ;
         Integer              after = null ;
@@ -515,42 +552,91 @@ public class QTagger implements TaggerFrame.Controller {
             log.info( "Dropping the hold on {}: no longer awaiting tags", held ) ;
             pending.removeIds( held ) ;
         }
-        log.info( "Loaded {} escalated questions", found.size() ) ;
+        log.info( "Loaded {} held-out questions", found.size() ) ;
         return new Loaded( items( found ), total ) ;
     }
 
     @Override
-    public int escalatedCount() {
+    public int heldOutCount() {
 
         TopicFiles files = topicFiles ;
         Scope      s     = scope ;
 
         return s == null || files == null
-               ? 0 : pending.escalated( s.topicId(), files.cycle() ).size() ;
+               ? 0 : pending.heldOut( s.topicId(), files.buildTag() ).size() ;
     }
 
-    /** Each of {@code qs} with its local images and its tags on the server. */
-    private List<TagItem> items( List<ServerQuestion> qs ) throws ServerException {
+    /**
+     * Each of {@code qs} with its local images, its transcription and its
+     * tags on the server.
+     *
+     * @throws Exception if the server or the local database can't be read
+     */
+    private List<TagItem> items( List<ServerQuestion> qs ) throws Exception {
 
-        Map<Integer,List<ServerTag>> tags = server.questionTags(
-                qs.stream().map( ServerQuestion::getId ).toList() ) ;
+        List<Integer>                ids   = qs.stream()
+                                               .map( ServerQuestion::getId )
+                                               .toList() ;
+        Map<Integer,List<ServerTag>> tags  = server.questionTags( ids ) ;
+        Map<Integer,String>          texts = transcriptions.read( ids ) ;
 
         List<TagItem> items = new ArrayList<>() ;
         for( ServerQuestion q : qs ) {
-            QuestionLocator.Located l = locator.locate( q ) ;
-            items.add( new TagItem( q, l.task(), l.problem(),
+            QuestionLocator.Located l    = locator.locate( q ) ;
+            QTask                   task = l.task() != null ? l.task()
+                                                            : noImages( q ) ;
+            String                  text = texts.get( q.getId() ) ;
+            String                  why  = untranscribed( q, text ) ;
+
+            items.add( new TagItem( q, task, l.problem(),
+                                    why == null ? text : null, why,
                                     tags.getOrDefault( q.getId(),
                                                        List.of() ) ) ) ;
         }
         return items ;
     }
 
+    /**
+     * Why {@code q}, whose local transcription is {@code text}, is not to be
+     * tagged; null if it is. The server's flag rules: a question awaiting
+     * transcription is never tagged, even with an older one stored locally.
+     */
+    private static String untranscribed( ServerQuestion q, String text ) {
+
+        if( Boolean.TRUE.equals( q.getXcriptionNeeded() ) ) {
+            return "awaits transcription" ;
+        }
+        if( text == null ) {
+            return Boolean.FALSE.equals( q.getXcriptionNeeded() )
+                   ? "no transcription in the local database, though the " +
+                     "server has one: sync the database"
+                   : "no transcription in the local database" ;
+        }
+        return null ;
+    }
+
+    /**
+     * A task for {@code q} without its images, which weren't found: its text
+     * is all the models are asked about. Named after the server's question
+     * id ({@code P/SCA/4} becomes {@code P_SCA_4}), under its source.
+     */
+    private QTask noImages( ServerQuestion q ) {
+
+        String source = q.getSourceId() == null ? "unknown-source"
+                                                : q.getSourceId() ;
+        return new QTask( new File( config.getQBankDir(), source ),
+                          q.getQuestionId().replace( '/', '_' ), List.of() ) ;
+    }
+
     @Override
     public PendingTagging.Stored stored( TagItem item ) {
         TopicFiles files = topicFiles ;
-        return scope == null || files == null
-               ? null
-               : pending.stored( item.question(), scope.topicId(), files.cycle() ) ;
+        if( scope == null || files == null || !item.isTranscribed() ) {
+            return null ;
+        }
+        return pending.stored( item.question(), scope.topicId(),
+                               files.buildTag(),
+                               TagAuditLog.textHash( item.text() ) ) ;
     }
 
     // ---- running -------------------------------------------------------
@@ -769,6 +855,14 @@ public class QTagger implements TaggerFrame.Controller {
 
     // ---- moving and deleting questions -------------------------------
 
+    /** {@link #otherTopics()} by id, with their names. */
+    private Map<Integer,String> otherTopicNames() {
+
+        Map<Integer,String> names = new LinkedHashMap<>() ;
+        otherTopics().forEach( t -> names.put( t.getId(), t.getTopicName() ) ) ;
+        return names ;
+    }
+
     @Override
     public List<Topic> otherTopics() {
 
@@ -867,7 +961,7 @@ public class QTagger implements TaggerFrame.Controller {
         return scheduler.nextRequestAt() ;
     }
 
-    /** "Kinematics (103), cycle 01-hand-review, 50 per load - Nemotron @ server". */
+    /** "Kinematics (103), c02.v01, 50 per load - Nemotron @ server". */
     @Override
     public String describe() {
 
@@ -878,7 +972,7 @@ public class QTagger implements TaggerFrame.Controller {
 
         return ( t != null ? t.getTopicName() : "topic" ) + " (" +
                s.topicId() + "), " +
-               ( f != null ? "cycle " + f.cycle() + ", " : "" ) +
+               ( f != null ? f.buildTag() + ", " : "" ) +
                settings.batchSize() + " per load - " +
                firstModel() + " @ " + config.getServerUrl() ;
     }

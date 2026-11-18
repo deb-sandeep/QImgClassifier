@@ -203,6 +203,12 @@ public class TranscriberFrame extends JFrame
         /** LCT group {@code lctCtxId}'s passage; null if not known. */
         Passage passage( String lctCtxId ) ;
 
+        /**
+         * The last reply the gate refused for LCT group {@code lctCtxId}'s
+         * passage, this session; null if none.
+         */
+        String rejectedPassage( String lctCtxId ) ;
+
         /** Note the user's mark in the audit log. */
         void mark( TranscriptionItem item, String mark,
                    TranscriptionRoute route ) ;
@@ -262,8 +268,9 @@ public class TranscriberFrame extends JFrame
         String qwenDown() ;
 
         /**
-         * Why an unattended run must stop: Qwen down and the free Nemotron
-         * held for the day; null otherwise.
+         * Why an unattended run must stop: Qwen down, its questions able
+         * to go to Nemotron, and the free one held for the day; null
+         * otherwise.
          */
         String unattendedStop() ;
 
@@ -1677,7 +1684,7 @@ public class TranscriberFrame extends JFrame
         TranscriptionRoute before = row.route() ;
 
         if( t == null ) return ;
-        startEdit( t.content(), text -> {
+        startEdit( t.content(), false, text -> {
             if( model.rowOf( row.item ) != row ) return ;
             row.staged  = new Staged(
                     Transcription.unscored( text, t.model() ),
@@ -1698,16 +1705,45 @@ public class TranscriberFrame extends JFrame
      * Edit the passage of the selected LCT row's group. Done holds the
      * edited passage, to be saved with the group's next question
      * ({@code lctCtx.aiModel} {@code user}); the group's saved questions
-     * become unsaved, to carry it.
+     * become unsaved, to carry it. A passage not known yet (its replies
+     * all refused, say) is written from the last reply the gate refused,
+     * else from nothing; the group's failed questions then go back to
+     * Pending, to be sent against it.
      */
     @Override
     public void editPassage() {
 
         if( !canEditPassage() ) return ;
-        Row     row = selectedRow() ;
-        Passage p   = controller.passage( row.item.lctCtxId() ) ;
+        Row     row      = selectedRow() ;
+        String  lctCtxId = row.item.lctCtxId() ;
+        Passage p        = controller.passage( lctCtxId ) ;
 
-        startEdit( p.content(), text -> {
+        if( p == null ) {
+            String rejected = controller.rejectedPassage( lctCtxId ) ;
+            String start    = rejected == null ? "" : rejected ;
+
+            startEdit( start, true, text -> {
+                Passage typed = new Passage(
+                        lctCtxId, Transcription.unscored( text, null ),
+                        new TranscriptionRoute(
+                                TranscriptionRoute.Kind.EDITED, null, null ),
+                        false ) ;
+
+                controller.holdPassage( typed ) ;
+                controller.edited( row.item, "passage", start, text ) ;
+                passageKnown( typed ) ;
+                for( Row r : model.group( lctCtxId ) ) {
+                    if( r.status == TranscriptionStatus.FAILED
+                        && r.staged == null ) {
+                        r.status = r.restingStatus() ;
+                    }
+                    r.message = "The passage was written by hand" ;
+                    rowChanged( r ) ;
+                }
+            } ) ;
+            return ;
+        }
+        startEdit( p.content(), false, text -> {
             Passage edited = new Passage(
                     p.lctCtxId(),
                     Transcription.unscored( text, p.transcription().model() ),
@@ -1730,10 +1766,8 @@ public class TranscriberFrame extends JFrame
             return false ;
         }
         Row row = selectedRow() ;
-        if( row == null || !row.item.isLct()
-            || controller.passage( row.item.lctCtxId() ) == null ) {
-            return false ;
-        }
+        if( row == null || !row.item.isLct() ) return false ;
+
         return model.group( row.item.lctCtxId() ).stream()
                     .noneMatch( r -> r.isBusy()
                                      || r.status == TranscriptionStatus.SAVING ) ;
@@ -1742,9 +1776,11 @@ public class TranscriberFrame extends JFrame
     /**
      * Open {@code text} in the Check tab's editor; the table is disabled
      * meanwhile, so the selection stays. Done runs {@code keep} with the
-     * edited text, if it changed and is well formed.
+     * edited text, if it is well formed and changed, or if
+     * {@code keepUnchanged}.
      */
-    private void startEdit( String text, Consumer<String> keep ) {
+    private void startEdit( String text, boolean keepUnchanged,
+                            Consumer<String> keep ) {
 
         table.setEnabled( false ) ;
         updateControls() ;
@@ -1758,7 +1794,8 @@ public class TranscriberFrame extends JFrame
 
             @Override public void done( String edited ) {
                 endEdit() ;
-                if( !edited.strip().equals( text.strip() ) ) {
+                if( keepUnchanged
+                    || !edited.strip().equals( text.strip() ) ) {
                     keep.accept( edited.stripTrailing() ) ;
                 }
                 showSelection() ;

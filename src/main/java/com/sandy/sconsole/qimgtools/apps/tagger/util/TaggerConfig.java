@@ -45,14 +45,18 @@ public final class TaggerConfig {
      */
     private final File tagWorkspaceDir ;
 
-    /** The tesseract executable. */
-    private final File tesseractBin ;
-
-    /** Questions read at once after a Load. */
-    private final int ocrThreads ;
-
-    /** How long tesseract may take over one image. */
-    private final Duration ocrTimeout ;
+    /**
+     * The local database the questions' transcriptions are read from: host
+     * and credentials from {@code DB_HOST}, {@code DB_USER} and
+     * {@code DB_PASSWORD} (or the system properties {@code db.host},
+     * {@code db.user} and {@code db.password}), as the tag workspace's scripts
+     * have them.
+     */
+    private final String dbHost ;
+    private final int    dbPort ;
+    private final String dbName ;
+    private final String dbUser ;
+    private final String dbPassword ;
 
     /** Root of the tagger's files, and of its per-question transcripts. */
     private final File workspaceDir ;
@@ -81,12 +85,6 @@ public final class TaggerConfig {
     /** One CSV row per AI attempt with the tokens it used. */
     private final File usageLogFile ;
 
-    /** Width an image is scaled down to before it is sent; 0 for none. */
-    private final int imagePrepWidth ;
-
-    /** Send images in greyscale. */
-    private final boolean imagePrepGreyscale ;
-
     /** The models asked, from {@link #AI_CONFIG} or {@code -Dai.app.config}. */
     private final AIConfig ai ;
 
@@ -107,14 +105,29 @@ public final class TaggerConfig {
         usageLogFile       = props.workspacePath( "usage.log.file" ) ;
         requestHistoryFile = props.workspacePath( "request.history.file" ) ;
 
-        tesseractBin = props.path( "tesseract.bin" ) ;
-        ocrThreads   = props.wholeNumber( "ocr.threads", 1, 16 ) ;
-        ocrTimeout   = props.seconds( "ocr.timeout.seconds" ) ;
-
-        imagePrepWidth     = props.wholeNumber( "image.prep.width", 0 ) ;
-        imagePrepGreyscale = props.bool( "image.prep.greyscale" ) ;
+        dbHost     = secret( props, "db.host", "DB_HOST" ) ;
+        dbPort     = props.wholeNumber( "db.port", 1, 65535 ) ;
+        dbName     = props.str( "db.name" ) ;
+        dbUser     = secret( props, "db.user", "DB_USER" ) ;
+        dbPassword = secret( props, "db.password", "DB_PASSWORD" ) ;
 
         ai = AIConfigs.load( AI_CONFIG ) ;
+    }
+
+    /**
+     * The system property {@code key}, else the environment variable
+     * {@code env}: kept out of the properties file, which is in git.
+     */
+    private static String secret( ConfigProperties props, String key,
+                                  String env ) {
+
+        String v = System.getProperty( key ) ;
+        if( v == null || v.isBlank() ) v = System.getenv( env ) ;
+        if( v == null || v.isBlank() ) {
+            throw props.invalid( key, "set " + env + " in the environment " +
+                                      "(or -D" + key + ")" ) ;
+        }
+        return v ;
     }
 
     /**

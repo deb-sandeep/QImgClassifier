@@ -96,8 +96,8 @@ public class TaskScheduler<R> {
         /** Taken off the batch count by a hold; guarded by lock. */
         boolean countedOut ;
 
-        /** The image, prepared on the first attempt. */
-        AIRequest.Image image ;
+        /** The images, prepared on the first attempt: none or one. */
+        List<AIRequest.Image> images ;
 
         /** The request of the attempt in flight, for its transcript. */
         AttemptRequest request ;
@@ -336,11 +336,17 @@ public class TaskScheduler<R> {
         e.handle = hub.submit( job, priority ) ;
     }
 
-    /** The question's request; the image is prepared once. */
+    /**
+     * The question's request; the image is prepared once, and left out if the
+     * prompter gives none.
+     */
     private AIRequest request( Entry e ) throws Exception {
 
-        if( e.image == null ) e.image = prompter.prepareImage( e.task ) ;
-        return new AIRequest( prompter.prompt( e.task ), List.of( e.image ),
+        if( e.images == null ) {
+            AIRequest.Image image = prompter.prepareImage( e.task ) ;
+            e.images = image == null ? List.of() : List.of( image ) ;
+        }
+        return new AIRequest( prompter.prompt( e.task ), e.images,
                               prompter.responseSchema( e.task ) ) ;
     }
 

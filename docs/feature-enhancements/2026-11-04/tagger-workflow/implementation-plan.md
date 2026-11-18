@@ -281,6 +281,20 @@ No app imports another, so the new OCR and regression code stays in `apps.tagger
 - [x] Review filter
 - [x] Real save verified on dev
 
+### Tagging by transcription (2026-11-18)
+
+See `../../2026-11-18/tagging-by-xcription/strategy-changes.md`. Tesseract is gone: the text is the transcription, read from the local database.
+
+- [x] Transcriptions read from the local `sconsolenxt` (`text.TranscriptionStore`), one query per Load; *Not transcribed* rows
+- [x] Format 4 model, `fallback` tags (missing from the port before), version 2 prompt; format 3 and version 1 refused
+- [x] Files found in the topic's `output/` by build (`c02.v01`)
+- [x] Scorer matches every test vector: Kinematics `c02.v01`, Laws of Motion `c02.v01`, Ray Optics `c03.v01`, 25 of 25 each
+- [x] Text only to the LLM; questions without local images tagged too
+- [x] `textHash` in the audit; stored replies tied to build and text
+- [x] Transcription rendered beside the image; untranscribed count in the status bar
+- [x] `otherTopic` replies: *Move suggested*, held out like escalations, moved from the row menu
+- [ ] Tried on dev by the owner
+
 ### Going to production
 
 - [ ] Server plan's driver check ticked
@@ -306,3 +320,4 @@ No app imports another, so the new OCR and regression code stays in `apps.tagger
 | 12 | 2026-11-05 | Owner's changes before the pilot: undecided tags by hand, the LLM on request |
 | 13 | 2026-11-05 | Owner's decision 11: new routing and acceptance, the From column, automatic LLM calls with a setting, Send to model |
 | 14 | 2026-11-05 | Owner's change: the pilot step removed. What production needs stays, as *Going to production* |
+| 15 | 2026-11-18 | Tagging by transcription: tesseract replaced by the stored transcription, format 4 models and version 2 prompts, found by build. Steps 3's OCR parts no longer apply |

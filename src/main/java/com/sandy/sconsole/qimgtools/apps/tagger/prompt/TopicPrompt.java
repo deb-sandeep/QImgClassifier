@@ -10,7 +10,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * One topic's {@code llm-prompt.md} (see the tag workspace's
+ * One topic's {@code llm-prompt.md} (version 2, see the tag workspace's
  * {@code file-formats/llm-prompt.md}), read and checked: the text sent to the
  * LLM, which is what lies below the note's {@code ---} line, and the tag names
  * in its table, the only ones the LLM may return. Immutable.
@@ -18,15 +18,18 @@ import java.util.regex.Pattern;
 public final class TopicPrompt {
 
     public static final String QUESTION_ID = "{{question_id}}" ;
-    public static final String OCR_TEXT    = "{{ocr_text}}" ;
+    public static final String TEXT        = "{{question_text}}" ;
     public static final String ACCEPTED    = "{{accepted_tags}}" ;
     public static final String UNDECIDED   = "{{undecided_tags}}" ;
     public static final String TRIGGERED   = "{{triggered_tags}}" ;
 
-    private static final String FILE = "llm-prompt.md" ;
+    /** Version 1's placeholder for tesseract text: such a prompt is refused. */
+    private static final String OCR_TEXT = "{{ocr_text}}" ;
+
+    private static final String FILE = "llm-prompt" ;
 
     private static final List<String> PLACEHOLDERS =
-            List.of( QUESTION_ID, OCR_TEXT, ACCEPTED, UNDECIDED, TRIGGERED ) ;
+            List.of( QUESTION_ID, TEXT, ACCEPTED, UNDECIDED, TRIGGERED ) ;
 
     /** The line between the note for the driver and the prompt. */
     private static final Pattern NOTE_END =
@@ -68,6 +71,10 @@ public final class TopicPrompt {
         if( !end.find() ) throw problem( "it has no --- line" ) ;
 
         String text = all.substring( end.end() ).strip() ;
+        if( text.contains( OCR_TEXT ) ) {
+            throw problem( "it is a version 1 prompt, for tesseract text (" +
+                           OCR_TEXT + ")" ) ;
+        }
         checkPlaceholders( text ) ;
         return new TopicPrompt( text, tagNames( text ) ) ;
     }
@@ -78,15 +85,17 @@ public final class TopicPrompt {
     }
 
     /**
-     * The text to send about one question. In one pass, so nothing in the OCR
-     * text is taken for a placeholder.
+     * The text to send about one question, with its transcription exactly as
+     * stored. In one pass, so nothing in the transcription is taken for a
+     * placeholder.
      */
-    public String fill( String questionId, String ocrText, List<String> accepted,
-                        List<String> undecided, List<String> triggered ) {
+    public String fill( String questionId, String questionText,
+                        List<String> accepted, List<String> undecided,
+                        List<String> triggered ) {
 
         Map<String,String> values = Map.of(
                 QUESTION_ID, questionId,
-                OCR_TEXT,    ocrText.strip(),
+                TEXT,        questionText,
                 ACCEPTED,    names( accepted ),
                 UNDECIDED,   names( undecided ),
                 TRIGGERED,   names( triggered ) ) ;

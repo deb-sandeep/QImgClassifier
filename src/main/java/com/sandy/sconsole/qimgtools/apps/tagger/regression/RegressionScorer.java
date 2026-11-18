@@ -12,8 +12,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Scores a question's OCR text and decides what to do with it: a port of the
- * tag workspace's {@code scripts/score_regression.py}, following its
+ * Scores a question's transcription and decides what to do with it: a port of
+ * the tag workspace's {@code scripts/score_regression.py} (format 4), following
+ * its
  * {@code file-formats/regression-model.md}. Stateless over an immutable model,
  * so scoring threads can share it.
  */
@@ -50,6 +51,12 @@ public final class RegressionScorer {
             }
         }
 
+        // A fallback tag applies only when no other tag fits, so its trigger
+        // counts only when nothing is accepted.
+        if( !accepted.isEmpty() ) {
+            triggered.removeIf( name -> model.tag( name ).fallback() ) ;
+        }
+
         // In file order, so that the rules chain as the reference's do.
         for( Implication r : model.implications() ) {
             if( accepted.contains( r.child() )
@@ -73,6 +80,11 @@ public final class RegressionScorer {
                                                             r.withAnyOf() ) )
                     .map( AcceptedTogether::why )
                     .toList() ;
+    }
+
+    /** How many terms {@code text} makes, in the vocabulary or not. */
+    public int termCount( String text ) {
+        return Terms.of( text, model.preprocessing() ).size() ;
     }
 
     /** The score of every tag with a trained model, in file order. */

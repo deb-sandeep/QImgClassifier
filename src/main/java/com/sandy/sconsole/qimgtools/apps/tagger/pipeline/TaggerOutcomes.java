@@ -45,8 +45,8 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
     /** The scoped topic's id, for what is stored. */
     private final IntSupplier scopeTopic ;
 
-    /** The cycle of the scoped topic's files, for what is stored. */
-    private final Supplier<String> scopeCycle ;
+    /** The build of the scoped topic's files, for what is stored. */
+    private final Supplier<String> scopeBuild ;
 
     /** The item each submitted task belongs to. */
     private final Map<QTask,TagItem> items = new ConcurrentHashMap<>() ;
@@ -54,7 +54,7 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
     public TaggerOutcomes( TaggerListener listener, PendingTagging pending,
                            TagAuditLog audit, TranscriptStore transcripts,
                            UsageLog usageLog, IntSupplier scopeTopic,
-                           Supplier<String> scopeCycle ) {
+                           Supplier<String> scopeBuild ) {
 
         this.listener    = listener ;
         this.pending     = pending ;
@@ -62,7 +62,7 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
         this.transcripts = transcripts ;
         this.usageLog    = usageLog ;
         this.scopeTopic  = scopeTopic ;
-        this.scopeCycle  = scopeCycle ;
+        this.scopeBuild  = scopeBuild ;
     }
 
     /** Remember which item {@code item.task()} belongs to; call on submit. */
@@ -95,16 +95,17 @@ public class TaggerOutcomes implements TaskOutcomes<TagReply> {
         TagItem     item     = items.get( task ) ;
         TagProposal proposal = new TagProposal( model, reply ) ;
         int         scope    = scopeTopic.getAsInt() ;
-        String      cycle    = scopeCycle.get() ;
+        String      build    = scopeBuild.get() ;
+        String      textHash = TagAuditLog.textHash( item.text() ) ;
 
         try {
-            pending.save( item.question(), scope, cycle, proposal ) ;
+            pending.save( item.question(), scope, build, textHash, proposal ) ;
         }
         catch( Exception e ) {
             log.error( "[{}] Could not store the reply", task, e ) ;
         }
         try {
-            audit.reply( item.question(), scope, cycle, proposal ) ;
+            audit.reply( item.question(), scope, build, textHash, proposal ) ;
         }
         catch( Exception e ) {
             log.error( "[{}] Could not record the reply in the audit log",

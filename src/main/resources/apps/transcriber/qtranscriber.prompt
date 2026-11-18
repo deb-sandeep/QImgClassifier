@@ -37,7 +37,10 @@ Rules:
 1. Copy exactly what is printed, typos included. Do not solve, correct,
    complete or add anything. Reproduce typos and inconsistencies exactly
    as printed, even if they look like mistakes: if a series printed as
-   1^3 + 2^3 + ... + n^2 looks wrong, still write n^2.
+   1^3 + 2^3 + ... + n^2 looks wrong, still write n^2. Even when the
+   question says "solve", "find" or "prove", or asks for a solution or
+   an answer, transcribe the question only and stop: never solve it or
+   work any part of it out.
 2. Approximate the layout in markdown: paragraphs and line breaks, lists
    and tables. Every labelled line (options, statements, numbered or
    lettered entries, including roman numerals) is a markdown list item

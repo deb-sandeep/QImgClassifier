@@ -899,6 +899,11 @@ public class QTranscriber implements TranscriberFrame.Controller,
     }
 
     @Override
+    public String rejectedPassage( String lctCtxId ) {
+        return prompter.rejectedPassage( lctCtxId ) ;
+    }
+
+    @Override
     public void mark( TranscriptionItem item, String mark,
                       TranscriptionRoute route ) {
         try {
@@ -1174,18 +1179,34 @@ public class QTranscriber implements TranscriberFrame.Controller,
     /**
      * Why the unattended run must stop: Qwen is down and the free Nemotron
      * is held for the day, so only the paid one is left; null otherwise.
+     * Only while Qwen's work can go elsewhere (a model sharing its root, or
+     * a fallback of Qwen's): with Qwen alone, its questions wait for it to
+     * come back, and the run waits with them.
      */
     @Override
     public String unattendedStop() {
 
         String down = qwenDown() ;
-        if( down == null ) return null ;
+        if( down == null || !qwenOverflows() ) return null ;
 
         String held = heldForTheDay( config.getAi().root(
                 TranscriberOutcomes.ESCALATE ), false ) ;
         return held == null ? null
                             : down + " and the free Nemotron is held for " +
                               "the day" ;
+    }
+
+    /**
+     * True if the {@code transcribe} root's questions can go to a model
+     * other than Qwen's: one shares the root, or a Qwen model has a
+     * fallback.
+     */
+    private boolean qwenOverflows() {
+
+        AIConfig ai = config.getAi() ;
+        if( !sharedModels( ai ).isEmpty() ) return true ;
+        return ai.root( TranscriberOutcomes.TRANSCRIBE ).stream()
+                 .anyMatch( m -> !m.fallback().isEmpty() ) ;
     }
 
     /**

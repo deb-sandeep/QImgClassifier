@@ -17,11 +17,11 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * The local view of the selected question: the LLM's reply if it has one, where
- * it goes and why, the accepted, undecided and triggered tags with their scores,
- * and the OCR text it read, under "--- title ---" headers. The lines wrap, so
- * there is no sideways scrolling. Blank unless exactly one question is selected.
- * Use on the EDT.
+ * The local view of the selected question: the LLM's reply if it has one,
+ * where it goes and why, the accepted, undecided and triggered tags with their
+ * scores, and the transcription it scored, under "--- title ---" headers. The
+ * lines wrap, so there is no sideways scrolling. Blank unless exactly one
+ * question is selected. Use on the EDT.
  */
 @SuppressWarnings( "serial" )
 final class RegressionPanel extends JPanel {
@@ -64,9 +64,10 @@ final class RegressionPanel extends JPanel {
 
         Assessment a = row.assessment ;
         if( a == null ) {
-            return row.item.hasImages() ? "Not read yet" : "No local images" ;
+            return row.item.isTranscribed() ? "Not scored yet"
+                   : "Not transcribed: " + row.item.textProblem() ;
         }
-        if( a.failure() != null ) return "OCR failed: " + a.failure() ;
+        if( a.failure() != null ) return "Not scored: " + a.failure() ;
 
         Decision      d = a.decision() ;
         StringBuilder b = new StringBuilder() ;
@@ -93,8 +94,8 @@ final class RegressionPanel extends JPanel {
                                          .append( '\n' ) ) ;
         }
         b.append( '\n' ) ;
-        header( b, "OCR text" ) ;
-        return b.append( a.ocrText().strip() ).toString() ;
+        header( b, "Transcription" ) ;
+        return b.append( a.text() ).toString() ;
     }
 
     private static void header( StringBuilder b, String title ) {
@@ -108,6 +109,13 @@ final class RegressionPanel extends JPanel {
         b.append( p.model() )
          .append( ", confidence " ).append( r.confidence() ).append( '\n' ) ;
         if( r.noTagFits() ) b.append( "  no tag fits\n" ) ;
+        else if( r.suggestsMove() ) {
+            b.append( "  belongs to " ).append( r.otherTopic().label() ) ;
+            if( r.otherTopic().reason() != null ) {
+                b.append( ": " ).append( r.otherTopic().reason() ) ;
+            }
+            b.append( '\n' ) ;
+        }
         else b.append( "  " ).append( String.join( ", ", r.tags() ) )
               .append( '\n' ) ;
         if( r.framing() != null ) {

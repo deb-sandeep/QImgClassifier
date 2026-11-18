@@ -10,13 +10,17 @@ import java.util.List;
  * (the model's reply, the user's decision, the server's answer) lives in the
  * tagger's table model.
  *
- * @param question the question as the server sent it
- * @param task     its local images, ready for the models; null if they could
- *                 not be found
- * @param problem  why {@code task} is null; null otherwise
- * @param tags     every tag on it now, explicit or implied
+ * @param question     the question as the server sent it
+ * @param task         what the models are asked about: its local images, or
+ *                     none if they could not be found (the text is enough)
+ * @param imageProblem why its images could not be found; null if they were
+ * @param text         its transcription, as stored in the local database;
+ *                     null if it has none
+ * @param textProblem  why {@code text} is null; null otherwise
+ * @param tags         every tag on it now, explicit or implied
  */
-public record TagItem( ServerQuestion question, QTask task, String problem,
+public record TagItem( ServerQuestion question, QTask task,
+                       String imageProblem, String text, String textProblem,
                        List<ServerTag> tags ) {
 
     public TagItem {
@@ -30,12 +34,20 @@ public record TagItem( ServerQuestion question, QTask task, String problem,
 
     /** True if the question's images were found. */
     public boolean hasImages() {
-        return task != null ;
+        return imageProblem == null ;
+    }
+
+    /**
+     * True if it has a transcription: only then is it scored, sent to the
+     * models or tagged.
+     */
+    public boolean isTranscribed() {
+        return text != null ;
     }
 
     /** True if the question can be sent to the models. */
     public boolean isSendable() {
-        return task != null ;
+        return isTranscribed() ;
     }
 
     public String type() {

@@ -19,6 +19,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 
@@ -41,6 +43,10 @@ public final class TranscriptionPrompter
     private final double                           margin ;
     private final BiConsumer<QTask,String>         notes ;
 
+    /** The last passage reply the gate refused, by LCT group. */
+    private final Map<String,String> rejectedPassages =
+            new ConcurrentHashMap<>() ;
+
     /**
      * @param file   the prompt file
      * @param jobs   the job each task sent is
@@ -56,6 +62,14 @@ public final class TranscriptionPrompter
         this.jobs   = jobs ;
         this.margin = margin ;
         this.notes  = notes ;
+    }
+
+    /**
+     * The last reply the gate refused for LCT group {@code lctCtxId}'s
+     * passage, this session; null if none.
+     */
+    public String rejectedPassage( String lctCtxId ) {
+        return lctCtxId == null ? null : rejectedPassages.get( lctCtxId ) ;
     }
 
     /** The subject's name in the prompt; null for an unknown subject. */
@@ -114,6 +128,8 @@ public final class TranscriptionPrompter
         String           raw      = reply.text() == null ? "" : reply.text() ;
         String           content  = raw.stripTrailing() ;
         TranscriptionJob job      = jobs.apply( task ) ;
+        boolean          passage  = job != null
+                                    && job.kind() == TranscriptionJob.Kind.PASSAGE ;
         List<String>     problems = new ArrayList<>(
                 WellFormed.problems( raw, null ) ) ;
 
@@ -123,6 +139,9 @@ public final class TranscriptionPrompter
             problems.add( "repeats the passage" ) ;
         }
         if( !problems.isEmpty() ) {
+            if( passage && !content.isBlank() ) {
+                rejectedPassages.put( job.lctCtxId(), content ) ;
+            }
             notes.accept( task, "Well formed : no - " +
                                 String.join( "; ", problems ) + "\n" ) ;
             throw new BadReply( "malformed transcription: " +

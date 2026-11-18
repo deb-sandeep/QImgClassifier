@@ -19,9 +19,6 @@ import java.util.regex.Pattern;
  */
 public final class WellFormed {
 
-    private static final Pattern SOLUTION = Pattern.compile(
-            "^\\s*(?:[-*]\\s*)?(Answer|Solution|Hence|∴)",
-            PyText.FLAGS | Pattern.MULTILINE ) ;
     private static final Pattern META = Pattern.compile(
             "here is the transcription|transcription of the|i cannot|" +
             "i can't",
@@ -49,9 +46,6 @@ public final class WellFormed {
 
         if( text.contains( "![" ) ) problems.add( "image placeholder" ) ;
         if( META.matcher( outside ).find() ) problems.add( "meta text" ) ;
-        if( SOLUTION.matcher( outside ).find() ) {
-            problems.add( "solution text" ) ;
-        }
         return problems ;
     }
 

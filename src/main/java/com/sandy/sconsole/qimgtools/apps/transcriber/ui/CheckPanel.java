@@ -2,6 +2,7 @@ package com.sandy.sconsole.qimgtools.apps.transcriber.ui;
 
 import com.sandy.sconsole.qimgtools.apps.transcriber.gate.ConfidenceScore.Contest;
 import com.sandy.sconsole.qimgtools.core.ui.ImagePreview;
+import com.sandy.sconsole.qimgtools.core.ui.MarkdownView;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -97,6 +98,9 @@ final class CheckPanel extends JPanel {
         /** Drop the edit. */
         void cancelled() ;
     }
+
+    /** The page that renders a transcription, this app's own. */
+    private static final String VIEW_PAGE = "/apps/transcriber/web/view.html" ;
 
     private static final int    IMAGE_HEIGHT = 320 ;
     private static final int    IMAGE_WIDTH  = 900 ;
@@ -398,7 +402,7 @@ final class CheckPanel extends JPanel {
      */
     private final class Side {
 
-        final MarkdownView      view  = new MarkdownView() ;
+        final MarkdownView      view  = new MarkdownView( VIEW_PAGE ) ;
         final JTextArea         raw   = textArea( false ) ;
         final JPanel            shown = new JPanel( new CardLayout() ) ;
         final JComboBox<String> pick  = new JComboBox<>() ;

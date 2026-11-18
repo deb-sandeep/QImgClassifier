@@ -82,6 +82,26 @@ public class TaggerServerClient {
                            new TypeReference<PendingResult>() {} ) ;
     }
 
+    /**
+     * How many of topic {@code topicId}'s questions await transcription, from
+     * the repository status ({@code GET /Master/Question/RepoStatus}); null
+     * if the status doesn't list the topic. All its questions count, tagged
+     * or not.
+     */
+    public Integer untranscribed( int topicId ) throws ServerException {
+
+        JsonNode data = server.get( "/Master/Question/RepoStatus",
+                                    new TypeReference<JsonNode>() {} ) ;
+        for( JsonNode syllabus : data.path( "syllabusStatusMap" ) ) {
+            for( JsonNode t : syllabus.path( "topicStats" ) ) {
+                if( t.path( "topicId" ).asInt( -1 ) == topicId ) {
+                    return t.path( "numUntranscribed" ).asInt() ;
+                }
+            }
+        }
+        return null ;
+    }
+
     /** Every tag on each of the questions {@code ids}, by question id. */
     public Map<Integer,List<ServerTag>> questionTags( List<Integer> ids )
             throws ServerException {

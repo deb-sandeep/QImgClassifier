@@ -31,18 +31,23 @@ public final class TagAuditLog {
         this.lines = new JsonLines( file ) ;
     }
 
-    /** Record the model's reply {@code p} on {@code q}. */
-    public void reply( ServerQuestion q, int scopeTopicId, String cycle,
-                       TagProposal p ) throws IOException {
+    /**
+     * Record the model's reply {@code p} on {@code q}, given under
+     * {@code build} on the transcription hashed {@code textHash}.
+     */
+    public void reply( ServerQuestion q, int scopeTopicId, String build,
+                       String textHash, TagProposal p ) throws IOException {
 
         ObjectNode line = JsonLines.entry( "reply", q ) ;
         line.put( "scopeTopicId", scopeTopicId ) ;
-        line.put( "cycle", cycle ) ;
+        line.put( "build", build ) ;
+        line.put( "textHash", textHash ) ;
         line.put( "model", p.model() ) ;
         p.reply().tags().forEach( line.putArray( "tags" )::add ) ;
         line.put( "confidence", String.valueOf( p.reply().confidence() ) ) ;
         line.put( "noTagFits", p.reply().noTagFits() ) ;
         line.put( "framing", p.reply().framing() ) ;
+        PendingTagging.otherTopic( line, p.reply().otherTopic() ) ;
         line.put( "reason", p.reply().reason() ) ;
         lines.append( line ) ;
     }
@@ -62,6 +67,7 @@ public final class TagAuditLog {
         ObjectNode line = JsonLines.entry( "decision", q ) ;
         line.put( "scopeTopicId", scopeTopicId ) ;
         line.put( "cycle", files.cycle() ) ;
+        line.put( "build", files.buildTag() ) ;
         line.put( "modelHash", files.modelHash() ) ;
         line.put( "promptHash", files.promptHash() ) ;
 
@@ -84,16 +90,18 @@ public final class TagAuditLog {
 
     /**
      * What the regression made of it, and which of its tags the saved set
-     * {@code saved} leaves out; null values if it was never read.
+     * {@code saved} leaves out; null values if it was never scored. The
+     * transcription it scored is identified by {@code textHash}, SHA-256 of
+     * its UTF-8 bytes, which the tag workspace's intake compares with the
+     * current one.
      */
     private static void regression( ObjectNode line, Assessment a,
                                     TagDecision saved ) {
 
         Decision d = a == null ? null : a.decision() ;
 
-        line.put( "ocrHash", a == null || a.ocrText() == null ? null
-                : TopicFiles.sha256( a.ocrText()
-                                      .getBytes( StandardCharsets.UTF_8 ) ) ) ;
+        line.put( "textHash", a == null || a.text() == null ? null
+                              : textHash( a.text() ) ) ;
         if( d == null ) {
             line.putNull( "regression" ) ;
             return ;
@@ -107,6 +115,11 @@ public final class TagAuditLog {
         d.notAccepted().stream()
          .filter( t -> !saved.tags().contains( t ) )
          .forEach( n.putArray( "dropped" )::add ) ;
+    }
+
+    /** SHA-256 of {@code text}'s UTF-8 bytes, in hex. */
+    public static String textHash( String text ) {
+        return TopicFiles.sha256( text.getBytes( StandardCharsets.UTF_8 ) ) ;
     }
 
     private static void scored( ObjectNode n, List<String> tags, Decision d ) {
@@ -127,6 +140,7 @@ public final class TagAuditLog {
         n.put( "confidence", String.valueOf( p.reply().confidence() ) ) ;
         n.put( "noTagFits", p.reply().noTagFits() ) ;
         n.put( "framing", p.reply().framing() ) ;
+        PendingTagging.otherTopic( n, p.reply().otherTopic() ) ;
         n.put( "reason", p.reply().reason() ) ;
     }
 }

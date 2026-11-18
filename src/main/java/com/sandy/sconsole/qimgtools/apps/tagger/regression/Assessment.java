@@ -1,14 +1,14 @@
 package com.sandy.sconsole.qimgtools.apps.tagger.regression;
 
 /**
- * What the local stage made of a question: its OCR text and the regression's
- * decision on it, or why there are none.
+ * What the local stage made of a question: the regression's decision on its
+ * transcription, or why there is none.
  *
- * @param ocrText  the text read; null if it failed
+ * @param text     the transcription scored, as stored; null if it failed
  * @param decision the regression's decision; null if it failed
  * @param failure  why it failed; null otherwise
  */
-public record Assessment( String ocrText, Decision decision, String failure ) {
+public record Assessment( String text, Decision decision, String failure ) {
 
     public static Assessment failed( String why ) {
         return new Assessment( null, null, why ) ;

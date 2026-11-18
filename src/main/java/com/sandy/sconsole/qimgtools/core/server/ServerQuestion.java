@@ -55,6 +55,12 @@ public class ServerQuestion {
      */
     private String nxrValue ;
 
+    /**
+     * True while the question awaits transcription; false once QTranscriber
+     * has stored one; null if the server didn't say.
+     */
+    private Boolean xcriptionNeeded ;
+
     private List<ServerQuestionImage> questionImages = new ArrayList<>() ;
 
     /**

@@ -8,6 +8,7 @@ import com.sandy.sconsole.qimgtools.apps.tagger.model.TagCatalogue;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagDecision;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagProposal;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TaggerSettings;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TaggerStatus;
 import com.sandy.sconsole.qimgtools.apps.tagger.pipeline.TaggerListener;
@@ -25,6 +26,7 @@ import com.sandy.sconsole.qimgtools.core.model.Topic;
 import com.sandy.sconsole.qimgtools.core.scheduler.TaskScheduler;
 import com.sandy.sconsole.qimgtools.core.ui.HeaderFilterController;
 import com.sandy.sconsole.qimgtools.core.ui.ImagePreview;
+import com.sandy.sconsole.qimgtools.core.ui.MarkdownView;
 import com.sandy.sconsole.qimgtools.core.ui.RateLimitStrip;
 import com.sandy.sconsole.qimgtools.core.ui.Spinner;
 import com.sandy.sconsole.qimgtools.core.ui.ToolIcon;
@@ -170,8 +172,11 @@ public class TaggerFrame extends JFrame
         /** Use {@code settings} from now on, and save them. */
         void applySettings( TaggerSettings settings ) throws IOException ;
 
-        /** What the topic's model doesn't cover; null if nothing. */
-        String topicFilesNotice() ;
+        /**
+         * What the topic's model doesn't cover, and how many of its
+         * questions await transcription; null if nothing.
+         */
+        String scopeNotice() ;
 
         /**
          * Use {@code scope} from now on, and save it. Blocking (it fetches
@@ -202,13 +207,14 @@ public class TaggerFrame extends JFrame
         Loaded load( int limit, boolean fromStart ) throws Exception ;
 
         /**
-         * The scoped topic's escalated questions awaiting the user's tags.
+         * The scoped topic's held-out questions awaiting the user: escalated,
+         * or with a move to another topic suggested.
          * Blocking; called off the EDT. The cursor stays where it is.
          */
-        Loaded loadEscalated() throws Exception ;
+        Loaded loadHeldOut() throws Exception ;
 
-        /** How many of the scoped topic's questions are escalated. */
-        int escalatedCount() ;
+        /** How many of the scoped topic's questions are held out. */
+        int heldOutCount() ;
 
         /**
          * The reply stored for {@code item} by an earlier run, if its topic
@@ -311,6 +317,15 @@ public class TaggerFrame extends JFrame
     private static final double SPLIT_RATIO          = 0.64 ;
     private static final int    PREVIEW_PANEL_HEIGHT = 300 ;
     private static final int    PREVIEW_IMAGE_WIDTH  = 800 ;
+
+    /**
+     * The page that renders a transcription: QTranscriber's, which owns it,
+     * so the text reads here as it does there.
+     */
+    private static final String VIEW_PAGE = "/apps/transcriber/web/view.html" ;
+
+    /** The image's share of the width beside the rendered transcription. */
+    private static final double PREVIEW_SPLIT = 0.5 ;
     private static final int    ROW_HEIGHT           = 20 ;
     private static final int    DETAIL_ROWS          = 1 ;
 
@@ -351,6 +366,9 @@ public class TaggerFrame extends JFrame
     /** Room around a fitted column's title: sort arrow and borders. */
     private static final int HEADER_PADDING = 24 ;
 
+    /** Questions scored at once after a Load. */
+    private static final int ASSESS_THREADS = 4 ;
+
     /** Row background per status; a status not listed keeps the table's. */
     private static final Map<TaggerStatus,Color> STATUS_BG =
             new EnumMap<>( Map.ofEntries(
@@ -360,11 +378,14 @@ public class TaggerFrame extends JFrame
                                new Color( 0xFFF3D1 ) ),
                     Map.entry( TaggerStatus.NEEDS_HUMAN, new Color( 0xFFE6CC ) ),
                     Map.entry( TaggerStatus.ESCALATED,   new Color( 0xFFD9B3 ) ),
+                    Map.entry( TaggerStatus.MOVE_SUGGESTED,
+                               new Color( 0xF3D9F0 ) ),
                     Map.entry( TaggerStatus.DEFERRED,    new Color( 0xFCEFC5 ) ),
                     Map.entry( TaggerStatus.SAVING,      new Color( 0xE8E3F2 ) ),
                     Map.entry( TaggerStatus.SAVED,       new Color( 0xD8E8F7 ) ),
                     Map.entry( TaggerStatus.ERROR,       new Color( 0xF4D2D2 ) ),
-                    Map.entry( TaggerStatus.NO_IMAGES,   new Color( 0xEEEEEE ) ) ) ) ;
+                    Map.entry( TaggerStatus.NOT_TRANSCRIBED,
+                               new Color( 0xEEEEEE ) ) ) ) ;
 
     /** The Tags cell of a chosen set. */
     private static final Color DECIDED_CELL_BG = new Color( 0xB9E4BB ) ;
@@ -403,11 +424,14 @@ public class TaggerFrame extends JFrame
         FOR_LLM   ( "Awaiting LLM",    r -> r.status == TaggerStatus.AWAITING_LLM ),
         LOW       ( "Low confidence",  Row::isLowConfidence ),
         ESCALATED ( "Escalated",       r -> r.status == TaggerStatus.ESCALATED ),
+        MOVES     ( "Move suggested",
+                    r -> r.status == TaggerStatus.MOVE_SUGGESTED ),
         EXISTING  ( "Has existing tags", r -> !r.existing.isEmpty() ),
         DEFERRED  ( "Deferred",        r -> r.status == TaggerStatus.DEFERRED ),
+        UNTRANSCRIBED( "Not transcribed",
+                       r -> r.status == TaggerStatus.NOT_TRANSCRIBED ),
         PROBLEMS  ( "Failed / errors", r -> r.llmFailure != null
-                                            || r.status == TaggerStatus.ERROR
-                                            || r.status == TaggerStatus.NO_IMAGES ) ;
+                                            || r.status == TaggerStatus.ERROR ) ;
 
         final String         label ;
         final Predicate<Row> test ;
@@ -439,6 +463,9 @@ public class TaggerFrame extends JFrame
     private final ChosenTagsBar    chosenBar ;
     private final ImagePreview     preview =
             new ImagePreview( PREVIEW_PANEL_HEIGHT, PREVIEW_IMAGE_WIDTH ) ;
+
+    /** The selected question's transcription, rendered beside its image. */
+    private final MarkdownView     rendered = new MarkdownView( VIEW_PAGE ) ;
     private final RateLimitStrip   rateLimitStrip ;
     private final TagStrip      tagStrip ;
     private final JTextArea        detail    = new JTextArea( DETAIL_ROWS, 20 ) ;
@@ -461,9 +488,10 @@ public class TaggerFrame extends JFrame
                     | InputEvent.SHIFT_DOWN_MASK ),
             "Fetch the first questions awaiting tags, those handed over " +
             "before included", () -> load( true ) ) ;
-    private final Action loadEscalatedAction = action( "Load escalated",
-            null, null, "Fetch the questions no tag fits, to tag by hand",
-            this::loadEscalated ) ;
+    private final Action loadHeldOutAction = action( "Load held out",
+            null, null, "Fetch the questions no tag fits, or the LLM would " +
+            "move to another topic, for you to tag or move",
+            this::loadHeldOut ) ;
     private final Action settingsAction = action( "Settings…", null, null,
             "The tagger's settings", this::editSettings ) ;
     private final Action startAction = action( "Start", ToolIcon.START,
@@ -553,10 +581,8 @@ public class TaggerFrame extends JFrame
     /**
      * @param transcripts source of the transcripts shown on the right
      * @param names       the names models are shown by
-     * @param ocrThreads  questions read at once after a Load
      */
-    public TaggerFrame( TranscriptStore transcripts, ModelNames names,
-                        int ocrThreads ) {
+    public TaggerFrame( TranscriptStore transcripts, ModelNames names ) {
 
         super( title( null ) ) ;
         this.names           = names ;
@@ -571,7 +597,7 @@ public class TaggerFrame extends JFrame
                                                   t -> editChosen( t, false ) ) ;
         this.rateLimitStrip  = new RateLimitStrip( names ) ;
         this.tagStrip     = new TagStrip( names, stripActions() ) ;
-        this.assessPool   = assessPool( ocrThreads ) ;
+        this.assessPool   = assessPool( ASSESS_THREADS ) ;
 
         buildTable() ;
 
@@ -614,8 +640,18 @@ public class TaggerFrame extends JFrame
                 BorderFactory.createMatteBorder( 1, 0, 1, 0, Color.GRAY ),
                 BorderFactory.createEmptyBorder( 4, 8, 4, 8 ) ) ) ;
 
+        // The image and the transcription the model and LLM read, side by
+        // side; the divider stays where the user leaves it.
+        rendered.setPreferredSize( new Dimension( PREVIEW_IMAGE_WIDTH,
+                                                  PREVIEW_PANEL_HEIGHT ) ) ;
+        JSplitPane shown = new JSplitPane( JSplitPane.HORIZONTAL_SPLIT,
+                                           preview, rendered ) ;
+        shown.setResizeWeight( PREVIEW_SPLIT ) ;
+        shown.setContinuousLayout( true ) ;
+        shown.setOneTouchExpandable( true ) ;
+
         JPanel question = new JPanel( new BorderLayout() ) ;
-        question.add( preview, BorderLayout.CENTER ) ;
+        question.add( shown, BorderLayout.CENTER ) ;
         question.add( tagStrip, BorderLayout.SOUTH ) ;
 
         JPanel below = new JPanel( new BorderLayout() ) ;
@@ -765,7 +801,7 @@ public class TaggerFrame extends JFrame
         file.add( scopeAction ) ;
         file.add( loadAction ) ;
         file.add( loadFromStartAction ) ;
-        file.add( loadEscalatedAction ) ;
+        file.add( loadHeldOutAction ) ;
         file.addSeparator() ;
         file.add( settingsAction ) ;
         file.addSeparator() ;
@@ -1045,12 +1081,15 @@ public class TaggerFrame extends JFrame
         menu.add( save ) ;
         menu.add( clear ) ;
 
-        JMenu     move   = new JMenu( "Change topic" ) ;
-        JMenuItem delete = new JMenuItem( "Delete question…" ) ;
+        JMenuItem suggested = new JMenuItem() ;
+        JMenu     move      = new JMenu( "Change topic" ) ;
+        JMenuItem delete    = new JMenuItem( "Delete question…" ) ;
 
+        suggested.addActionListener( e -> moveAsSuggested() ) ;
         delete.setForeground( Color.RED ) ;
         delete.addActionListener( e -> deleteSelected() ) ;
         menu.addSeparator() ;
+        menu.add( suggested ) ;
         menu.add( move ) ;
         menu.add( delete ) ;
 
@@ -1083,6 +1122,7 @@ public class TaggerFrame extends JFrame
                 clear.setText( "Clear " + plural( clearable, "decision" ) ) ;
                 clear.setEnabled( clearable > 0 ) ;
                 fillChangeTopic( move ) ;
+                fillSuggested( suggested ) ;
                 delete.setEnabled( canMoveOrDelete() ) ;
                 menu.show( table, e.getX(), e.getY() ) ;
             }
@@ -1120,13 +1160,55 @@ public class TaggerFrame extends JFrame
             move.setEnabled( false ) ;
             return ;
         }
+        TagReply.OtherTopic hint = selectedRows().get( 0 ).suggestedTopic() ;
         for( Topic t : controller.otherTopics() ) {
+            boolean   is   = hint != null && hint.topicId() == t.getId() ;
             JMenuItem item = new JMenuItem( t.getId() + " - " +
-                                            t.getTopicName() ) ;
+                                            t.getTopicName() +
+                                            ( is ? "  (suggested)" : "" ) ) ;
             item.addActionListener( e -> changeTopic( t ) ) ;
             move.add( item ) ;
         }
         move.setEnabled( move.getItemCount() > 0 ) ;
+    }
+
+    /**
+     * The "Move to the suggested topic" item: for one selected row whose
+     * LLM reply would move it, else hidden.
+     */
+    private void fillSuggested( JMenuItem suggested ) {
+
+        Topic t = suggestedTopic() ;
+        suggested.setVisible( t != null ) ;
+        if( t == null ) return ;
+
+        suggested.setText( "Move to " + t.getId() + " - " +
+                           t.getTopicName() + " (the LLM's suggestion)" ) ;
+        suggested.setToolTipText( selectedRows().get( 0 ).message ) ;
+        suggested.setEnabled( canMoveOrDelete() ) ;
+    }
+
+    /**
+     * The topic the selected row's LLM reply would move it to, if one row is
+     * selected and the topic is one of the syllabus'; null otherwise.
+     */
+    private Topic suggestedTopic() {
+
+        List<Row> sel = selectedRows() ;
+        if( controller == null || sel.size() != 1 ) return null ;
+
+        TagReply.OtherTopic o = sel.get( 0 ).suggestedTopic() ;
+        if( o == null ) return null ;
+        return controller.otherTopics().stream()
+                         .filter( t -> t.getId() == o.topicId() )
+                         .findFirst().orElse( null ) ;
+    }
+
+    /** Accept the LLM's suggestion: move the selected row's question. */
+    private void moveAsSuggested() {
+
+        Topic t = suggestedTopic() ;
+        if( t != null ) changeTopic( t ) ;
     }
 
     /**
@@ -1375,7 +1457,7 @@ public class TaggerFrame extends JFrame
             clearTable() ;
             pending = -1 ;
             showScope() ;
-            String notice = controller.topicFilesNotice() ;
+            String notice = controller.scopeNotice() ;
             statusBar.setText( "Scope set - press Load" +
                                ( notice != null ? "   |   " + notice : "" ) ) ;
             statusBar.setToolTipText( notice ) ;
@@ -1464,12 +1546,12 @@ public class TaggerFrame extends JFrame
         fetch( () -> controller.load( batch, fromStart ), this::showItems ) ;
     }
 
-    /** Show the scoped topic's escalated questions, to tag by hand. */
-    private void loadEscalated() {
+    /** Show the scoped topic's held-out questions, to tag or move by hand. */
+    private void loadHeldOut() {
 
         if( controller == null || loading ) return ;
-        if( !discardUnsaved( "Load escalated" ) ) return ;
-        fetch( controller::loadEscalated, this::showItems ) ;
+        if( !discardUnsaved( "Load held out" ) ) return ;
+        fetch( controller::loadHeldOut, this::showItems ) ;
     }
 
     /**
@@ -1521,13 +1603,14 @@ public class TaggerFrame extends JFrame
     }
 
     /**
-     * Read and score those of {@code rows} with images off the EDT, several at
+     * Score those of {@code rows} with a transcription off the EDT, several at
      * once, showing each result as it comes; Load and the scope wait for it.
      * Then, if the settings say so, the rows awaiting the LLM are sent to it.
      */
     private void assess( List<Row> rows ) {
 
-        List<Row> todo = rows.stream().filter( r -> r.item.hasImages() ).toList() ;
+        List<Row> todo = rows.stream().filter( r -> r.item.isTranscribed() )
+                             .toList() ;
 
         for( Row row : todo ) {
             if( row.status == TaggerStatus.PENDING ) {
@@ -1601,6 +1684,7 @@ public class TaggerFrame extends JFrame
         showChosen() ;
         showDetail( null ) ;
         preview.show( null ) ;
+        rendered.show( null ) ;
     }
 
     /** A row for each of {@code items}, with its existing tags. */
@@ -2122,7 +2206,8 @@ public class TaggerFrame extends JFrame
 
     private static boolean toDecide( Row row ) {
         return row.status == TaggerStatus.NEEDS_HUMAN
-               || row.status == TaggerStatus.ESCALATED ;
+               || row.status == TaggerStatus.ESCALATED
+               || row.status == TaggerStatus.MOVE_SUGGESTED ;
     }
 
     private static boolean isFrom( Row row, String from ) {
@@ -2373,9 +2458,16 @@ public class TaggerFrame extends JFrame
         showDetail( one ) ;
         preview.show( row != null && row.item.hasImages()
                       ? row.item.task().getImgFiles() : null ) ;
-        if( row != null && row.item.hasImages() ) {
+        rendered.show( row == null ? null : transcription( row ) ) ;
+        if( row != null ) {
             transcriptPanel.showIfOther( row.item.task() ) ;
         }
+    }
+
+    /** {@code row}'s transcription to render, or why it has none. */
+    private static String transcription( Row row ) {
+        return row.item.isTranscribed() ? row.item.text()
+               : "**Not transcribed:** " + row.item.textProblem() ;
     }
 
     /**
@@ -2433,8 +2525,8 @@ public class TaggerFrame extends JFrame
         scopeAction.setEnabled( idle && controller != null ) ;
         loadAction.setEnabled( idle && scoped ) ;
         loadFromStartAction.setEnabled( idle && scoped ) ;
-        loadEscalatedAction.setEnabled( idle && scoped
-                                        && controller.escalatedCount() > 0 ) ;
+        loadHeldOutAction.setEnabled( idle && scoped
+                                        && controller.heldOutCount() > 0 ) ;
         settingsAction.setEnabled( controller != null ) ;
         startAction.setEnabled( stopped && !loading && !assessing && canSend()
                                 && model.rows().stream().anyMatch(
@@ -2455,7 +2547,8 @@ public class TaggerFrame extends JFrame
         String text = String.format(
                 "%d loaded · %d reading · %d accepted " +
                 "(%d PAR, %d LLM, %d USR) · %d awaiting LLM · %d to decide · " +
-                "%d saved · %d deferred · %d failed · %d errors",
+                "%d saved · %d deferred · %d failed · %d errors · " +
+                "%d not transcribed",
                 model.getRowCount(),
                 model.count( TaggerStatus.READING ),
                 model.count( r -> r.status.isAccepted() ),
@@ -2467,16 +2560,17 @@ public class TaggerFrame extends JFrame
                 model.count( TaggerStatus.SAVED ),
                 model.count( TaggerStatus.DEFERRED ),
                 model.count( r -> r.llmFailure != null ),
-                model.count( TaggerStatus.ERROR ) ) ;
+                model.count( TaggerStatus.ERROR ),
+                model.count( TaggerStatus.NOT_TRANSCRIBED ) ) ;
         if( pending >= 0 ) text += " · awaiting tags: " + pending ;
 
-        int escalated = controller == null ? 0 : controller.escalatedCount() ;
-        if( escalated > 0 ) text += " · escalated: " + escalated ;
+        int heldOut = controller == null ? 0 : controller.heldOutCount() ;
+        if( heldOut > 0 ) text += " · held out: " + heldOut ;
         // Running and queued counts are in the queue section on the right.
         if( procState == ProcessingState.STOPPING ) text += "   |   stopping" ;
 
         String notice = controller == null ? null
-                                           : controller.topicFilesNotice() ;
+                                           : controller.scopeNotice() ;
         if( notice != null ) text += "   |   " + notice ;
         statusBar.setText( text ) ;
         statusBar.setToolTipText( notice ) ;

@@ -25,7 +25,7 @@ public interface TaskPrompter<R> {
 
     /**
      * The question's image, prepared once per question and reused on every
-     * attempt.
+     * attempt; null to send the prompt alone.
      *
      * @throws IOException if an image cannot be read
      */

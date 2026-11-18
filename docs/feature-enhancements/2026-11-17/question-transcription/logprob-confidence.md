@@ -153,8 +153,13 @@ The reply fails the gate if:
   S6 experiment runs; it is stripped before storing);
 - a `diagram` block has no description;
 - it contains an image placeholder (`![`), meta text ("Here is the
-  transcription"), or solution text: a line starting `Answer`, `Solution`,
-  `Hence` or `∴`;
+  transcription"). (Solution text — a line starting `Answer`, `Solution`,
+  `Hence` or `∴` — was checked too until 2026-11-18. It never fired in
+  calibration and in the prod run refused only correct transcriptions:
+  passages with "Hence …" or "Answer the following questions", a question
+  starting "Solution of the equation". The prompt's rule 1 now forbids
+  solving instead. `calibration/replay.py` still has it; no golden case
+  depends on it.)
 - a `smiles:` line doesn't parse with CDK (`cdk-smiles`, Maven Central,
   LGPL). This catches only broken SMILES. A valid SMILES of the wrong
   molecule, as in both of E3's errors, is left to §4.2.

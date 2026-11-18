@@ -3,6 +3,7 @@ package com.sandy.sconsole.qimgtools.apps.tagger.ui;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagDecision;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagItem;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TagProposal;
+import com.sandy.sconsole.qimgtools.apps.tagger.model.TagReply;
 import com.sandy.sconsole.qimgtools.apps.tagger.model.TaggerStatus;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.Assessment;
 import com.sandy.sconsole.qimgtools.apps.tagger.regression.Decision;
@@ -65,7 +66,7 @@ final class TagTableModel extends AbstractTableModel
 
         TaggerStatus status ;
 
-        /** The OCR text and the regression's decision; null until read. */
+        /** The regression's decision on its text; null until scored. */
         Assessment assessment ;
 
         /** The LLM's latest reply; null until it has replied. */
@@ -112,9 +113,10 @@ final class TagTableModel extends AbstractTableModel
         Row( TagItem item, List<String> existing ) {
             this.item     = item ;
             this.existing = List.copyOf( existing ) ;
-            this.status   = item.hasImages() ? TaggerStatus.PENDING
-                                             : TaggerStatus.NO_IMAGES ;
-            this.message  = item.problem() ;
+            this.status   = item.isTranscribed() ? TaggerStatus.PENDING
+                                                 : TaggerStatus.NOT_TRANSCRIBED ;
+            this.message  = item.isTranscribed() ? item.imageProblem()
+                                                 : item.textProblem() ;
         }
 
         /**
@@ -153,7 +155,15 @@ final class TagTableModel extends AbstractTableModel
 
         /** True if the LLM's latest reply names tags. */
         boolean hasLlmTags() {
-            return proposal != null && !proposal.reply().noTagFits() ;
+            return proposal != null && !proposal.reply().tags().isEmpty() ;
+        }
+
+        /**
+         * Where the LLM's latest reply would move the question; null if it
+         * wouldn't.
+         */
+        TagReply.OtherTopic suggestedTopic() {
+            return proposal == null ? null : proposal.reply().otherTopic() ;
         }
 
         /**
@@ -162,6 +172,11 @@ final class TagTableModel extends AbstractTableModel
          */
         void stand() {
 
+            if( !item.isTranscribed() ) {
+                status  = TaggerStatus.NOT_TRANSCRIBED ;
+                message = item.textProblem() ;
+                return ;
+            }
             if( assessment == null ) {
                 status  = TaggerStatus.READING ;
                 message = null ;
@@ -170,6 +185,15 @@ final class TagTableModel extends AbstractTableModel
             if( assessment.failure() != null ) {
                 status  = TaggerStatus.NEEDS_HUMAN ;
                 message = assessment.failure() ;
+                return ;
+            }
+
+            TagReply.OtherTopic other = suggestedTopic() ;
+            if( other != null ) {
+                status  = TaggerStatus.MOVE_SUGGESTED ;
+                message = "Belongs to " + other.label() +
+                          ( other.reason() != null ? ": " + other.reason()
+                                                   : "" ) ;
                 return ;
             }
 
@@ -353,10 +377,9 @@ final class TagTableModel extends AbstractTableModel
                    && status != TaggerStatus.SAVED ;
         }
 
-        /** Local question id, or the server's if the images weren't found. */
+        /** The local question id. */
         String questionLabel() {
-            return item.hasImages() ? item.task().getQuestionId()
-                                    : item.question().getQuestionId() ;
+            return item.task().getQuestionId() ;
         }
     }
 
@@ -509,7 +532,11 @@ final class TagTableModel extends AbstractTableModel
                             : "? " + String.join( ", ", open ) ;
 
         if( d == null ) {
-            return row.status == TaggerStatus.ESCALATED ? "(no tag fits)" : more ;
+            if( row.status == TaggerStatus.ESCALATED ) return "(no tag fits)" ;
+            if( row.status == TaggerStatus.MOVE_SUGGESTED ) {
+                return "(belongs to " + row.suggestedTopic().label() + ")" ;
+            }
+            return more ;
         }
         if( d.tags().isEmpty() ) return more.isEmpty() ? "no tags" : more ;
 
@@ -529,6 +556,7 @@ final class TagTableModel extends AbstractTableModel
     /** True if {@code row}'s Tags cell shows tags not settled on yet. */
     static boolean showsProposal( Row row ) {
         return row.status == TaggerStatus.AWAITING_LLM
-               || row.status == TaggerStatus.ESCALATED ;
+               || row.status == TaggerStatus.ESCALATED
+               || row.status == TaggerStatus.MOVE_SUGGESTED ;
     }
 }

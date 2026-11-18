@@ -243,7 +243,8 @@ for a passage, only the `_Ctx` images. Images go as stored (no
    not stripped: the well-formed check refuses it (a bad fence).
 2. **Well formed** (note §4.1). For any model: cut off, empty, unbalanced
    `$` / `$$` / `{}` in maths, a bad fence, an empty `diagram` block, a
-   placeholder, meta or solution text (the calibration replay's checks);
+   placeholder or meta text (the calibration replay's checks, less its
+   solution-text check, dropped 2026-11-18: note §4.1);
    then the app's own: a `smiles:` line CDK can't parse, and since rev 1.6
    a figure with no description, a figure not followed by a blank line
    (markdown would take the next line into it), or a `diagram` fence (the

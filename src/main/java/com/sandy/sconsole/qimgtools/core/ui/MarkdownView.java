@@ -1,4 +1,4 @@
-package com.sandy.sconsole.qimgtools.apps.transcriber.ui;
+package com.sandy.sconsole.qimgtools.core.ui;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,27 +14,32 @@ import lombok.extern.slf4j.Slf4j;
 import java.net.URL;
 
 /**
- * A transcription rendered as the question will read (feature-design.md
- * §8.1): a {@link JFXPanel} holding a {@link WebView} that loads
- * {@code web/view.html} from the classpath once (markdown-it, MathJax with
- * mhchem, SmilesDrawer, all bundled) and draws each markdown given to
- * {@link #show}. Make it on the EDT; {@link #show} may be called from any
- * thread, before the page has loaded too.
+ * A transcription rendered as the question will read (the transcriber's
+ * feature-design.md §8.1): a {@link JFXPanel} holding a {@link WebView} that
+ * loads a page from the classpath once and draws each markdown given to
+ * {@link #show} by calling the page's {@code show( markdown )}. The page is
+ * the owning app's: QTranscriber's {@code web/view.html} (markdown-it, MathJax
+ * with mhchem, SmilesDrawer, all bundled). Make it on the EDT; {@link #show}
+ * may be called from any thread, before the page has loaded too.
  */
 @Slf4j
 @SuppressWarnings( "serial" )
-final class MarkdownView extends JFXPanel {
-
-    private static final String PAGE = "/apps/transcriber/web/view.html" ;
+public final class MarkdownView extends JFXPanel {
 
     private static final ObjectMapper JSON = new ObjectMapper() ;
+
+    /** Classpath location of the page that renders. */
+    private final String page ;
 
     // Touched only on the FX thread.
     private WebEngine engine ;
     private boolean   ready ;
     private String    shown = "" ;
 
-    MarkdownView() {
+    /** @param page classpath location of the page that renders */
+    public MarkdownView( String page ) {
+
+        this.page = page ;
 
         // The view comes and goes with its tab; FX must outlive that.
         Platform.setImplicitExit( false ) ;
@@ -42,7 +47,7 @@ final class MarkdownView extends JFXPanel {
     }
 
     /** Render {@code markdown}; null or blank shows nothing. */
-    void show( String markdown ) {
+    public void show( String markdown ) {
 
         String text = markdown == null ? "" : markdown ;
         Platform.runLater( () -> {
@@ -53,7 +58,7 @@ final class MarkdownView extends JFXPanel {
 
     private void build() {
 
-        URL      page = MarkdownView.class.getResource( PAGE ) ;
+        URL      url  = MarkdownView.class.getResource( page ) ;
         WebView  view = new WebView() ;
 
         engine = view.getEngine() ;
@@ -70,13 +75,13 @@ final class MarkdownView extends JFXPanel {
             }
         } ) ;
         setScene( new Scene( view ) ) ;
-        if( page == null ) {
-            log.error( "{} is not on the classpath", PAGE ) ;
-            engine.loadContent( "<p style='color:red'>" + PAGE +
+        if( url == null ) {
+            log.error( "{} is not on the classpath", page ) ;
+            engine.loadContent( "<p style='color:red'>" + page +
                                 " not found</p>" ) ;
             return ;
         }
-        engine.load( page.toExternalForm() ) ;
+        engine.load( url.toExternalForm() ) ;
     }
 
     /** Draw {@link #shown}, on the FX thread, once the page is loaded. */
