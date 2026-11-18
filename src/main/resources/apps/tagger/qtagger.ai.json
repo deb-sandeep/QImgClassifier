@@ -5,10 +5,13 @@
 // reads the question and lists its tags: nothing is solved, so reasoning is
 // off, and the reply, a short tag list, is capped small (maxOutputTokens).
 //
-// The free Nemotron takes the questions; once its daily quota is used up
-// (rateLimitedRPD), on a server error, or while it is set to pass its
-// questions through, the paid one does. A reply that can't be read is sent
-// once more (retries: 1).
+// Qwen (local) and the free Nemotron share the "llm" root, each taking the
+// next question as a slot frees. A question Qwen fails (once retried) goes
+// to the free Nemotron. Once the free Nemotron's daily quota is used up
+// (rateLimitedRPD) its questions go to Qwen, never to the paid one; the paid
+// Nemotron takes over only after a server error, or while the free one is set
+// to pass its questions through (Cascade, the Models tab). A reply that can't
+// be read is sent once more (retries: 1).
 //
 // The "other" root is reached only by the row menu's Send to model, for a
 // second look by a different model: a question is pinned to the model chosen,
@@ -17,13 +20,24 @@
   "parent" : "classpath:/common/ai-model-config.json",
 
   "roots" : {
-    "llm"   : [ "nvidia/nemotron-3.5-super-vl:free" ],
+    "llm"   : [ "qwen3.5:27b-q8_0", "nvidia/nemotron-3.5-super-vl:free" ],
     "other" : [
       "deepseek/deepseek-v4.1-flash"
     ]
   },
 
   "models" : {
+    "qwen3.5:27b-q8_0" : {
+      "enabled"               : true,
+      "maxParallel"           : 3,
+      "requestTimeoutSeconds" : 300,
+      "retries"               : 1,
+      "reasoning"             : false,
+      "maxOutputTokens"       : 4096,
+      "fallback"              : {
+        "default" : [ "nvidia/nemotron-3.5-super-vl:free" ]
+      }
+    },
     "nvidia/nemotron-3.5-super-vl:free" : {
       "enabled"               : true,
       "maxParallel"           : 4,
@@ -33,7 +47,7 @@
       "maxOutputTokens"       : 1500,
       "promptCaching"         : true,
       "fallback"              : {
-        "rateLimitedRPD" : [ "nvidia/nemotron-3.5-super-vl" ],
+        "rateLimitedRPD" : [ "qwen3.5:27b-q8_0" ],
         "serverError"    : [ "nvidia/nemotron-3.5-super-vl" ],
         "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ]
       }

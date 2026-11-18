@@ -462,7 +462,7 @@ public class TaggerFrame extends JFrame
     private final TopicTagsPanel   topicTags ;
     private final ChosenTagsBar    chosenBar ;
     private final ImagePreview     preview =
-            new ImagePreview( PREVIEW_PANEL_HEIGHT, PREVIEW_IMAGE_WIDTH ) ;
+            new ImagePreview( PREVIEW_PANEL_HEIGHT, ImagePreview.FIT_WIDTH ) ;
 
     /** The selected question's transcription, rendered beside its image. */
     private final MarkdownView     rendered = new MarkdownView( VIEW_PAGE ) ;
@@ -640,8 +640,9 @@ public class TaggerFrame extends JFrame
                 BorderFactory.createMatteBorder( 1, 0, 1, 0, Color.GRAY ),
                 BorderFactory.createEmptyBorder( 4, 8, 4, 8 ) ) ) ;
 
-        // The image and the transcription the model and LLM read, side by
-        // side; the divider stays where the user leaves it.
+        // The image, scaled to its pane's width, and the transcription the
+        // model and LLM read, side by side, half and half when the window
+        // opens; the divider then stays where the user leaves it.
         rendered.setPreferredSize( new Dimension( PREVIEW_IMAGE_WIDTH,
                                                   PREVIEW_PANEL_HEIGHT ) ) ;
         JSplitPane shown = new JSplitPane( JSplitPane.HORIZONTAL_SPLIT,
@@ -701,6 +702,9 @@ public class TaggerFrame extends JFrame
         addWindowListener( new WindowAdapter() {
             @Override public void windowOpened( WindowEvent e ) {
                 split.setDividerLocation( SPLIT_RATIO ) ;
+                // Once the left side is laid out at its new width.
+                SwingUtilities.invokeLater(
+                        () -> shown.setDividerLocation( PREVIEW_SPLIT ) ) ;
             }
 
             @Override public void windowClosing( WindowEvent e ) {
