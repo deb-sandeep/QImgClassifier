@@ -325,7 +325,7 @@ public class TaggerFrame extends JFrame
     private static final String VIEW_PAGE = "/apps/transcriber/web/view.html" ;
 
     /** The image's share of the width beside the rendered transcription. */
-    private static final double PREVIEW_SPLIT = 0.5 ;
+    private static final double PREVIEW_SPLIT = 0.6 ;
     private static final int    ROW_HEIGHT           = 20 ;
     private static final int    DETAIL_ROWS          = 1 ;
 
@@ -641,7 +641,7 @@ public class TaggerFrame extends JFrame
                 BorderFactory.createEmptyBorder( 4, 8, 4, 8 ) ) ) ;
 
         // The image, scaled to its pane's width, and the transcription the
-        // model and LLM read, side by side, half and half when the window
+        // model and LLM read, side by side, 60:40 when the window
         // opens; the divider then stays where the user leaves it.
         rendered.setPreferredSize( new Dimension( PREVIEW_IMAGE_WIDTH,
                                                   PREVIEW_PANEL_HEIGHT ) ) ;
