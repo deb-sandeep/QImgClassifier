@@ -1070,8 +1070,8 @@ public class TranscriberFrame extends JFrame
         String base = getTitle().replaceFirst( "  \\[.*\\]$", "" ) ;
         if( controller == null ) return ;
         TranscriptionCriteria c = controller.criteria() ;
-        setTitle( base + "  [" + c.describe() + ", " + c.batchSize() +
-                  " per load]" ) ;
+        setTitle( base + "  [" + c.shortDescription() + ", " +
+                  c.batchSize() + " per load]" ) ;
     }
 
     /**

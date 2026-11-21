@@ -34,7 +34,7 @@ public record TranscriptionCriteria( List<String> syllabusNames,
                                           batchSize ) ;
     }
 
-    /** "IIT Physics, IIT Maths" or "topics 12, 15", for the title. */
+    /** "IIT Physics, IIT Maths" or "topics 12, 15", in full. */
     public String describe() {
 
         if( topicIds.isEmpty() ) return String.join( ", ", syllabusNames ) ;
@@ -42,4 +42,17 @@ public record TranscriptionCriteria( List<String> syllabusNames,
                                    .map( String::valueOf )
                                    .collect( Collectors.joining( ", " ) ) ;
     }
+
+    /**
+     * {@link #describe()} kept short for the window title: more than
+     * {@value #TITLE_TOPICS} topics read as their count, e.g. "14 topics".
+     */
+    public String shortDescription() {
+
+        if( topicIds.size() <= TITLE_TOPICS ) return describe() ;
+        return topicIds.size() + " topics" ;
+    }
+
+    /** The most topics the title lists by id. */
+    private static final int TITLE_TOPICS = 3 ;
 }
