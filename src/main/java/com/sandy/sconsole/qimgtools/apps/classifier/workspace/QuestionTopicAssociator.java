@@ -33,7 +33,7 @@ import com.sandy.sconsole.qimgtools.core.workspace.JsonFiles;
  * <pre>
  * "topic" : { "id" : 214, "name" : "...", "syllabusName" : "...",
  *             "topicAssociator" : { "actor" : "AI",
- *                                   "model" : "qwen3.5:27b-q8_0",
+ *                                   "model" : "qwen3.8:27b-q8_0",
  *                                   "confidence" : 96 } }
  * </pre>
  * {@code actor} is {@code AI} or {@code User}; a user's choice has

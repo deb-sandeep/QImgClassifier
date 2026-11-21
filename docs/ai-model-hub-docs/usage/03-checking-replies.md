@@ -111,7 +111,7 @@ Modelfile (e.g. `temperature 1`, `presence_penalty 1.5`), so set a greedy,
 unpenalised `sampler` with them:
 
 ```json
-"qwen3.5:27b-q8_0" : {
+"qwen3.8:27b-q8_0" : {
   "logprobs" : 5,
   "sampler"  : {
     "temperature"      : 0,

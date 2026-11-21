@@ -36,8 +36,26 @@
 //   costPerMillionToken   (optional) { input, output }: the provider's price in
 //                         USD per million tokens; for documentation only,
 //                         never used by the processing
+//
+// aliases : (optional) alias -> model id, so the app files can name a model
+//           by a name that outlives it: switching a model is then one edit
+//           here. An app file may give an alias wherever it names a model
+//           (its models, roots and fallback lists); it is resolved to the
+//           model id as the file is read, so the apps, logs, transcripts and
+//           the server only ever see model ids. An alias must name a model
+//           above, not another alias, and must not itself be a model id; an
+//           app file may not configure one model twice, by alias and by id.
 {
   "usageLedger" : "~/.sconsole/ai-usage.json",
+
+  "aliases" : {
+    "qwen"           : "qwen3.8:27b-q8_0",
+    "nemotron"       : "nvidia/nemotron-3.5-super-vl",
+    "nemotron:free"  : "nvidia/nemotron-3.5-super-vl:free",
+    "haiku"          : "anthropic/claude-haiku-5.5",
+    "glm-flash"      : "z-ai/glm-5.3-flash",
+    "deepseek-flash" : "deepseek/deepseek-v4.1-flash"
+  },
 
   "gateways" : {
     "openrouter" : {
@@ -136,6 +154,15 @@
       "enabled"       : true,
       "gateway"       : "ollama-studio",
       "displayName"   : "Qwen 3.5 27B",
+      "costPerMillionToken" : {
+        "input"  : 0.0,
+        "output" : 0.0
+      }
+    },
+    "qwen3.8:27b-q8_0" : {
+      "enabled"             : true,
+      "gateway"             : "ollama-studio",
+      "displayName"         : "Qwen 3.8 27B",
       "costPerMillionToken" : {
         "input"  : 0.0,
         "output" : 0.0

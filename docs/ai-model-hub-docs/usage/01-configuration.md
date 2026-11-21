@@ -77,6 +77,7 @@ included, with the colons of an object aligned.
 | `usageLedger` | no | The file the limits of this global file (gateway and model `rateLimit`s, and the providers' rate-limit holds) are counted in across every app that uses it, so they hold however many apps run at once on this machine. `~/` is the home folder; a relative path is relative to the global file's folder. Without it, each app counts only its own requests against them. See [Limits shared across apps](04-retries-and-fallbacks.md#limits-shared-across-apps). |
 | `gateways` | yes | The gateways, by name. |
 | `models` | yes | The models, by id. |
+| `aliases` | no | Alias to model id: names the app files may use for a model (see [Aliases](#aliases)). |
 
 ### Gateway keys
 
@@ -104,6 +105,34 @@ appears in logs, history and status.
 | `rateLimit` | no | `{ "rpm", "rpd" }` the provider enforces on this model. |
 | `contextTokens` | no | The context window to ask for (Ollama's `num_ctx`). Absent: the server's own setting. A `num_ctx` other than the one the model is loaded with makes Ollama reload it. The Ollama gateway sends no `keep_alive`, so how long a model stays loaded is the server's setting too. |
 | `costPerMillionToken` | no | `{ "input", "output" }`: the provider's price in USD per million tokens. Documentation only: checked for shape, never used. |
+
+### Aliases
+
+An alias is a name for a model that outlives the model, so moving every app
+to a new model is one edit in the global file:
+
+```json
+"aliases" : {
+  "qwen" : "qwen3.8:27b-q8_0"
+}
+```
+
+An app file may give an alias wherever it names a model: its `models` keys,
+its `roots` and its fallback lists. Aliases are a shortcut of the config
+files only: each is resolved to its model id as the app file is read, and
+the `AIConfig` built holds model ids alone. Your code, the hub, its status,
+logs and request history only ever see model ids. A name is looked up as an
+alias first, then as a model id.
+
+Load refuses:
+
+- an alias that is also a model id;
+- an alias that names another alias, or a model the file doesn't define;
+- an app file that configures one model twice, by its alias and its id (or
+  by two aliases), or names it twice in one list.
+
+The load summary logs each alias the app uses, e.g.
+`alias qwen -> qwen3.8:27b-q8_0`.
 
 ## The app file
 
@@ -148,7 +177,7 @@ appears in logs, history and status.
 | Key | Meaning |
 |---|---|
 | `parent` | The global file. Either `classpath:/…` or a file path. `~/` is expanded, and a relative path is relative to the app file's folder. |
-| `roots` | Named pools of entry models, each a non-empty list of model ids. A job names the roots it may start on. How jobs are shared between roots is up to your [routing policy](05-routing-policies.md), not the config. |
+| `roots` | Named pools of entry models, each a non-empty list of model ids (or [aliases](#aliases)). A job names the roots it may start on. How jobs are shared between roots is up to your [routing policy](05-routing-policies.md), not the config. |
 | `models` | The app's policy for **every** model it names anywhere (roots or fallbacks). |
 
 ### Which models an app can invoke
@@ -233,6 +262,8 @@ when:
   unknown;
 - a model named in a root or fallback isn't defined in the parent, or has
   no entry in the app's `models`;
+- an alias is also a model id, names another alias or an unknown model, or
+  an app file names one model twice through an alias;
 - a **root model the app enables can't be used**: its gateway or the model
   is switched off globally, or the gateway has no API key. For example:
   `roots."main"[0] is model 'x', which can't be used: its gateway

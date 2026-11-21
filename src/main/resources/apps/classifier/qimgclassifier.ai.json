@@ -56,12 +56,12 @@
   "parent" : "classpath:/common/ai-model-config.json",
 
   "roots" : {
-    "phy-maths" : [ "qwen3.5:27b-q8_0" ],
-    "chem"      : [ "nvidia/nemotron-3.5-super-vl:free" ]
+    "phy-maths" : [ "qwen" ],
+    "chem"      : [ "nemotron:free" ]
   },
 
   "models" : {
-    "qwen3.5:27b-q8_0" : {
+    "qwen" : {
       "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 300,
@@ -69,10 +69,10 @@
       "reasoning"             : false,
       "structuredOutput"      : true,
       "fallback"              : {
-        "default" : [ "nvidia/nemotron-3.5-super-vl:free" ]
+        "default" : [ "nemotron:free" ]
       }
     },
-    "nvidia/nemotron-3.5-super-vl:free" : {
+    "nemotron:free" : {
       "enabled"               : true,
       "maxParallel"           : 2,
       "requestTimeoutSeconds" : 180,
@@ -80,10 +80,10 @@
       "reasoning"             : false,
       "promptCaching"         : true,
       "fallback"              : {
-        "passthrough" : [ "nvidia/nemotron-3.5-super-vl" ]
+        "passthrough" : [ "nemotron" ]
       }
     },
-    "nvidia/nemotron-3.5-super-vl" : {
+    "nemotron" : {
       "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 180,

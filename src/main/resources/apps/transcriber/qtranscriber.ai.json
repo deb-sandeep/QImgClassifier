@@ -19,13 +19,13 @@
   "parent" : "classpath:/common/ai-model-config.json",
 
   "roots" : {
-    "transcribe" : [ "qwen3.5:27b-q8_0", "nvidia/nemotron-3.5-super-vl:free" ],
-    "escalate"   : [ "nvidia/nemotron-3.5-super-vl:free" ],
-    "recheck"    : [ "z-ai/glm-5.3-flash" ]
+    "transcribe" : [ "qwen", "nemotron:free" ],
+    "escalate"   : [ "nemotron:free" ],
+    "recheck"    : [ "glm-flash" ]
   },
 
   "models" : {
-    "qwen3.5:27b-q8_0" : {
+    "qwen" : {
       "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 180,
@@ -41,15 +41,15 @@
         "repeatPenalty"    : 1
       },
       "fallback"              : {
-        "unreachable" : [ "nvidia/nemotron-3.5-super-vl:free" ],
-        "serverError" : [ "nvidia/nemotron-3.5-super-vl:free" ],
-        "timeout"     : [ "nvidia/nemotron-3.5-super-vl:free" ],
-        "badReply"    : [ "nvidia/nemotron-3.5-super-vl:free" ],
-        "truncated"   : [ "nvidia/nemotron-3.5-super-vl:free" ],
-        "passthrough" : [ "nvidia/nemotron-3.5-super-vl:free" ]
+        "unreachable" : [ "nemotron:free" ],
+        "serverError" : [ "nemotron:free" ],
+        "timeout"     : [ "nemotron:free" ],
+        "badReply"    : [ "nemotron:free" ],
+        "truncated"   : [ "nemotron:free" ],
+        "passthrough" : [ "nemotron:free" ]
       }
     },
-    "nvidia/nemotron-3.5-super-vl:free" : {
+    "nemotron:free" : {
       "enabled"               : true,
       "maxParallel"           : 4,
       "requestTimeoutSeconds" : 180,
@@ -58,12 +58,12 @@
       "maxOutputTokens"       : 4096,
       "promptCaching"         : true,
       "fallback"              : {
-        "rateLimitedRPD" : [ "nvidia/nemotron-3.5-super-vl" ],
-        "serverError"    : [ "nvidia/nemotron-3.5-super-vl" ],
-        "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ]
+        "rateLimitedRPD" : [ "nemotron" ],
+        "serverError"    : [ "nemotron" ],
+        "passthrough"    : [ "nemotron" ]
       }
     },
-    "nvidia/nemotron-3.5-super-vl" : {
+    "nemotron" : {
       "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 180,
@@ -72,7 +72,7 @@
       "maxOutputTokens"       : 4096,
       "promptCaching"         : true
     },
-    "z-ai/glm-5.3-flash" : {
+    "glm-flash" : {
       "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 180,

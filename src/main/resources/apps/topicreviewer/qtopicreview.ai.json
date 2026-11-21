@@ -14,12 +14,12 @@
   "parent" : "classpath:/common/ai-model-config.json",
 
   "roots" : {
-    "review"     : [ "nvidia/nemotron-3.5-super-vl:free" ],
-    "tieBreaker" : [ "z-ai/glm-5.3-flash" ]
+    "review"     : [ "nemotron:free" ],
+    "tieBreaker" : [ "glm-flash" ]
   },
 
   "models" : {
-    "nvidia/nemotron-3.5-super-vl:free" : {
+    "nemotron:free" : {
       "enabled"               : true,
       "maxParallel"           : 4,
       "requestTimeoutSeconds" : 100,
@@ -27,12 +27,12 @@
       "reasoning"             : false,
       "promptCaching"         : true,
       "fallback"              : {
-        "rateLimitedRPD" : [ "nvidia/nemotron-3.5-super-vl" ],
-        "serverError"    : [ "nvidia/nemotron-3.5-super-vl" ],
-        "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ]
+        "rateLimitedRPD" : [ "nemotron" ],
+        "serverError"    : [ "nemotron" ],
+        "passthrough"    : [ "nemotron" ]
       }
     },
-    "nvidia/nemotron-3.5-super-vl" : {
+    "nemotron" : {
       "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 100,
@@ -40,10 +40,10 @@
       "reasoning"             : false,
       "promptCaching"         : true,
       "fallback"              : {
-        "serverError"    : [ "deepseek/deepseek-v4.1-flash" ]
+        "serverError"    : [ "deepseek-flash" ]
       }
     },
-    "deepseek/deepseek-v4.1-flash" : {
+    "deepseek-flash" : {
       "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 120,
@@ -51,7 +51,7 @@
       "reasoning"             : false,
       "promptCaching"         : true
     },
-    "z-ai/glm-5.3-flash" : {
+    "glm-flash" : {
       "enabled"               : true,
       "maxParallel"           : 10,
       "requestTimeoutSeconds" : 180,
@@ -59,10 +59,10 @@
       "reasoning"             : true,
       "promptCaching"         : true,
       "fallback"              : {
-        "timeout" : [ "anthropic/claude-haiku-5.5" ]
+        "timeout" : [ "haiku" ]
       }
     },
-    "anthropic/claude-haiku-5.5" : {
+    "haiku" : {
       "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 180,

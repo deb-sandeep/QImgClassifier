@@ -36,7 +36,16 @@ import java.util.Set;
  * {@code rateLimit} ({@code {rpm, rpd}}), optional {@code maxParallel}, and
  * {@code apiKeyFile} (required for {@code openrouter}); and {@code models}
  * by id, each with {@code enabled}, {@code gateway}, optional
- * {@code displayName}, {@code rateLimit} and {@code contextTokens}.
+ * {@code displayName}, {@code rateLimit} and {@code contextTokens}; and
+ * optional {@code aliases}, alias to model id.
+ * <p>
+ * <b>Aliases</b> are a shortcut of the config files only: wherever the app
+ * file names a model (its {@code models} keys, {@code roots}, fallback
+ * lists) it may give an alias instead, and the alias is resolved to its
+ * model id as the file is read. The {@link AIConfig} built holds model ids
+ * alone. An alias must name a model of the global file (not another alias)
+ * and must not itself be a model id; an app file naming one model twice,
+ * by alias and by id, is refused.
  * <p>
  * <b>App file</b>: {@code parent} (the global file), {@code roots} (name to
  * a non-empty list of model ids) and {@code models} by id, each with
@@ -105,6 +114,9 @@ final class ConfigParser {
     /** The file being parsed, for error messages. */
     private String file ;
 
+    /** The global file's aliases: alias to model id. */
+    private Map<String,String> aliases = Map.of() ;
+
     AIConfig load( String location ) {
 
         Source   app     = read( location ) ;
@@ -118,13 +130,16 @@ final class ConfigParser {
         JsonNode global   = parse( parent ) ;
 
         file = parent.location() ;
-        checkKeys( global, "", Set.of( "usageLedger", "gateways", "models" ) ) ;
+        checkKeys( global, "", Set.of( "usageLedger", "gateways", "models",
+                                       "aliases" ) ) ;
 
         File ledger = global.has( "usageLedger" )
                     ? relativeTo( text( global, "", "usageLedger" ), parent )
                     : null ;
         Map<String,GatewayInfo> gateways = gateways( global, parent ) ;
         Map<String,GlobalModel> defined  = globalModels( global, gateways ) ;
+
+        aliases = aliases( global, defined ) ;
 
         file = app.location() ;
         Map<String,ModelInfo>    models = appModels( appRoot, defined ) ;
@@ -218,27 +233,102 @@ final class ConfigParser {
         return models ;
     }
 
+    /**
+     * The global file's optional {@code aliases}: each a name, not a model
+     * id, for a model the file defines.
+     */
+    private Map<String,String> aliases( JsonNode global,
+                                        Map<String,GlobalModel> defined ) {
+
+        if( !global.has( "aliases" ) ) return Map.of() ;
+
+        Map<String,String> aliases = new LinkedHashMap<>() ;
+        JsonNode           all     = object( global, "", "aliases" ) ;
+
+        for( Iterator<String> it = all.fieldNames() ; it.hasNext() ; ) {
+            String alias = it.next() ;
+            String path  = "aliases." + quote( alias ) ;
+
+            if( defined.containsKey( alias ) ) {
+                throw error( path, "is also a model id; an alias must not " +
+                             "be one" ) ;
+            }
+            String id = text( all, "aliases", alias ) ;
+            if( all.has( id ) ) {
+                throw error( path, "names the alias '" + id + "'; an alias " +
+                             "must name a model id" ) ;
+            }
+            if( !defined.containsKey( id ) ) {
+                throw error( path, "names '" + id + "', which is not one " +
+                             "of the models" ) ;
+            }
+            aliases.put( alias, id ) ;
+        }
+        return aliases ;
+    }
+
     // ---- app file ------------------------------------------------------
+
+    /**
+     * The model id {@code name} stands for: the model its alias names, else
+     * {@code name} itself.
+     */
+    private String modelId( String name ) {
+        return aliases.getOrDefault( name, name ) ;
+    }
+
+    /**
+     * {@code name} as the summary shows it: "alias (id)" for an alias,
+     * else the id.
+     */
+    private String shown( String name ) {
+
+        String id = modelId( name ) ;
+        return id.equals( name ) ? name : name + " (" + id + ")" ;
+    }
+
+    /**
+     * The model ids of the app's {@code models}, its keys resolved; a model
+     * named twice (by its alias and its id, or by two aliases) is refused.
+     */
+    private Set<String> appModelIds( JsonNode all ) {
+
+        Map<String,String> byId = new LinkedHashMap<>() ;
+        for( Iterator<String> it = all.fieldNames() ; it.hasNext() ; ) {
+            String name  = it.next() ;
+            String other = byId.putIfAbsent( modelId( name ), name ) ;
+
+            if( other != null ) {
+                throw error( "models." + quote( name ), "is model '" +
+                             modelId( name ) + "', already configured as " +
+                             "models." + quote( other ) ) ;
+            }
+        }
+        return byId.keySet() ;
+    }
 
     private Map<String,ModelInfo> appModels( JsonNode app,
                                              Map<String,GlobalModel> defined ) {
 
-        JsonNode all = object( app, "", "models" ) ;
+        JsonNode    all   = object( app, "", "models" ) ;
+        Set<String> known = appModelIds( all ) ;
 
         // Fallback references are checked against the whole JSON list, so a
         // model may fall back to one defined after it.
         Map<String,ModelInfo> models = new LinkedHashMap<>() ;
         for( Iterator<String> it = all.fieldNames() ; it.hasNext() ; ) {
-            String   id   = it.next() ;
-            String   path = "models." + quote( id ) ;
-            JsonNode m    = all.get( id ) ;
+            String   name = it.next() ;
+            String   id   = modelId( name ) ;
+            String   path = "models." + quote( name ) ;
+            JsonNode m    = all.get( name ) ;
 
             requireObject( m, path ) ;
             checkKeys( m, path, APP_MODEL_KEYS ) ;
 
             GlobalModel def = defined.get( id ) ;
             if( def == null ) {
-                throw error( path, "is not defined in the parent file" ) ;
+                throw error( path, "is neither an alias nor a model of the " +
+                             "parent file" ) ;
             }
 
             boolean reasoning  = bool( m, path, "reasoning" ) ;
@@ -269,7 +359,7 @@ final class ConfigParser {
                     reasoning, caching, structured, effort, maxReason,
                     optInteger( m, path, "maxOutputTokens" ),
                     sampler( m, path ), logprobs,
-                    fallback( m, path, all ), true ) ) ;
+                    fallback( m, path, known ), true ) ) ;
         }
         return models ;
     }
@@ -305,7 +395,7 @@ final class ConfigParser {
     }
 
     private FallbackInfo fallback( JsonNode model, String modelPath,
-                                   JsonNode appModels ) {
+                                   Set<String> appModels ) {
 
         if( !model.has( "fallback" ) ) return FallbackInfo.NONE ;
 
@@ -343,16 +433,11 @@ final class ConfigParser {
 
         if( all.isEmpty() ) throw error( "roots", "is empty" ) ;
         for( Iterator<String> it = all.fieldNames() ; it.hasNext() ; ) {
-            String name = it.next() ;
-            String path = "roots." + quote( name ) ;
-            List<String> ids = modelList( all.get( name ), path, null ) ;
+            String       name = it.next() ;
+            String       path = "roots." + quote( name ) ;
+            List<String> ids  = modelList( all.get( name ), path,
+                                           models.keySet() ) ;
 
-            for( int i = 0 ; i < ids.size() ; i++ ) {
-                if( !models.containsKey( ids.get( i ) ) ) {
-                    throw error( path + "[" + i + "]", "names '" + ids.get( i ) +
-                                 "', which is not in the app's models" ) ;
-                }
-            }
             if( ids.isEmpty() ) throw error( path, "is empty" ) ;
             roots.put( name, ids ) ;
         }
@@ -360,11 +445,11 @@ final class ConfigParser {
     }
 
     /**
-     * A JSON array of distinct model ids, each one in {@code appModels}
-     * when that is not null.
+     * A JSON array of models, each an alias or a model id, as distinct
+     * model ids, each one in {@code appModels}.
      */
     private List<String> modelList( JsonNode n, String path,
-                                    JsonNode appModels ) {
+                                    Set<String> appModels ) {
 
         if( n == null || !n.isArray() ) {
             throw error( path, "must be a list of model ids" ) ;
@@ -375,12 +460,16 @@ final class ConfigParser {
             String   at = path + "[" + i + "]" ;
 
             if( !e.isTextual() ) throw error( at, "must be a model id" ) ;
-            String id = e.asText() ;
-            if( appModels != null && !appModels.has( id ) ) {
-                throw error( at, "names '" + id + "', which is not in the " +
-                             "app's models" ) ;
+            String name = e.asText() ;
+            String id   = modelId( name ) ;
+
+            if( !appModels.contains( id ) ) {
+                throw error( at, "names '" + shown( name ) + "', which is " +
+                             "not in the app's models" ) ;
             }
-            if( ids.contains( id ) ) throw error( at, "repeats '" + id + "'" ) ;
+            if( ids.contains( id ) ) {
+                throw error( at, "repeats '" + shown( name ) + "'" ) ;
+            }
             ids.add( id ) ;
         }
         return ids ;
@@ -443,6 +532,11 @@ final class ConfigParser {
                       "app only" ) ;
         }
         config.gateways().values().forEach( g -> log.info( "  gateway {}", g ) ) ;
+        aliases.forEach( ( alias, id ) -> {
+            if( config.models().containsKey( id ) ) {
+                log.info( "  alias {} -> {}", alias, id ) ;
+            }
+        } ) ;
         config.models().values().forEach( m -> log.info( "  model {}", m ) ) ;
         config.roots().forEach( ( name, ids ) -> {
             boolean on = config.isRootUsable( name ) ;

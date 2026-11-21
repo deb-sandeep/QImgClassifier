@@ -20,14 +20,14 @@
   "parent" : "classpath:/common/ai-model-config.json",
 
   "roots" : {
-    "llm"   : [ "qwen3.5:27b-q8_0", "nvidia/nemotron-3.5-super-vl:free" ],
+    "llm"   : [ "qwen", "nemotron:free" ],
     "other" : [
-      "deepseek/deepseek-v4.1-flash"
+      "deepseek-flash"
     ]
   },
 
   "models" : {
-    "qwen3.5:27b-q8_0" : {
+    "qwen" : {
       "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 300,
@@ -35,10 +35,10 @@
       "reasoning"             : false,
       "maxOutputTokens"       : 4096,
       "fallback"              : {
-        "default" : [ "nvidia/nemotron-3.5-super-vl:free" ]
+        "default" : [ "nemotron:free" ]
       }
     },
-    "nvidia/nemotron-3.5-super-vl:free" : {
+    "nemotron:free" : {
       "enabled"               : true,
       "maxParallel"           : 4,
       "requestTimeoutSeconds" : 90,
@@ -47,12 +47,12 @@
       "maxOutputTokens"       : 1500,
       "promptCaching"         : true,
       "fallback"              : {
-        "rateLimitedRPD" : [ "qwen3.5:27b-q8_0" ],
-        "serverError"    : [ "nvidia/nemotron-3.5-super-vl" ],
-        "passthrough"    : [ "nvidia/nemotron-3.5-super-vl" ]
+        "rateLimitedRPD" : [ "qwen" ],
+        "serverError"    : [ "nemotron" ],
+        "passthrough"    : [ "nemotron" ]
       }
     },
-    "nvidia/nemotron-3.5-super-vl" : {
+    "nemotron" : {
       "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 90,
@@ -61,7 +61,7 @@
       "maxOutputTokens"       : 1500,
       "promptCaching"         : true
     },
-    "deepseek/deepseek-v4.1-flash" : {
+    "deepseek-flash" : {
       "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 120,
@@ -70,7 +70,7 @@
       "maxOutputTokens"       : 1500,
       "promptCaching"         : true
     },
-    "anthropic/claude-haiku-5.5" : {
+    "haiku" : {
       "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 120,
@@ -79,7 +79,7 @@
       "maxOutputTokens"       : 1500,
       "promptCaching"         : true
     },
-    "z-ai/glm-5.3-flash" : {
+    "glm-flash" : {
       "enabled"               : true,
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 120,
