@@ -47,6 +47,7 @@ import com.sandy.sconsole.qimgtools.core.server.SConsoleServer.ServerException;
 import com.sandy.sconsole.qimgtools.core.server.ServerQuestion;
 import com.sandy.sconsole.qimgtools.core.util.ModelNames;
 import com.sandy.sconsole.qimgtools.core.workspace.TranscriptStore;
+import com.sandy.sconsole.qimgtools.core.workspace.UnattendedLoads;
 import com.sandy.sconsole.qimgtools.core.workspace.UsageLog;
 
 import lombok.extern.slf4j.Slf4j;
@@ -242,7 +243,8 @@ public class QTranscriber implements TranscriberFrame.Controller,
                 TranscriberFrame frame = new TranscriberFrame(
                         config.getServerUrl(),
                         new TranscriptStore( config.getWorkspaceDir() ),
-                        ModelNames.of( ai ) ) ;
+                        ModelNames.of( ai ),
+                        new UnattendedLoads( config.getUnattendedFile() ) ) ;
                 QTranscriber     app   = new QTranscriber(
                         config, server, prompt, topics, frame ) ;
 

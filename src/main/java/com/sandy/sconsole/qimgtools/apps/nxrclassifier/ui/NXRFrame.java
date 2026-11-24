@@ -24,6 +24,7 @@ import com.sandy.sconsole.qimgtools.core.ui.ToolIcon;
 import com.sandy.sconsole.qimgtools.core.ui.TranscriptPanel;
 import com.sandy.sconsole.qimgtools.core.util.ModelNames;
 import com.sandy.sconsole.qimgtools.core.workspace.TranscriptStore;
+import com.sandy.sconsole.qimgtools.core.workspace.UnattendedLoads;
 import com.sandy.sconsole.nxr.NXRResult;
 
 import lombok.extern.slf4j.Slf4j;
@@ -207,6 +208,9 @@ public class NXRFrame extends JFrame
 
     /** The most loads an unattended run may be given. */
     private static final int MAX_UNATTENDED_LOADS = 999 ;
+
+    /** The loads offered for an unattended run until one is chosen. */
+    private static final int DEFAULT_UNATTENDED_LOADS = 10 ;
 
     private static final String RUN_UNATTENDED  = "Run unattended" ;
     private static final String STOP_UNATTENDED = "Stop unattended processing" ;
@@ -434,9 +438,12 @@ public class NXRFrame extends JFrame
 
     /**
      * The loads the unattended run may make; asked for as it starts, and
-     * offered again the next time.
+     * offered again the next time, also after a restart.
      */
-    private int maxLoads = 10 ;
+    private int maxLoads ;
+
+    /** Where {@link #maxLoads} is kept between runs of the app. */
+    private final UnattendedLoads unattendedLoads ;
 
     /**
      * What the unattended run is doing, or why it ended, for the status
@@ -458,9 +465,13 @@ public class NXRFrame extends JFrame
      * @param names       the names models are shown by
      */
     public NXRFrame( int batchSize, int threads, String serverUrl,
-                     TranscriptStore transcripts, ModelNames names ) {
+                     TranscriptStore transcripts, ModelNames names,
+                     UnattendedLoads unattendedLoads ) {
 
         super( "NXRClassifier - " + serverUrl ) ;
+        this.unattendedLoads = unattendedLoads ;
+        this.maxLoads        = unattendedLoads.load(
+                DEFAULT_UNATTENDED_LOADS, MAX_UNATTENDED_LOADS ) ;
         this.classifyPool    = classifyPool( threads ) ;
         this.names           = names ;
         this.model           = new NXRTableModel() ;
@@ -1664,6 +1675,7 @@ public class NXRFrame extends JFrame
                 JOptionPane.PLAIN_MESSAGE ) ;
         if( answer != JOptionPane.OK_OPTION ) return false ;
         maxLoads = (Integer) spinner.getValue() ;
+        unattendedLoads.save( maxLoads ) ;
         return true ;
     }
 

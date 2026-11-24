@@ -65,6 +65,9 @@ public final class TranscriberConfig {
     private final File heldPassagesFile ;
     private final File auditFile ;
 
+    /** The unattended run's load count, as last chosen. */
+    private final File unattendedFile ;
+
     /** Request times of the current UTC day, behind the per-day limits. */
     private final File requestHistoryFile ;
 
@@ -96,6 +99,7 @@ public final class TranscriberConfig {
         stagedFile       = props.workspacePath( "staged.file" ) ;
         heldPassagesFile = props.workspacePath( "held.passages.file" ) ;
         auditFile        = props.workspacePath( "audit.file" ) ;
+        unattendedFile   = props.workspacePath( "unattended.file" ) ;
 
         requestHistoryFile = props.workspacePath( "request.history.file" ) ;
         usageLogFile       = props.workspacePath( "usage.log.file" ) ;

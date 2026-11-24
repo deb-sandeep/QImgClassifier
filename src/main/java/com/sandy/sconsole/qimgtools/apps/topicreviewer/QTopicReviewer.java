@@ -34,6 +34,7 @@ import com.sandy.sconsole.qimgtools.apps.topicreviewer.workspace.PendingVerdicts
 import com.sandy.sconsole.qimgtools.apps.topicreviewer.workspace.ReviewAuditLog;
 import com.sandy.sconsole.qimgtools.core.util.ModelNames;
 import com.sandy.sconsole.qimgtools.core.workspace.TranscriptStore;
+import com.sandy.sconsole.qimgtools.core.workspace.UnattendedLoads;
 import com.sandy.sconsole.qimgtools.core.workspace.UsageLog;
 
 import lombok.extern.slf4j.Slf4j;
@@ -195,7 +196,8 @@ public class QTopicReviewer implements TopicReviewFrame.Controller {
                         ModelNames.of( config.getAi() ),
                         firstUsable( config.getAi(), ReviewOutcomes.ROOT ),
                         firstUsable( config.getAi(),
-                                     ReviewOutcomes.TIE_BREAKER_ROOT ) ) ;
+                                     ReviewOutcomes.TIE_BREAKER_ROOT ),
+                        new UnattendedLoads( config.getUnattendedFile() ) ) ;
                 QTopicReviewer app = new QTopicReviewer(
                         config, server, topicRepo, frame ) ;
 

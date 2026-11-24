@@ -34,6 +34,7 @@ import com.sandy.sconsole.qimgtools.core.ui.ToolIcon;
 import com.sandy.sconsole.qimgtools.core.ui.TranscriptPanel;
 import com.sandy.sconsole.qimgtools.core.util.ModelNames;
 import com.sandy.sconsole.qimgtools.core.workspace.TranscriptStore;
+import com.sandy.sconsole.qimgtools.core.workspace.UnattendedLoads;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -341,6 +342,9 @@ public class TranscriberFrame extends JFrame
     /** The most loads an unattended run may be given. */
     private static final int MAX_UNATTENDED_LOADS = 999 ;
 
+    /** The loads offered for an unattended run until one is chosen. */
+    private static final int DEFAULT_UNATTENDED_LOADS = 10 ;
+
     private static final String RUN_UNATTENDED  = "Run unattended" ;
     private static final String STOP_UNATTENDED = "Stop unattended processing" ;
 
@@ -579,8 +583,14 @@ public class TranscriberFrame extends JFrame
     /** Questions the batch's refills saved, and dropped from the table. */
     private long savedEarlier ;
 
-    /** The loads the unattended run may make, asked for as it starts. */
-    private int maxLoads = 10 ;
+    /**
+     * The loads the unattended run may make; asked for as it starts, and
+     * offered again the next time, also after a restart.
+     */
+    private int maxLoads ;
+
+    /** Where {@link #maxLoads} is kept between runs of the app. */
+    private final UnattendedLoads unattendedLoads ;
 
     /** What the unattended run is doing, or why it ended; null before. */
     private String unattendedStep ;
@@ -594,9 +604,13 @@ public class TranscriberFrame extends JFrame
      * @param names       the names models are shown by
      */
     public TranscriberFrame( String serverUrl, TranscriptStore transcripts,
-                             ModelNames names ) {
+                             ModelNames names,
+                             UnattendedLoads unattendedLoads ) {
 
         super( "QTranscriber - " + serverUrl ) ;
+        this.unattendedLoads = unattendedLoads ;
+        this.maxLoads        = unattendedLoads.load(
+                DEFAULT_UNATTENDED_LOADS, MAX_UNATTENDED_LOADS ) ;
         this.names           = names ;
         this.model           = new TranscriberTableModel( names ) ;
         this.table           = new JTable( model ) ;
@@ -709,6 +723,7 @@ public class TranscriberFrame extends JFrame
             refreshRateLimitStrip() ;
             refreshQueueBar() ;
             refreshModels() ;
+            if( model.tick() ) table.repaint() ;
         } ).start() ;
         updateControls() ;
     }
@@ -2317,6 +2332,7 @@ public class TranscriberFrame extends JFrame
                 JOptionPane.PLAIN_MESSAGE ) ;
         if( answer != JOptionPane.OK_OPTION ) return false ;
         maxLoads = (Integer) spinner.getValue() ;
+        unattendedLoads.save( maxLoads ) ;
         return true ;
     }
 
@@ -2866,6 +2882,7 @@ public class TranscriberFrame extends JFrame
 
     /**
      * Tints rows by status, spins in the Status cell of a row being saved,
+     * shows how long a Queued or Transcribing row has been so,
      * draws a failed row's ({@link Row#isFailed}) Source, Question and ✗
      * in red (pink on a dark selection), and shows the last column as a
      * dot: green once the transcription is saved on the server, red until
@@ -2895,6 +2912,9 @@ public class TranscriberFrame extends JFrame
                 c.setForeground( selected
                                  ? failedOn( t.getSelectionBackground() )
                                  : FAILED_FG ) ;
+            }
+            if( col == TranscriberTableModel.COL_STATUS ) {
+                setText( row.statusText() ) ;
             }
             if( dot ) setIcon( (Boolean) value ? Dot.SAVED : Dot.UNSAVED ) ;
             else {

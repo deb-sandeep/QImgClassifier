@@ -27,6 +27,7 @@ import com.sandy.sconsole.qimgtools.core.util.FileHelper;
 import com.sandy.sconsole.qimgtools.core.util.ImageCollator;
 import com.sandy.sconsole.qimgtools.core.util.ModelNames;
 import com.sandy.sconsole.qimgtools.core.workspace.TranscriptStore;
+import com.sandy.sconsole.qimgtools.core.workspace.UnattendedLoads;
 import com.sandy.sconsole.qimgtools.core.workspace.UsageLog;
 import com.sandy.sconsole.nxr.NXRException;
 import com.sandy.sconsole.nxr.NXRResult;
@@ -156,7 +157,8 @@ public class NXRClassifier implements NXRFrame.Controller {
                         config.getBatchSize(), config.getClassifyThreads(),
                         config.getServerUrl(),
                         new TranscriptStore( config.getWorkspaceDir() ),
-                        ModelNames.of( config.getAi() ) ) ;
+                        ModelNames.of( config.getAi() ),
+                        new UnattendedLoads( config.getUnattendedFile() ) ) ;
                 NXRClassifier app   = new NXRClassifier( config, server,
                                                          classifier, frame ) ;
 

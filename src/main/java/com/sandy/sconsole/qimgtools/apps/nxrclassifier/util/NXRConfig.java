@@ -51,6 +51,9 @@ public final class NXRConfig {
     /** Every label saved, appended as JSON lines. */
     private final File auditFile ;
 
+    /** The unattended run's load count, as last chosen. */
+    private final File unattendedFile ;
+
     /** Questions fetched per Load, to start with (1-100). */
     private final int batchSize ;
 
@@ -92,6 +95,7 @@ public final class NXRConfig {
                                              MAX_CLASSIFY_THREADS ) ;
 
         requestHistoryFile = props.workspacePath( "request.history.file" ) ;
+        unattendedFile     = props.workspacePath( "unattended.file" ) ;
         usageLogFile       = props.workspacePath( "usage.log.file" ) ;
 
         ai = AIConfigs.load( AI_CONFIG ) ;

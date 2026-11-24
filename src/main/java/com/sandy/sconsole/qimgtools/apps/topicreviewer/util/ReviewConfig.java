@@ -56,6 +56,9 @@ public final class ReviewConfig {
     /** The search criteria last saved in the reviewer. */
     private final File reviewCriteriaFile ;
 
+    /** The unattended run's load count, as last chosen. */
+    private final File unattendedFile ;
+
     /**
      * Start times of the day's requests, so the per-day limit survives a
      * restart.
@@ -94,6 +97,7 @@ public final class ReviewConfig {
         pendingVerdictsFile = props.workspacePath( "pending.verdicts.file" ) ;
         reviewAuditFile     = props.workspacePath( "review.audit.file" ) ;
         reviewCriteriaFile  = props.workspacePath( "review.criteria.file" ) ;
+        unattendedFile      = props.workspacePath( "unattended.file" ) ;
         requestHistoryFile  = props.workspacePath( "request.history.file" ) ;
         usageLogFile        = props.workspacePath( "usage.log.file" ) ;
 
