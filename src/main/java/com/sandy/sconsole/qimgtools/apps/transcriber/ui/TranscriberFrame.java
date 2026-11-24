@@ -100,9 +100,12 @@ import java.awt.event.WindowEvent;
 import java.io.File;
 import java.io.IOException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -547,6 +550,26 @@ public class TranscriberFrame extends JFrame
     private int pending = -1 ;
 
     /**
+     * When the latest questions were done (transcribed or failed by the
+     * models), oldest first, for the pace behind the status bar's
+     * estimate; at most {@link #PACE_SAMPLES}, none older than
+     * {@link #PACE_WINDOW_MS}. EDT only.
+     */
+    private final Deque<Long> doneTimes = new ArrayDeque<>() ;
+
+    /** The most question completions the pace is taken over. */
+    private static final int PACE_SAMPLES = 50 ;
+
+    /** Completions older than this no longer count towards the pace. */
+    private static final long PACE_WINDOW_MS = 30 * 60_000L ;
+
+    private static final DateTimeFormatter ETA_TIME =
+            DateTimeFormatter.ofPattern( "HH:mm" ) ;
+
+    private static final DateTimeFormatter ETA_DAY_TIME =
+            DateTimeFormatter.ofPattern( "EEE HH:mm" ) ;
+
+    /**
      * The cursor: Load fetches the questions after this server id, the
      * last one loaded; null to fetch from the first. Reset by new criteria
      * and Load from start.
@@ -652,8 +675,8 @@ public class TranscriberFrame extends JFrame
         toolbar.add( searchBar ) ;
 
         // On the left the table; on the right the selected row's detail
-        // above the Check, Transcripts and Models tabs and the rate limit
-        // strip.
+        // above the Check, Transcripts and Models tabs, the rate limit
+        // strip and the model queue's bar.
         detail.setEditable( false ) ;
         detail.setLineWrap( true ) ;
         detail.setWrapStyleWord( true ) ;
@@ -666,7 +689,7 @@ public class TranscriberFrame extends JFrame
         detail.setBackground( right.getBackground() ) ;
         right.add( detail, BorderLayout.NORTH ) ;
         right.add( tabs(), BorderLayout.CENTER ) ;
-        right.add( rateLimitStrip, BorderLayout.SOUTH ) ;
+        right.add( southOfTabs(), BorderLayout.SOUTH ) ;
         // Else its minimum is its widest content's (the Check tab's button
         // row), and the divider can't widen the table past it.
         right.setMinimumSize( new Dimension( 0, 0 ) ) ;
@@ -676,28 +699,14 @@ public class TranscriberFrame extends JFrame
         split.setResizeWeight( SPLIT_RATIO ) ;
         split.setContinuousLayout( true ) ;
 
-        statusBar.setBorder( BorderFactory.createEmptyBorder( 4, 8, 4, 8 ) ) ;
-        queueText.setBorder( BorderFactory.createEmptyBorder( 4, 12, 4, 12 ) ) ;
-        paceText.setBorder( BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder( 0, 1, 0, 0, Color.GRAY ),
-                BorderFactory.createEmptyBorder( 4, 12, 4, 12 ) ) ) ;
-        fixWidth( queueText, WIDEST_COUNTS ) ;
-        fixWidth( paceText, WIDEST_PACE ) ;
-        queueBar.setBorder(
-                BorderFactory.createMatteBorder( 0, 1, 0, 0, Color.GRAY ) ) ;
-        queueBar.add( queueText, BorderLayout.CENTER ) ;
-        queueBar.add( paceText, BorderLayout.EAST ) ;
-
-        JPanel footer = new JPanel( new BorderLayout() ) ;
-        footer.setBorder(
-                BorderFactory.createMatteBorder( 1, 0, 0, 0, Color.GRAY ) ) ;
-        footer.add( statusBar, BorderLayout.CENTER ) ;
-        footer.add( queueBar, BorderLayout.EAST ) ;
+        statusBar.setBorder( BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder( 1, 0, 0, 0, Color.GRAY ),
+                BorderFactory.createEmptyBorder( 4, 8, 4, 8 ) ) ) ;
 
         setLayout( new BorderLayout() ) ;
         add( toolbar, BorderLayout.NORTH ) ;
         add( split, BorderLayout.CENTER ) ;
-        add( footer, BorderLayout.SOUTH ) ;
+        add( statusBar, BorderLayout.SOUTH ) ;
 
         // The whole screen, menu bar and dock included; not maximised,
         // which would leave them out.
@@ -1609,6 +1618,7 @@ public class TranscriberFrame extends JFrame
             row.status     = row.restingStatus() ;
             row.message    = describe( row ) ;
         } ) ;
+        if( job.kind() != TranscriptionJob.Kind.PASSAGE ) questionDone() ;
         SwingUtilities.invokeLater( this::checkBatch ) ;
     }
 
@@ -1635,6 +1645,7 @@ public class TranscriberFrame extends JFrame
             } ) ;
             return ;
         }
+        questionDone() ;
         onRow( job.item(), row -> {
 
             row.queuedFrom = null ;
@@ -2226,6 +2237,29 @@ public class TranscriberFrame extends JFrame
     }
 
     /**
+     * The rate limit strip above the model queue's bar: its counts, and
+     * beside them the pace of the next request.
+     */
+    private JPanel southOfTabs() {
+
+        queueText.setBorder( BorderFactory.createEmptyBorder( 4, 12, 4, 12 ) ) ;
+        paceText.setBorder( BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder( 0, 1, 0, 0, Color.GRAY ),
+                BorderFactory.createEmptyBorder( 4, 12, 4, 12 ) ) ) ;
+        fixWidth( queueText, WIDEST_COUNTS ) ;
+        fixWidth( paceText, WIDEST_PACE ) ;
+        queueBar.setBorder(
+                BorderFactory.createMatteBorder( 1, 0, 0, 0, Color.GRAY ) ) ;
+        queueBar.add( queueText, BorderLayout.CENTER ) ;
+        queueBar.add( paceText, BorderLayout.EAST ) ;
+
+        JPanel south = new JPanel( new BorderLayout() ) ;
+        south.add( rateLimitStrip, BorderLayout.NORTH ) ;
+        south.add( queueBar, BorderLayout.SOUTH ) ;
+        return south ;
+    }
+
+    /**
      * Show the model queue's counts: green when nothing waits or runs,
      * orange while requests are in flight, pink when jobs wait but none is
      * in flight. Beside them, a countdown to the next request, in red,
@@ -2267,6 +2301,66 @@ public class TranscriberFrame extends JFrame
     }
 
     /** {@code ms} as "42 s", or "3 min 05 s" from a minute up. */
+    /** Note, on any thread, that the models are done with a question. */
+    private void questionDone() {
+
+        long now = System.currentTimeMillis() ;
+        SwingUtilities.invokeLater( () -> {
+            doneTimes.addLast( now ) ;
+            while( doneTimes.size() > PACE_SAMPLES ) doneTimes.removeFirst() ;
+        } ) ;
+    }
+
+    /**
+     * About how long the questions pending on the server will take, and
+     * when they will be done, at the pace of the latest completions; null
+     * without a pace (fewer than 3 completions in the last
+     * {@link #PACE_WINDOW_MS}) or with nothing left to transcribe. The
+     * questions transcribed here but not saved yet are not counted.
+     */
+    private String estimate() {
+
+        long now = System.currentTimeMillis() ;
+        while( !doneTimes.isEmpty()
+               && now - doneTimes.peekFirst() > PACE_WINDOW_MS ) {
+            doneTimes.removeFirst() ;
+        }
+        if( doneTimes.size() < 3 ) return null ;
+
+        long unsaved = model.rows().stream()
+                            .filter( r -> r.staged != null && !r.saved )
+                            .count() ;
+        long left    = pending - unsaved ;
+
+        if( left <= 0 ) return null ;
+
+        // The pace over the span the samples cover, up to now: a run that
+        // has stalled since its last completion slows the estimate down.
+        long   span = now - doneTimes.peekFirst() ;
+        double each = span / (double) ( doneTimes.size() - 1 ) ;
+        long   ms   = Math.round( each * left ) ;
+
+        ZoneId    zone = ZoneId.systemDefault() ;
+        Instant   end  = Instant.ofEpochMilli( now + ms ) ;
+        LocalDate day  = end.atZone( zone ).toLocalDate() ;
+
+        String at = day.equals( LocalDate.now( zone ) )
+                    ? ETA_TIME.withZone( zone ).format( end )
+                    : ETA_DAY_TIME.withZone( zone ).format( end ) ;
+        return "~" + duration( ms ) + " to go, done ~" + at ;
+    }
+
+    /** {@code ms} roughly, as "45 min", "3 h 20 min" or "2 d 5 h". */
+    private static String duration( long ms ) {
+
+        long min = Math.max( 1, Math.round( ms / 60_000.0 ) ) ;
+        if( min < 60 ) return min + " min" ;
+
+        long h = min / 60 ;
+        if( h < 24 ) return h + " h " + min % 60 + " min" ;
+        return h / 24 + " d " + h % 24 + " h" ;
+    }
+
     private static String countdown( long ms ) {
 
         long s = ( ms + 999 ) / 1000 ;
@@ -2851,18 +2945,14 @@ public class TranscriberFrame extends JFrame
 
     private void refreshStatusBar() {
 
-        String text = String.format(
-                "%d loaded · %d transcribed · %d unconfirmed · %d faulty · " +
-                "%d saved · %d failed · %d errors · %d without images",
+        String text = String.format( "%d loaded · %d transcribed",
                 model.getRowCount(),
-                model.count( TranscriptionStatus.TRANSCRIBED ),
-                model.count( TranscriptionStatus.UNCONFIRMED ),
-                model.count( TranscriptionStatus.FAULTY ),
-                model.count( TranscriptionStatus.SAVED ),
-                model.count( TranscriptionStatus.FAILED ),
-                model.count( TranscriptionStatus.ERROR ),
-                model.count( TranscriptionStatus.NO_IMAGES ) ) ;
-        if( pending >= 0 ) text += " · " + pending + " pending on the server" ;
+                model.count( TranscriptionStatus.TRANSCRIBED ) ) ;
+        if( pending >= 0 ) {
+            text += " · " + pending + " pending on the server" ;
+            String eta = estimate() ;
+            if( eta != null ) text += " · " + eta ;
+        }
         if( afterId != null ) text += " · next load after id " + afterId ;
         if( searchNote != null ) text = searchNote + "   |   " + text ;
         if( runState == ProcessingState.STOPPING ) text += "   |   stopping" ;
