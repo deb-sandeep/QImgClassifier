@@ -21,7 +21,7 @@ REMOVED = ['text', 'mathrm', 'operatorname', 'rm', 'mathbf', 'left', 'right', 'd
 RE_REMOVED = re.compile(r'\\(?:' + '|'.join(sorted(REMOVED, key=len, reverse=True)) + r')(?![A-Za-z])|\\[,;!]')
 RE_PARTIAL = re.compile(r'\\([A-Za-z]*)$')
 RE_SOLUTION = re.compile(r'^\s*(?:[-*]\s*)?(Answer|Solution|Hence|∴)', re.M)
-RE_META = re.compile(r'here is the transcription|transcription of the|i cannot|i can\'t', re.I)
+RE_META = re.compile(r'here is the transcription|transcription of the|\bi cannot\b|\bi can\'t\b', re.I)
 
 
 # ---------------------------------------------------------------- §4.2 normalisation

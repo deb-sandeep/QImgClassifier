@@ -6,7 +6,12 @@ import java.time.Duration;
  * A model as an app uses it: the global definition (where it is hosted, the
  * provider's limits) merged with the app's policy for it.
  *
- * @param id                the model id sent to the gateway
+ * @param id                the model's name in the config: its key in the
+ *                          global file's {@code models}, by which the apps,
+ *                          the roots, fallbacks and the hub address it
+ * @param modelId           the model id sent to the gateway: the entry's
+ *                          {@code modelId}, else {@code id}. Two entries
+ *                          may share it, to run one model on two gateways
  * @param gateway           the gateway hosting it
  * @param displayName       the name to show it by; null to show the id
  * @param enabledGlobally   its switch in the global config
@@ -43,7 +48,8 @@ import java.time.Duration;
  *                          roots, or in the fallback of a usable model the
  *                          job can get to
  */
-public record ModelInfo( String id, GatewayInfo gateway, String displayName,
+public record ModelInfo( String id, String modelId, GatewayInfo gateway,
+                         String displayName,
                          boolean enabledGlobally, boolean enabledInApp,
                          Integer contextTokens, RateLimit providerRateLimit,
                          RateLimit appRateLimit, int maxParallel,
@@ -64,13 +70,13 @@ public record ModelInfo( String id, GatewayInfo gateway, String displayName,
 
     /** This model, marked as one no job can get to. */
     public ModelInfo unreachable() {
-        return new ModelInfo( id, gateway, displayName, enabledGlobally,
-                              enabledInApp, contextTokens, providerRateLimit,
-                              appRateLimit, maxParallel, requestTimeout,
-                              retries, reasoning, promptCaching,
-                              structuredOutput, reasoningEffort,
-                              reasoningMaxTokens, maxOutputTokens, sampler,
-                              logprobs, fallback, false ) ;
+        return new ModelInfo( id, modelId, gateway, displayName,
+                              enabledGlobally, enabledInApp, contextTokens,
+                              providerRateLimit, appRateLimit, maxParallel,
+                              requestTimeout, retries, reasoning,
+                              promptCaching, structuredOutput,
+                              reasoningEffort, reasoningMaxTokens,
+                              maxOutputTokens, sampler, logprobs, fallback, false ) ;
     }
 
     /** Why the model is not {@link #usable()}; null if it is. */
@@ -99,7 +105,7 @@ public record ModelInfo( String id, GatewayInfo gateway, String displayName,
     /** The display name, else the id. */
     public String label() { return displayName != null ? displayName : id ; }
 
-    /** {@code <gateway>/<model id>}, the tag used in logs. */
+    /** {@code <gateway>/<model name>}, the tag used in logs. */
     public String tag() { return gateway.name() + "/" + id ; }
 
     @Override
@@ -107,7 +113,9 @@ public record ModelInfo( String id, GatewayInfo gateway, String displayName,
 
         String state = usable() ? "usable" : "UNUSABLE: " + whyUnusable() ;
 
-        return tag() + " (" + state + ", " + maxParallel + " parallel, " +
+        return tag() + " (" +
+               ( modelId.equals( id ) ? "" : "sends " + modelId + ", " ) +
+               state + ", " + maxParallel + " parallel, " +
                "model limit: " + rateLimit() + ", timeout " +
                requestTimeout.toSeconds() + "s, " + retries +
                ( retries == 1 ? " retry" : " retries" ) +

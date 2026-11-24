@@ -40,10 +40,10 @@ public interface JobHandle {
     boolean release( boolean front ) ;
 
     /**
-     * End a held or waiting job that has not started; its listener is told
-     * {@link JobListener#dropped}.
+     * End a held or waiting job, also one waiting between attempts (no
+     * request in flight); its listener is told {@link JobListener#dropped}.
      *
-     * @return false if the job has started or ended
+     * @return false if the job is running (a request in flight) or ended
      */
     boolean cancel() ;
 }

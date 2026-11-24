@@ -66,7 +66,7 @@ final class OpenRouterGateway extends Gateway {
     AIReply complete( ModelInfo model, AIRequest request, Call call )
             throws GatewayException {
 
-        String id = model.id() ;
+        String id = model.modelId() ;
         try {
             ObjectNode payload = mapper.createObjectNode() ;
             payload.put( "model", id ) ;

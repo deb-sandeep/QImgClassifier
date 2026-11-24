@@ -20,8 +20,8 @@ import java.util.regex.Pattern;
 public final class WellFormed {
 
     private static final Pattern META = Pattern.compile(
-            "here is the transcription|transcription of the|i cannot|" +
-            "i can't",
+            "here is the transcription|transcription of the|" +
+            "\\bi cannot\\b|\\bi can't\\b",
             PyText.FLAGS | Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE ) ;
     private static final Pattern MATHS = Pattern.compile(
             "\\$\\$(.+?)\\$\\$|\\$(.+?)\\$", PyText.FLAGS | Pattern.DOTALL ) ;
@@ -66,21 +66,26 @@ public final class WellFormed {
     private static List<String> smilesProblems( String text ) {
 
         List<String> problems = new ArrayList<>() ;
-        SmilesParser parser   = null ;
-
         for( String smiles : smilesLines( text ) ) {
-            if( parser == null ) {
-                parser = new SmilesParser(
-                        SilentChemObjectBuilder.getInstance() ) ;
-            }
-            try {
-                parser.parseSmiles( smiles ) ;
-            }
-            catch( InvalidSmilesException | RuntimeException e ) {
+            if( !smilesParses( smiles ) ) {
                 problems.add( "SMILES doesn't parse: " + smiles ) ;
             }
         }
         return problems ;
+    }
+
+    /** True if CDK parses {@code smiles}. */
+    static boolean smilesParses( String smiles ) {
+
+        SmilesParser parser = new SmilesParser(
+                SilentChemObjectBuilder.getInstance() ) ;
+        try {
+            parser.parseSmiles( smiles ) ;
+            return true ;
+        }
+        catch( InvalidSmilesException | RuntimeException e ) {
+            return false ;
+        }
     }
 
     /**

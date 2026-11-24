@@ -9,7 +9,21 @@ public enum TranscriptionStatus {
     PENDING         ( "Pending" ),
     NO_IMAGES       ( "No local images" ),
     WAITING_PASSAGE ( "Waiting for passage" ),
+
+    /** Handed to the models, no request made yet: it can be dequeued. */
+    QUEUED          ( "Queued" ),
+
+    /**
+     * With a model: a request out, or one made and the job waiting to
+     * retry or fall back.
+     */
     TRANSCRIBING    ( "Transcribing" ),
+
+    /**
+     * Its last attempt failed this session; the job waits for a retry or
+     * another model.
+     */
+    TX_FAILED       ( "Tx failed" ),
 
     /** Accepted and staged, to be saved. */
     TRANSCRIBED     ( "Transcribed" ),
@@ -20,7 +34,10 @@ public enum TranscriptionStatus {
      */
     UNCONFIRMED     ( "Unconfirmed" ),
 
-    /** GLM's transcription marked faulty: no model is left to ask. */
+    /**
+     * Marked faulty with no model left to ask, or whose re-send failed:
+     * never saved.
+     */
     FAULTY          ( "Faulty" ),
 
     FAILED          ( "Failed" ),

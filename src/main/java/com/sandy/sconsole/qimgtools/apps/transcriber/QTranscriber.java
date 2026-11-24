@@ -31,9 +31,11 @@ import com.sandy.sconsole.qimgtools.apps.transcriber.util.TranscriberConfig;
 import com.sandy.sconsole.qimgtools.apps.transcriber.workspace.CriteriaStore;
 import com.sandy.sconsole.qimgtools.apps.transcriber.workspace.HeldPassages;
 import com.sandy.sconsole.qimgtools.apps.transcriber.workspace.StagedTranscriptions;
+import com.sandy.sconsole.qimgtools.apps.transcriber.workspace.TranscriptHistory;
 import com.sandy.sconsole.qimgtools.apps.transcriber.workspace.StagedTranscriptions.Staged;
 import com.sandy.sconsole.qimgtools.apps.transcriber.workspace.TranscriptionAuditLog;
 import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
+import com.sandy.sconsole.qimgtools.core.model.AttemptTranscript;
 import com.sandy.sconsole.qimgtools.core.model.ProcessingState;
 import com.sandy.sconsole.qimgtools.core.model.QTask;
 import com.sandy.sconsole.qimgtools.core.model.RateLimitNotice;
@@ -105,6 +107,7 @@ public class QTranscriber implements TranscriberFrame.Controller,
     private final TranscriptionAuditLog   audit ;
     private final TranscriberListener     frame ;
 
+    private final TranscriptStore              transcripts ;
     private final TranscriberOutcomes          outcomes ;
     private final TranscriptionPrompter        prompter ;
     private final TaskScheduler<Transcription> scheduler ;
@@ -159,15 +162,17 @@ public class QTranscriber implements TranscriberFrame.Controller,
                 config.getRequestHistoryFile(), RoutingPolicy.inOrder(),
                 "qtranscriber" ) ) ;
 
-        this.outcomes  = new TranscriberOutcomes(
-                this, new TranscriptStore( config.getWorkspaceDir() ),
+        this.transcripts = new TranscriptStore( config.getWorkspaceDir() ) ;
+        this.outcomes    = new TranscriberOutcomes(
+                this, transcripts,
                 new UsageLog( config.getUsageLogFile() ),
                 config.isGateRouteOnC(), config.getGateCMax(),
-                sharedModels( config.getAi() ) ) ;
-        this.prompter  = new TranscriptionPrompter(
+                sharingModels( config.getAi() ),
+                config.getAi().isRootUsable( TranscriberOutcomes.PHYSICS ) ) ;
+        this.prompter    = new TranscriptionPrompter(
                 prompt, outcomes::job, config.getGateMargin(),
                 outcomes::note ) ;
-        this.scheduler = new TaskScheduler<>( hub, prompter, outcomes ) ;
+        this.scheduler   = new TaskScheduler<>( hub, prompter, outcomes ) ;
     }
 
     public static void main( String[] args ) {
@@ -196,6 +201,11 @@ public class QTranscriber implements TranscriberFrame.Controller,
             log.warn( "{}: root '{}' has no usable model - a faulty " +
                       "Nemotron transcription can't be re-sent",
                       ai.appLocation(), TranscriberOutcomes.RECHECK ) ;
+        }
+        if( !ai.isRootUsable( TranscriberOutcomes.PHYSICS ) ) {
+            log.warn( "{}: root '{}' has no usable model - Qwen takes " +
+                      "every Physics question", ai.appLocation(),
+                      TranscriberOutcomes.PHYSICS ) ;
         }
 
         try {
@@ -290,8 +300,9 @@ public class QTranscriber implements TranscriberFrame.Controller,
                 Math.min( batchSize, TranscriberServerClient.MAX_BATCH ) ) ) ;
         PendingTranscriptions r = server.pending( c, afterId ) ;
 
-        List<TranscriptionItem> items    = new ArrayList<>() ;
-        Map<Integer,Staged>     restored = new HashMap<>() ;
+        List<TranscriptionItem>                items    = new ArrayList<>() ;
+        Map<Integer,Staged>                    restored = new HashMap<>() ;
+        Map<Integer,TranscriptHistory.Failure> failed   = new HashMap<>() ;
 
         for( PendingTranscriptions.Item i : r.items() ) {
             TranscriptionItem item = TranscriptionItem.of(
@@ -302,13 +313,41 @@ public class QTranscriber implements TranscriberFrame.Controller,
             items.add( item ) ;
             if( s != null ) restored.put( item.id(), s ) ;
             if( item.isLct() ) knownPassage( item ) ;
+            if( s == null ) {
+                TranscriptHistory.Failure f = pastFailure( item ) ;
+                if( f != null ) failed.put( item.id(), f ) ;
+            }
         }
         readGiven( items ) ;
-        log.info( "Loaded {} questions ({} restored from the workspace), " +
-                  "{} await transcription for {}", items.size(),
-                  restored.size(), r.totalResults(), c.describe() ) ;
-        return new TranscriberFrame.Loaded( items, restored,
+        log.info( "Loaded {} questions ({} restored from the workspace, {} " +
+                  "failed before), {} await transcription for {}",
+                  items.size(), restored.size(), failed.size(),
+                  r.totalResults(), c.describe() ) ;
+        return new TranscriberFrame.Loaded( items, restored, failed,
                                             r.totalResults(), false ) ;
+    }
+
+    /**
+     * How {@code item}, with nothing staged, failed before, by its
+     * transcripts: every attempt at it failed, or, for an LCT question
+     * whose passage isn't known (held or on the server), every attempt at
+     * its passage. Null if it didn't (or has no images to have been sent).
+     */
+    private TranscriptHistory.Failure pastFailure( TranscriptionItem item ) {
+
+        if( !item.hasImages() ) return null ;
+        TranscriptHistory.Failure f = TranscriptHistory.failure(
+                transcripts, item.task() ) ;
+
+        if( f != null || !item.isLct() || item.contextFiles().isEmpty()
+            || item.lctCtxTranscribed()
+            || passages.get( item.lctCtxId() ) != null ) return f ;
+
+        TranscriptHistory.Failure p = TranscriptHistory.failure(
+                transcripts, TranscriptionJob.passage( item, false ).task() ) ;
+        return p == null ? null
+               : new TranscriptHistory.Failure(
+                       p.attempts(), "the passage: " + p.reason() ) ;
     }
 
     @Override
@@ -346,7 +385,8 @@ public class QTranscriber implements TranscriberFrame.Controller,
         if( items.isEmpty() && failed != null ) throw failed ;
         readGiven( items ) ;
         log.info( "Loaded {} saved questions to check", items.size() ) ;
-        return new TranscriberFrame.Loaded( items, stored, -1, true ) ;
+        return new TranscriberFrame.Loaded( items, stored, Map.of(), -1,
+                                            true ) ;
     }
 
     /**
@@ -375,7 +415,8 @@ public class QTranscriber implements TranscriberFrame.Controller,
         if( items.isEmpty() && failed != null ) throw failed ;
         readGiven( items ) ;
         log.info( "Loaded {} questions found by a search", items.size() ) ;
-        return new TranscriberFrame.Loaded( items, stored, -1, true ) ;
+        return new TranscriberFrame.Loaded( items, stored, Map.of(), -1,
+                                            true ) ;
     }
 
     /**
@@ -634,17 +675,21 @@ public class QTranscriber implements TranscriberFrame.Controller,
 
     /**
      * Send {@code items} to {@code model} alone: its retries, no fallback,
-     * no escalation. An LCT question goes with its group's passage, so one
-     * whose passage isn't known is left out (the frame offers only those
-     * that have one).
+     * no escalation. A question queued for a model and not yet sent is
+     * taken out of the queue first; one with a model already is left out,
+     * and so is an LCT question whose passage isn't known (the frame offers
+     * only those that have one).
+     *
+     * @return the items sent
      */
     @Override
-    public void transcribeWith( List<TranscriptionItem> items,
-                                String model ) {
+    public List<TranscriptionItem> transcribeWith(
+            List<TranscriptionItem> items, String model ) {
 
-        if( stopRequested ) return ;
+        if( stopRequested ) return List.of() ;
         synchronized( this ) {
-            List<TranscriptionJob> jobs = new ArrayList<>() ;
+            List<TranscriptionJob>  jobs = new ArrayList<>() ;
+            List<TranscriptionItem> sent = new ArrayList<>() ;
 
             for( TranscriptionItem item : items ) {
                 Passage p = item.isLct() ? passages.get( item.lctCtxId() )
@@ -654,14 +699,51 @@ public class QTranscriber implements TranscriberFrame.Controller,
                               item, model ) ;
                     continue ;
                 }
+                if( !scheduler.withdraw( item.task() ) ) {
+                    log.info( "{}: not sent to {}, it is with a model",
+                              item, model ) ;
+                    continue ;
+                }
                 jobs.add( TranscriptionJob.question(
                         item, p == null ? null : p.content(), false ) ) ;
+                sent.add( item ) ;
             }
             log.info( "Sending {} questions to {} alone", jobs.size(),
                       model ) ;
             submit( jobs, new TaskScheduler.Route(
                     TranscriberOutcomes.TRANSCRIBE, model ) ) ;
+            return sent ;
         }
+    }
+
+    /**
+     * Take {@code items} out of the queue, those no model has taken up
+     * yet: out of the scheduler's queue, or off the list of their LCT
+     * group waiting for its passage (whose job goes on).
+     *
+     * @return the items dequeued
+     */
+    @Override
+    public synchronized List<TranscriptionItem> dequeue(
+            List<TranscriptionItem> items ) {
+
+        List<TranscriptionItem> out = new ArrayList<>() ;
+        for( TranscriptionItem item : items ) {
+            List<TranscriptionItem> group = item.isLct()
+                                            ? waiting.get( item.lctCtxId() )
+                                            : null ;
+            if( group != null && group.remove( item ) ) {
+                out.add( item ) ;
+            }
+            else if( scheduler.withdraw( item.task() ) ) {
+                out.add( item ) ;
+            }
+            else {
+                log.info( "{}: not dequeued, it is with a model", item ) ;
+            }
+        }
+        log.info( "Dequeued {} of {} questions", out.size(), items.size() ) ;
+        return out ;
     }
 
     /**
@@ -678,24 +760,44 @@ public class QTranscriber implements TranscriberFrame.Controller,
 
     /**
      * The root a transcription by {@code model} found faulty goes to:
-     * Qwen's to Nemotron ({@code escalate}), Nemotron's to GLM
-     * ({@code recheck}); null for GLM's, or with no usable root left.
+     * Qwen's and Inkling's to Nemotron ({@code escalate}), Nemotron's to
+     * GLM ({@code recheck}); null for GLM's, or with no usable root left.
      */
     @Override
     public String nextRoot( String model ) {
 
-        AIConfig ai   = config.getAi() ;
-        String   root = inRoot( TranscriberOutcomes.TRANSCRIBE, model )
-                        ? TranscriberOutcomes.ESCALATE
+        AIConfig ai    = config.getAi() ;
+        boolean  local = inRoot( TranscriberOutcomes.TRANSCRIBE, model )
+                         && isOllama( model )
+                         || inRoot( TranscriberOutcomes.PHYSICS, model ) ;
+        String   root  = local
+                         ? TranscriberOutcomes.ESCALATE
                         : inRoot( TranscriberOutcomes.RECHECK, model )
                         ? null : TranscriberOutcomes.RECHECK ;
 
         return root != null && ai.isRootUsable( root ) ? root : null ;
     }
 
+    /**
+     * True if {@code model} (an id, or the id sent to the gateway) is in
+     * root {@code root}; false if there is no such root.
+     */
     private boolean inRoot( String root, String model ) {
-        return config.getAi().root( root ).stream()
-                     .anyMatch( m -> m.id().equals( model ) ) ;
+
+        AIConfig ai = config.getAi() ;
+        return ai.roots().containsKey( root )
+               && ai.root( root ).stream()
+                    .anyMatch( m -> m.id().equals( model )
+                                    || m.modelId().equals( model ) ) ;
+    }
+
+    /** True if {@code model} (an id, or the id sent) is on Ollama. */
+    private boolean isOllama( String model ) {
+        return config.getAi().models().values().stream()
+                     .anyMatch( m -> ( m.id().equals( model )
+                                       || m.modelId().equals( model ) )
+                                     && m.gateway().type()
+                                        == GatewayType.OLLAMA ) ;
     }
 
     /**
@@ -798,8 +900,9 @@ public class QTranscriber implements TranscriberFrame.Controller,
     }
 
     @Override
-    public void attemptFinished( TranscriptionJob job ) {
-        frame.attemptFinished( job ) ;
+    public void attemptFinished( TranscriptionJob job,
+                                 AttemptTranscript transcript ) {
+        frame.attemptFinished( job, transcript ) ;
     }
 
     /**
@@ -854,6 +957,7 @@ public class QTranscriber implements TranscriberFrame.Controller,
                          .map( i -> TranscriptionJob.question(
                                  i, p.content(), false ) )
                          .toList(), null ) ;
+            group.forEach( frame::queued ) ;
         }
     }
 
@@ -899,13 +1003,20 @@ public class QTranscriber implements TranscriberFrame.Controller,
     }
 
     @Override
-    public String rejectedPassage( String lctCtxId ) {
-        return prompter.rejectedPassage( lctCtxId ) ;
+    public String rejectedPassage( TranscriptionItem item ) {
+
+        String reply = prompter.rejectedPassage( item.lctCtxId() ) ;
+        if( reply != null || item.contextFiles().isEmpty() ) return reply ;
+        return TranscriptHistory.lastRefused(
+                transcripts, TranscriptionJob.passage( item, false ).task() ) ;
     }
 
     @Override
     public String rejectedQuestion( TranscriptionItem item ) {
-        return prompter.rejectedQuestion( item.id() ) ;
+
+        String reply = prompter.rejectedQuestion( item.id() ) ;
+        return reply != null ? reply
+                             : TranscriptHistory.lastRefused( transcripts, item.task() ) ;
     }
 
     @Override
@@ -1169,8 +1280,25 @@ public class QTranscriber implements TranscriberFrame.Controller,
     }
 
     /**
+     * The models that share Qwen's work, as {@link TranscriberOutcomes}
+     * takes them: {@link #sharedModels}, and those of the {@code physics}
+     * root, each by id and by the id sent to the gateway.
+     */
+    private static Set<String> sharingModels( AIConfig ai ) {
+
+        Set<String> ids = new HashSet<>( sharedModels( ai ) ) ;
+        if( ai.roots().containsKey( TranscriberOutcomes.PHYSICS ) ) {
+            ai.root( TranscriberOutcomes.PHYSICS ).forEach( m -> {
+                ids.add( m.id() ) ;
+                ids.add( m.modelId() ) ;
+            } ) ;
+        }
+        return ids ;
+    }
+
+    /**
      * The models of the {@code transcribe} root other than Qwen's (those
-     * on Ollama), which share its work.
+     * on Ollama), which share all its work.
      */
     private static Set<String> sharedModels( AIConfig ai ) {
 

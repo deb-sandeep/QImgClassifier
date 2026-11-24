@@ -316,11 +316,13 @@ public final class Engine {
     boolean cancel( JobImpl<?,?> j ) {
 
         synchronized( lock ) {
-            boolean waitingUnstarted = j.state == State.WAITING && !j.started ;
-            if( j.state != State.HELD && !waitingUnstarted ) return false ;
+            if( j.state != State.HELD && j.state != State.WAITING ) {
+                return false ;
+            }
             if( j.state == State.HELD ) held-- ;
             waiting.remove( j ) ;
             j.state = State.DONE ;
+            if( j.started ) done++ ;
             lock.notifyAll() ;
         }
         log.debug( "[{}] cancelled", j ) ;

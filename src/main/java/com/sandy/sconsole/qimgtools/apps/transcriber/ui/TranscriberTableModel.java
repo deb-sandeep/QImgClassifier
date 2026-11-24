@@ -31,16 +31,20 @@ final class TranscriberTableModel extends AbstractTableModel
     static final int COL_ID       = 0 ;
     static final int COL_SOURCE   = 1 ;
     static final int COL_QUESTION = 2 ;
-    static final int COL_TYPE     = 3 ;
-    static final int COL_ROUTE    = 4 ;
-    static final int COL_C        = 5 ;
-    static final int COL_STATUS   = 6 ;
-    static final int COL_CHECKED  = 7 ;
-    static final int COL_SAVED    = 8 ;
+    static final int COL_FAILED   = 3 ;
+    static final int COL_TYPE     = 4 ;
+    static final int COL_ROUTE    = 5 ;
+    static final int COL_C        = 6 ;
+    static final int COL_STATUS   = 7 ;
+    static final int COL_CHECKED  = 8 ;
+    static final int COL_SAVED    = 9 ;
+
+    /** The Failed column's mark, and its header. */
+    static final String FAILED_MARK = "✗" ;
 
     private static final String[] COLUMNS = {
-            "Id", "Source", "Question", "Type", "Route", "C", "Status",
-            "Checked", ""
+            "Id", "Source", "Question", FAILED_MARK, "Type", "Route", "C",
+            "Status", "Checked", ""
     } ;
 
     /**
@@ -78,6 +82,13 @@ final class TranscriberTableModel extends AbstractTableModel
 
         /** True once the server stores it. */
         boolean saved ;
+
+        /**
+         * The status it had when it was queued for a model, to go back to
+         * if it is dequeued or the run stops first; null when it isn't
+         * queued.
+         */
+        TranscriptionStatus queuedFrom ;
 
         /**
          * True if it can't be sent: the prompt has no section for its type,
@@ -157,13 +168,38 @@ final class TranscriberTableModel extends AbstractTableModel
          */
         boolean isMarkable() {
             return staged != null
+                   && status != TranscriptionStatus.QUEUED
                    && status != TranscriptionStatus.TRANSCRIBING
+                   && status != TranscriptionStatus.TX_FAILED
                    && status != TranscriptionStatus.SAVING ;
+        }
+
+        /**
+         * True if it shows a failure: every model failed (Failed), its
+         * last attempt failed and it waits for another (Tx failed), or its
+         * transcription was marked faulty with no model left to ask, or
+         * its re-send failed (Faulty).
+         */
+        boolean isFailed() {
+            return status == TranscriptionStatus.FAILED
+                   || status == TranscriptionStatus.TX_FAILED
+                   || status == TranscriptionStatus.FAULTY ;
         }
 
         /** True if it is waiting for a model or with one. */
         boolean isBusy() {
-            return status == TranscriptionStatus.TRANSCRIBING
+            return status == TranscriptionStatus.QUEUED
+                   || status == TranscriptionStatus.TRANSCRIBING
+                   || status == TranscriptionStatus.TX_FAILED
+                   || status == TranscriptionStatus.WAITING_PASSAGE ;
+        }
+
+        /**
+         * True if no model has taken it up yet, so it can be dequeued:
+         * queued, or waiting for its group's passage.
+         */
+        boolean isQueued() {
+            return status == TranscriptionStatus.QUEUED
                    || status == TranscriptionStatus.WAITING_PASSAGE ;
         }
 
@@ -271,8 +307,9 @@ final class TranscriberTableModel extends AbstractTableModel
 
     @Override
     public boolean enumerable( int col ) {
-        return col == COL_SOURCE || col == COL_TYPE || col == COL_ROUTE
-               || col == COL_STATUS || col == COL_CHECKED ;
+        return col == COL_SOURCE || col == COL_FAILED || col == COL_TYPE
+               || col == COL_ROUTE || col == COL_STATUS
+               || col == COL_CHECKED ;
     }
 
     @Override
@@ -390,6 +427,7 @@ final class TranscriberTableModel extends AbstractTableModel
             case COL_ID       -> q.getId() ;
             case COL_SOURCE   -> q.getSourceId() ;
             case COL_QUESTION -> row.questionLabel() ;
+            case COL_FAILED   -> row.isFailed() ? FAILED_MARK : "" ;
             case COL_TYPE     -> q.getProblemType() ;
             case COL_ROUTE    -> routeText( row ) ;
             case COL_C        -> row.c() ;

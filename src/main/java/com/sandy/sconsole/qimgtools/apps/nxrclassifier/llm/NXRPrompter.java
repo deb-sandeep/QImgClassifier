@@ -11,6 +11,8 @@ import com.sandy.sconsole.qimgtools.core.util.ImageCollator;
 import com.sandy.sconsole.qimgtools.core.workspace.JsonFiles;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.File;
 import java.io.IOException;
@@ -26,7 +28,8 @@ import java.util.function.Function;
  * same for every question so that it is cached as a prefix, followed by the
  * question's subject and type; the image is the question's, its parts (and
  * an LCT group's context) stacked into one. The reply is one JSON object,
- * {@code {"nxr", "confidence", "reason"}}.
+ * {@code {"nxr", "confidence", "reason"}}, also given as a response
+ * schema to models with {@code structuredOutput} (Qwen).
  */
 public final class NXRPrompter implements TaskPrompter<NXRReply> {
 
@@ -36,6 +39,10 @@ public final class NXRPrompter implements TaskPrompter<NXRReply> {
 
     private final String                  template ;
     private final Function<QTask,NXRItem> items ;
+
+    /** The reply's schema: Chemistry's, which allows R, and the others'. */
+    private final AIRequest.ResponseSchema chemistrySchema = schema( true ) ;
+    private final AIRequest.ResponseSchema otherSchema     = schema( false ) ;
 
     /**
      * @param items the loaded question each submitted task is
@@ -70,6 +77,36 @@ public final class NXRPrompter implements TaskPrompter<NXRReply> {
         return template.stripTrailing() + "\n\nSubject: " +
                task.getSubject().getSyllabusName() +
                ( type == null ? "" : "\nQuestion type: " + type ) + "\n" ;
+    }
+
+    /**
+     * The reply as one object {@code {nxr, confidence, reason}}, {@code nxr}
+     * N or X, or R as well for Chemistry. Sent only to models with
+     * {@code structuredOutput}; {@link #parse} still checks the reply.
+     */
+    @Override
+    public AIRequest.ResponseSchema responseSchema( QTask task ) {
+        return task.getSubject() == Subject.CHEMISTRY ? chemistrySchema
+                                                      : otherSchema ;
+    }
+
+    /** The reply schema; {@code recall} if R is allowed. */
+    private static AIRequest.ResponseSchema schema( boolean recall ) {
+
+        ObjectNode schema = JsonFiles.MAPPER.createObjectNode()
+                                            .put( "type", "object" ) ;
+        ObjectNode props  = schema.putObject( "properties" ) ;
+
+        ArrayNode labels = props.putObject( "nxr" ).put( "type", "string" )
+                                .putArray( "enum" ).add( "N" ).add( "X" ) ;
+        if( recall ) labels.add( "R" ) ;
+        props.putObject( "confidence" ).put( "type", "integer" )
+             .put( "minimum", 0 ).put( "maximum", 100 ) ;
+        props.putObject( "reason" ).put( "type", "string" ) ;
+        schema.putArray( "required" ).add( "nxr" ).add( "confidence" )
+              .add( "reason" ) ;
+        schema.put( "additionalProperties", false ) ;
+        return new AIRequest.ResponseSchema( "nxr_label", schema ) ;
     }
 
     /** The question's images stacked into one, LCT context on top. */

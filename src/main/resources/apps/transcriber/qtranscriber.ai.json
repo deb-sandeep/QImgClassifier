@@ -11,8 +11,14 @@
 // once the free one's daily quota is used up. Cascade (the Models tab)
 // passes Qwen's questions straight to the free Nemotron.
 //
+// "physics" (Inkling 2 Mini on ollama-149, a low-end server: one slot)
+// takes one in four Physics questions (TranscriberOutcomes.PHYSICS_SHARE),
+// which start there alone (route "shared"). It reasons in hidden tokens whatever "reasoning" says,
+// and its logprobs include them, so it is asked for none: its replies have
+// no C. A failed reply, or .149 being unreachable, falls back to Qwen.
+//
 // "escalate" (the free Nemotron) is reached by a re-send of a faulty Qwen
-// transcription, and by a second opinion if gate.route.on.c is set;
+// or Inkling transcription, and by a second opinion if gate.route.on.c is set;
 // "recheck" (GLM) only by a re-send of a faulty Nemotron transcription
 // (the paid Nemotron is the same model, so no help there).
 {
@@ -20,6 +26,7 @@
 
   "roots" : {
     "transcribe" : [ "qwen", "nemotron:free" ],
+    "physics"    : [ "inkling-149" ],
     "escalate"   : [ "nemotron:free" ],
     "recheck"    : [ "glm-flash" ]
   },
@@ -47,6 +54,29 @@
         "badReply"    : [ "nemotron:free" ],
         "truncated"   : [ "nemotron:free" ],
         "passthrough" : [ "nemotron:free" ]
+      }
+    },
+    "inkling-149" : {
+      "enabled"               : true,
+      "maxParallel"           : 1,
+      "requestTimeoutSeconds" : 300,
+      "retries"               : 0,
+      "reasoning"             : false,
+      "maxOutputTokens"       : 4096,
+      "sampler"               : {
+        "temperature"      : 0,
+        "topK"             : 1,
+        "presencePenalty"  : 0,
+        "frequencyPenalty" : 0,
+        "repeatPenalty"    : 1
+      },
+      "fallback"              : {
+        "unreachable" : [ "qwen" ],
+        "serverError" : [ "qwen" ],
+        "timeout"     : [ "qwen" ],
+        "badReply"    : [ "qwen" ],
+        "truncated"   : [ "qwen" ],
+        "passthrough" : [ "qwen" ]
       }
     },
     "nemotron:free" : {
@@ -77,7 +107,7 @@
       "maxParallel"           : 3,
       "requestTimeoutSeconds" : 180,
       "retries"               : 1,
-      "reasoning"             : false,
+      "reasoning"             : true,
       "maxOutputTokens"       : 4096,
       "promptCaching"         : true
     }

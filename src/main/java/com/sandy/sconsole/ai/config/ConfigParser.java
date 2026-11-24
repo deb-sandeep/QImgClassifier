@@ -35,9 +35,12 @@ import java.util.Set;
  * {@code url}, {@code connectTimeoutSeconds}, {@code cooldownSeconds},
  * {@code rateLimit} ({@code {rpm, rpd}}), optional {@code maxParallel}, and
  * {@code apiKeyFile} (required for {@code openrouter}); and {@code models}
- * by id, each with {@code enabled}, {@code gateway}, optional
+ * by name, each with {@code enabled}, {@code gateway}, optional
+ * {@code modelId} (the id sent to the gateway, else the name; one model on
+ * two gateways is two entries with the same {@code modelId}), optional
  * {@code displayName}, {@code rateLimit} and {@code contextTokens}; and
- * optional {@code aliases}, alias to model id.
+ * optional {@code aliases}, alias to model name. Everywhere else a
+ * model's "id" is its name.
  * <p>
  * <b>Aliases</b> are a shortcut of the config files only: wherever the app
  * file names a model (its {@code models} keys, {@code roots}, fallback
@@ -87,8 +90,8 @@ final class ConfigParser {
             "enabled", "type", "url", "apiKeyFile", "connectTimeoutSeconds",
             "cooldownSeconds", "maxParallel", "rateLimit" ) ;
     private static final Set<String> GLOBAL_MODEL_KEYS = Set.of(
-            "enabled", "gateway", "displayName", "rateLimit", "contextTokens",
-            "costPerMillionToken" ) ;
+            "enabled", "modelId", "gateway", "displayName", "rateLimit",
+            "contextTokens", "costPerMillionToken" ) ;
     private static final Set<String> APP_MODEL_KEYS = Set.of(
             "enabled", "maxParallel", "requestTimeoutSeconds", "retries",
             "reasoning", "promptCaching", "reasoningEffort",
@@ -107,9 +110,10 @@ final class ConfigParser {
     private record Source( String location, String text, File dir ) {}
 
     /** A model as the global file defines it. */
-    private record GlobalModel( String id, GatewayInfo gateway,
-                                String displayName, boolean enabled,
-                                RateLimit rateLimit, Integer contextTokens ) {}
+    private record GlobalModel( String id, String modelId,
+                                GatewayInfo gateway, String displayName,
+                                boolean enabled, RateLimit rateLimit,
+                                Integer contextTokens ) {}
 
     /** The file being parsed, for error messages. */
     private String file ;
@@ -221,8 +225,17 @@ final class ConfigParser {
                              "which is not one of the gateways " +
                              gateways.keySet() ) ;
             }
+            String sent = m.has( "modelId" ) ? text( m, path, "modelId" ) : id ;
+            if( sent.isBlank() ) throw error( path + ".modelId", "is blank" ) ;
+            for( GlobalModel o : models.values() ) {
+                if( o.gateway() == gateway && o.modelId().equals( sent ) ) {
+                    throw error( path, "is model '" + sent + "' on gateway '" +
+                                 gwName + "', already defined as models." +
+                                 quote( o.id() ) ) ;
+                }
+            }
             models.put( id, new GlobalModel(
-                    id, gateway,
+                    id, sent, gateway,
                     m.has( "displayName" ) ? text( m, path, "displayName" )
                                            : null,
                     bool( m, path, "enabled" ),
@@ -349,7 +362,7 @@ final class ConfigParser {
             Integer logprobs   = logprobs( m, path, openRouter ) ;
 
             models.put( id, new ModelInfo(
-                    id, def.gateway(), def.displayName(), def.enabled(),
+                    id, def.modelId(), def.gateway(), def.displayName(), def.enabled(),
                     bool( m, path, "enabled" ), def.contextTokens(),
                     def.rateLimit(),
                     m.has( "rateLimit" ) ? rateLimit( m, path ) : RateLimit.NONE,

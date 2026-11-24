@@ -17,8 +17,10 @@ import com.sandy.sconsole.qimgtools.apps.transcriber.server.StoredTranscription;
 import com.sandy.sconsole.qimgtools.apps.transcriber.server.TranscriptionSearch;
 import com.sandy.sconsole.qimgtools.apps.transcriber.ui.TranscriberTableModel.Row;
 import com.sandy.sconsole.qimgtools.apps.transcriber.workspace.StagedTranscriptions.Staged;
+import com.sandy.sconsole.qimgtools.apps.transcriber.workspace.TranscriptHistory;
 import com.sandy.sconsole.qimgtools.apps.transcriber.workspace.TranscriptionAuditLog;
 import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
+import com.sandy.sconsole.qimgtools.core.model.AttemptTranscript;
 import com.sandy.sconsole.qimgtools.core.model.ProcessingState;
 import com.sandy.sconsole.qimgtools.core.model.RateLimitNotice;
 import com.sandy.sconsole.qimgtools.core.model.Topic;
@@ -101,9 +103,11 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
@@ -175,9 +179,22 @@ public class TranscriberFrame extends JFrame
 
         /**
          * Send {@code items} to {@code model} alone (its retries, no
-         * fallback); an LCT question only if its passage is known.
+         * fallback), taking those queued out of the queue first; not one
+         * with a model already, nor an LCT question whose passage isn't
+         * known.
+         *
+         * @return the items sent
          */
-        void transcribeWith( List<TranscriptionItem> items, String model ) ;
+        List<TranscriptionItem> transcribeWith(
+                List<TranscriptionItem> items, String model ) ;
+
+        /**
+         * Take {@code items} out of the queue, those no model has taken
+         * up yet.
+         *
+         * @return the items dequeued
+         */
+        List<TranscriptionItem> dequeue( List<TranscriptionItem> items ) ;
 
         /** The models a question may be sent to by hand, usable ones. */
         List<String> models() ;
@@ -204,14 +221,16 @@ public class TranscriberFrame extends JFrame
         Passage passage( String lctCtxId ) ;
 
         /**
-         * The last reply the gate refused for LCT group {@code lctCtxId}'s
-         * passage, this session; null if none.
+         * The last reply the gate refused for the passage of
+         * {@code item}'s LCT group, this session or in its transcripts;
+         * null if none.
          */
-        String rejectedPassage( String lctCtxId ) ;
+        String rejectedPassage( TranscriptionItem item ) ;
 
         /**
          * The last reply the gate refused for {@code item} (an LCT
-         * question's part only), this session; null if none.
+         * question's part only), this session or in its transcripts; null
+         * if none.
          */
         String rejectedQuestion( TranscriptionItem item ) ;
 
@@ -293,13 +312,15 @@ public class TranscriberFrame extends JFrame
 
     /**
      * A load: its questions, the staged transcriptions restored for them
-     * by server id, and how many pending questions match the criteria;
+     * by server id, how those with none failed before (by their
+     * transcripts), and how many pending questions match the criteria;
      * with {@code saved}, saved questions to check, their transcriptions
      * as stored and {@code pending} -1.
      */
     public record Loaded( List<TranscriptionItem> items,
-                          Map<Integer,Staged> staged, int pending,
-                          boolean saved ) {}
+                          Map<Integer,Staged> staged,
+                          Map<Integer,TranscriptHistory.Failure> failed,
+                          int pending, boolean saved ) {}
 
     /** One of a question's transcriptions, as a Check tab shows it. */
     private record Alt( Transcription t, TranscriptionRoute route,
@@ -346,6 +367,7 @@ public class TranscriberFrame extends JFrame
              50,    // Id
             150,    // Source
              90,    // Question
+         SQUARE,    // Failed (✗)
              40,    // Type
             150,    // Route
              30,    // C
@@ -354,6 +376,12 @@ public class TranscriberFrame extends JFrame
             SQUARE  // saved dot (untitled)
     } ;
 
+    /** The text of a failed row's Source, Question and ✗ cells. */
+    private static final Color FAILED_FG = new Color( 0xC62828 ) ;
+
+    /** {@link #FAILED_FG} on a dark selection background. */
+    private static final Color FAILED_ON_DARK = new Color( 0xFFC2C2 ) ;
+
     /** Row background per status; a status not listed keeps the table's. */
     private static final Map<TranscriptionStatus,Color> STATUS_BG =
             new EnumMap<>( Map.ofEntries(
@@ -361,8 +389,12 @@ public class TranscriberFrame extends JFrame
                                new Color( 0xEEEEEE ) ),
                     Map.entry( TranscriptionStatus.WAITING_PASSAGE,
                                new Color( 0xF3EEDB ) ),
+                    Map.entry( TranscriptionStatus.QUEUED,
+                               new Color( 0xF5F0FA ) ),
                     Map.entry( TranscriptionStatus.TRANSCRIBING,
                                new Color( 0xEDE3F5 ) ),
+                    Map.entry( TranscriptionStatus.TX_FAILED,
+                               new Color( 0xFBE3EC ) ),
                     Map.entry( TranscriptionStatus.TRANSCRIBED,
                                new Color( 0xE2F1E3 ) ),
                     Map.entry( TranscriptionStatus.UNCONFIRMED,
@@ -891,10 +923,12 @@ public class TranscriberFrame extends JFrame
         JPopupMenu menu   = new JPopupMenu() ;
         JMenuItem  send   = new JMenuItem() ;
         JMenu      sendTo = new JMenu( "Transcribe with" ) ;
+        JMenuItem  out    = new JMenuItem() ;
         JMenuItem  save   = new JMenuItem() ;
 
         send.addActionListener( e -> transcribe( selectedRows().stream()
                 .filter( this::isRequeueable ).toList() ) ) ;
+        out.addActionListener( e -> dequeue( selectedRows() ) ) ;
         save.addActionListener( e -> save( selectedRows(), null, () -> {} ) ) ;
         for( Action a : markActions ) {
             if( a != markActions[4] ) menu.add( a ) ;
@@ -902,6 +936,7 @@ public class TranscriberFrame extends JFrame
         menu.addSeparator() ;
         menu.add( send ) ;
         menu.add( sendTo ) ;
+        menu.add( out ) ;
         menu.add( save ) ;
 
         table.addMouseListener( new MouseAdapter() {
@@ -922,11 +957,14 @@ public class TranscriberFrame extends JFrame
                 int       sendable = count( sel, TranscriberFrame.this
                                                          ::isRequeueable ) ;
                 int       savable  = count( sel, Row::isSavable ) ;
+                int       queued   = count( sel, Row::isQueued ) ;
 
                 updateSelectionActions() ;
                 send.setText( "Transcribe " + plural( sendable, "question" ) ) ;
                 send.setEnabled( sendable > 0 && canSend() ) ;
                 fillSendTo( sendTo, sel ) ;
+                out.setText( "Dequeue " + plural( queued, "question" ) ) ;
+                out.setEnabled( queued > 0 && controller != null ) ;
                 save.setText( "Save " + plural( savable, "transcription" ) ) ;
                 save.setEnabled( savable > 0 && !unattended && !saving()
                                  && controller != null ) ;
@@ -956,13 +994,25 @@ public class TranscriberFrame extends JFrame
         sendTo.setText( "Transcribe " + plural( rows.size(), "question" ) +
                         " with" ) ;
         sendTo.setEnabled( !rows.isEmpty() && !models.isEmpty()
-                           && canSend() && !checkPanel.isEditing() ) ;
+                           && canRoute() && !checkPanel.isEditing() ) ;
+    }
+
+    /**
+     * True if questions may be sent to a model chosen now: as
+     * {@link #canSend}, or in an unattended run while its batch is being
+     * transcribed, which takes them in.
+     */
+    private boolean canRoute() {
+        return canSend()
+               || maySend() && unattended && judging
+                  && runState == ProcessingState.RUNNING ;
     }
 
     /**
      * True if {@code row} may be sent to a model chosen: it has images, its
-     * type is supported, it isn't with a model or being saved, and for an
-     * LCT question its passage is known.
+     * type is supported, it isn't with a model (queued for one is fine:
+     * it is taken out of the queue) or being saved, and for an LCT
+     * question its passage is known.
      */
     private boolean isChoosable( Row row ) {
         return row.item.hasImages() && !row.unsupported
@@ -976,14 +1026,60 @@ public class TranscriberFrame extends JFrame
     /** Send {@code rows} to {@code model} alone. */
     private void transcribeWith( List<Row> rows, String model ) {
 
-        if( rows.isEmpty() || !canSend() ) return ;
+        if( rows.isEmpty() || !canRoute() ) return ;
+        Set<TranscriptionItem> sent = new HashSet<>( controller.transcribeWith(
+                rows.stream().map( r -> r.item ).toList(), model ) ) ;
+
         for( Row row : rows ) {
-            row.status  = TranscriptionStatus.TRANSCRIBING ;
-            row.message = "Sent to " + names.of( model ) + " alone" ;
-            rowChanged( row ) ;
+            if( sent.contains( row.item ) ) {
+                queue( row, "Queued for " + names.of( model ) + " alone" ) ;
+            }
         }
-        controller.transcribeWith( rows.stream().map( r -> r.item ).toList(),
-                                   model ) ;
+        updateControls() ;
+    }
+
+    /**
+     * Show {@code row} as queued for a model, noting the status to go back
+     * to if it is dequeued (kept if it is queued already).
+     */
+    private void queue( Row row, String message ) {
+
+        if( !row.isBusy() ) row.queuedFrom = row.status ;
+        row.status  = TranscriptionStatus.QUEUED ;
+        row.message = message ;
+        rowChanged( row ) ;
+    }
+
+    /**
+     * Put {@code row}, taken out of the queue, back where it was before it
+     * was queued, saying {@code why}.
+     */
+    private void unqueue( Row row, String why ) {
+
+        TranscriptionStatus back = row.queuedFrom ;
+
+        row.queuedFrom = null ;
+        row.status     = back == null || back == TranscriptionStatus.QUEUED
+                         || back == TranscriptionStatus.TRANSCRIBING
+                         || back == TranscriptionStatus.WAITING_PASSAGE
+                         ? row.restingStatus() : back ;
+        row.message    = row.staged == null
+                         || row.status == TranscriptionStatus.FAULTY
+                         ? why : why + "; " + describe( row ) ;
+        rowChanged( row ) ;
+    }
+
+    /** Row menu: take the selected queued rows out of the queue. */
+    private void dequeue( List<Row> rows ) {
+
+        List<Row> queued = rows.stream().filter( Row::isQueued ).toList() ;
+        if( queued.isEmpty() || controller == null ) return ;
+
+        Set<TranscriptionItem> out = new HashSet<>( controller.dequeue(
+                queued.stream().map( r -> r.item ).toList() ) ) ;
+        for( Row row : queued ) {
+            if( out.contains( row.item ) ) unqueue( row, "Dequeued" ) ;
+        }
         updateControls() ;
     }
 
@@ -1268,7 +1364,7 @@ public class TranscriberFrame extends JFrame
 
     /**
      * Give {@code rows}, just added, their restored transcriptions, and
-     * fail those that can't be sent.
+     * fail those that can't be sent, or whose every attempt failed before.
      */
     private void setUp( List<Row> rows, Loaded loaded ) {
 
@@ -1287,11 +1383,21 @@ public class TranscriberFrame extends JFrame
                               describe( row ) ;
             }
             else if( row.item.hasImages() ) {
-                String why = controller.unsupported( row.item ) ;
+                String                    why  = controller.unsupported(
+                                                         row.item ) ;
+                TranscriptHistory.Failure past = loaded.failed().get(
+                                                         row.item.id() ) ;
                 if( why != null ) {
                     row.unsupported = true ;
                     row.status      = TranscriptionStatus.FAILED ;
                     row.message     = "Can't be sent: " + why ;
+                }
+                else if( past != null ) {
+                    row.status  = TranscriptionStatus.FAILED ;
+                    row.message = "Failed before, after " +
+                                  plural( past.attempts(), "attempt" ) +
+                                  ": " + past.reason() + " - re-queue it " +
+                                  "or edit it (key 4)" ;
                 }
             }
             model.changed( row ) ;
@@ -1339,11 +1445,9 @@ public class TranscriberFrame extends JFrame
 
         if( rows.isEmpty() || !maySend() ) return ;
         for( Row row : rows ) {
-            row.status  = TranscriptionStatus.TRANSCRIBING ;
-            row.message = row.item.isLct()
-                          && controller.passage( row.item.lctCtxId() ) == null
-                          ? "Looking for the passage" : "Waiting for a model" ;
-            rowChanged( row ) ;
+            queue( row, row.item.isLct()
+                        && controller.passage( row.item.lctCtxId() ) == null
+                        ? "Looking for the passage" : "Waiting for a model" ) ;
         }
 
         List<TranscriptionItem> items = rows.stream().map( r -> r.item )
@@ -1382,11 +1486,7 @@ public class TranscriberFrame extends JFrame
      */
     private void settleUnsent() {
         for( Row row : model.rows() ) {
-            if( !row.isBusy() ) continue ;
-            row.status  = row.restingStatus() ;
-            row.message = row.staged == null ? "Not sent: the run stopped"
-                                             : describe( row ) ;
-            rowChanged( row ) ;
+            if( row.isBusy() ) unqueue( row, "Not sent: the run stopped" ) ;
         }
     }
 
@@ -1439,15 +1539,47 @@ public class TranscriberFrame extends JFrame
     }
 
     @Override
+    public void queued( TranscriptionItem item ) {
+        onRow( item, row -> {
+            if( row.status != TranscriptionStatus.WAITING_PASSAGE ) return ;
+            row.status  = TranscriptionStatus.QUEUED ;
+            row.message = "The passage is known: waiting for a model" ;
+        } ) ;
+    }
+
+    @Override
     public void requestSent( AttemptRequest request ) {
         SwingUtilities.invokeLater(
                 () -> transcriptPanel.requestSent( request ) ) ;
     }
 
     @Override
-    public void attemptFinished( TranscriptionJob job ) {
+    public void attemptFinished( TranscriptionJob job,
+                                 AttemptTranscript transcript ) {
+
         SwingUtilities.invokeLater(
                 () -> transcriptPanel.attemptFinished( job.task() ) ) ;
+        if( transcript.isSuccess()
+            || job.kind() == TranscriptionJob.Kind.PASSAGE ) return ;
+
+        // A failed attempt: Tx failed until the next one starts or the
+        // job ends; one only held back (rate limit, gateway down) waits.
+        String  model  = names.of( transcript.getAiModel() ) ;
+        boolean failed = transcript.getOutcome()
+                         == AttemptTranscript.Outcome.FAILED ;
+
+        onRow( job.item(), row -> {
+            if( row.status != TranscriptionStatus.TRANSCRIBING ) return ;
+            if( failed ) {
+                row.status  = TranscriptionStatus.TX_FAILED ;
+                row.message = model + " failed: " + transcript.getFailure() +
+                              " - waiting for a retry or another model" ;
+            }
+            else {
+                row.message = model + " held back: " +
+                              transcript.getFailure() + " - waiting" ;
+            }
+        } ) ;
     }
 
     /** The row's transcription is the new one, staged unchecked. */
@@ -1455,17 +1587,19 @@ public class TranscriberFrame extends JFrame
     public void transcribed( TranscriptionJob job, Transcription t,
                              TranscriptionRoute route, boolean provisional ) {
         onRow( job.item(), row -> {
-            row.staged  = new Staged( t, route, false, provisional ) ;
-            row.saved   = false ;
-            row.status  = row.restingStatus() ;
-            row.message = describe( row ) ;
+            row.queuedFrom = null ;
+            row.staged     = new Staged( t, route, false, provisional ) ;
+            row.saved      = false ;
+            row.status     = row.restingStatus() ;
+            row.message    = describe( row ) ;
         } ) ;
         SwingUtilities.invokeLater( this::checkBatch ) ;
     }
 
     /**
-     * A question failed, or kept its earlier transcription if it was a
-     * re-send; a passage's group fails with it, unless re-sent.
+     * A question failed; one re-sent after its transcription was marked
+     * faulty is Faulty, and one sent to a chosen model keeps its earlier
+     * transcription. A passage's group fails with it, unless re-sent.
      */
     @Override
     public void jobFailed( TranscriptionJob job, int attempts, String reason ) {
@@ -1486,6 +1620,18 @@ public class TranscriberFrame extends JFrame
             return ;
         }
         onRow( job.item(), row -> {
+
+            row.queuedFrom = null ;
+
+            // Re-sent because its transcription was marked faulty: that
+            // one doesn't stand, so the row is Faulty, never saved.
+            if( row.staged != null && job.resent() ) {
+                row.status  = TranscriptionStatus.FAULTY ;
+                row.message = "Marked faulty, and not transcribed again " +
+                              "after " + why + ": edit it (key 4) or send " +
+                              "it to another model" ;
+                return ;
+            }
             if( row.staged != null ) {
                 row.status  = row.restingStatus() ;
                 row.message = "Not transcribed again after " + why +
@@ -1537,7 +1683,7 @@ public class TranscriberFrame extends JFrame
             select( nextToCheck( selectedRow() ) ) ;
             return ;
         }
-        if( unattended || !canPress( n ) ) return ;
+        if( !canPress( n ) ) return ;
         press( n ) ;
     }
 
@@ -1558,13 +1704,15 @@ public class TranscriberFrame extends JFrame
     @Override
     public boolean canPress( int n ) {
 
-        if( controller == null || unattended
-            || checkPanel.isEditing() ) return false ;
+        if( controller == null || checkPanel.isEditing() ) return false ;
+
+        // An unattended run takes only the re-sends (2, 3), as it goes.
+        if( unattended && n != 2 && n != 3 ) return false ;
         List<Row> rows = selectedRows() ;
         return switch( n ) {
             case 1 -> rows.stream().anyMatch( Row::isMarkable ) ;
-            case 2 -> canSend() && rows.stream().anyMatch( Row::isMarkable ) ;
-            case 3 -> canSend() && rows.stream().anyMatch(
+            case 2 -> canRoute() && rows.stream().anyMatch( Row::isMarkable ) ;
+            case 3 -> canRoute() && rows.stream().anyMatch(
                     r -> r.item.isLct() && r.isMarkable()
                          && controller.passage( r.item.lctCtxId() ) != null ) ;
             case 4 -> rows.size() == 1
@@ -1617,14 +1765,16 @@ public class TranscriberFrame extends JFrame
                 row.status  = TranscriptionStatus.FAULTY ;
                 row.message = "Faulty, and no model is left to ask: edit " +
                               "it (key 4) to save it" ;
+                rowChanged( row ) ;
             }
             else {
-                row.status  = TranscriptionStatus.TRANSCRIBING ;
-                row.message = "Faulty: sending it to the " + root + " model" ;
+                queue( row, "Faulty: queued for the " + root + " model" ) ;
+
+                // Dequeued or stopped before it is sent, it stays faulty.
+                row.queuedFrom = TranscriptionStatus.FAULTY ;
                 byModel.computeIfAbsent( faulty, k -> new ArrayList<>() )
                        .add( row.item ) ;
             }
-            rowChanged( row ) ;
         }
         byModel.forEach( ( m, items ) -> controller.resend( items, m, false ) ) ;
         if( last != null ) select( nextToCheck( last ) ) ;
@@ -1697,7 +1847,8 @@ public class TranscriberFrame extends JFrame
      * edit, checked, its route {@code Edited} with the model whose text it
      * was; it is saved with {@code aiModel} {@code user}. A row with no
      * transcription (every reply failed) is typed from the last reply the
-     * gate refused, else from nothing, route {@code Typed}.
+     * gate refused (mended, its faults left for the user to correct), else
+     * from nothing, route {@code Typed}.
      */
     private void edit( List<Row> rows ) {
 
@@ -1772,7 +1923,7 @@ public class TranscriberFrame extends JFrame
         Passage p        = controller.passage( lctCtxId ) ;
 
         if( p == null ) {
-            String rejected = controller.rejectedPassage( lctCtxId ) ;
+            String rejected = controller.rejectedPassage( row.item ) ;
             String start    = rejected == null ? "" : rejected ;
 
             startEdit( start, true, text -> {
@@ -2714,8 +2865,10 @@ public class TranscriberFrame extends JFrame
 
     /**
      * Tints rows by status, spins in the Status cell of a row being saved,
-     * and shows the last column as a dot: green once the transcription is
-     * saved on the server, red until then.
+     * draws a failed row's ({@link Row#isFailed}) Source, Question and ✗
+     * in red (pink on a dark selection), and shows the last column as a
+     * dot: green once the transcription is saved on the server, red until
+     * then.
      */
     private final class RowRenderer extends DefaultTableCellRenderer {
 
@@ -2727,12 +2880,21 @@ public class TranscriberFrame extends JFrame
             boolean   dot = col == TranscriberTableModel.COL_SAVED ;
 
             setForeground( null ) ;
-            Component c   = super.getTableCellRendererComponent(
+            Component c    = super.getTableCellRendererComponent(
                     t, dot ? null : value, selected, focus, viewRow, column ) ;
-            Row       row = model.getRow( t.convertRowIndexToModel( viewRow ) ) ;
-            boolean   num = col == TranscriberTableModel.COL_C ;
+            Row       row  = model.getRow( t.convertRowIndexToModel( viewRow ) ) ;
+            boolean   num  = col == TranscriberTableModel.COL_C ;
+            boolean   mark = col == TranscriberTableModel.COL_FAILED ;
 
-            setHorizontalAlignment( dot ? CENTER : num ? RIGHT : LEADING ) ;
+            setHorizontalAlignment( dot || mark ? CENTER
+                                    : num ? RIGHT : LEADING ) ;
+            if( row.isFailed()
+                && ( mark || col == TranscriberTableModel.COL_SOURCE
+                     || col == TranscriberTableModel.COL_QUESTION ) ) {
+                c.setForeground( selected
+                                 ? failedOn( t.getSelectionBackground() )
+                                 : FAILED_FG ) ;
+            }
             if( dot ) setIcon( (Boolean) value ? Dot.SAVED : Dot.UNSAVED ) ;
             else {
                 setIcon( col == TranscriberTableModel.COL_STATUS
@@ -2744,6 +2906,17 @@ public class TranscriberFrame extends JFrame
                                                      t.getBackground() ) ) ;
             return c ;
         }
+    }
+
+    /**
+     * The failed rows' red for text on {@code bg}, a selection background:
+     * a light pink on a dark one, else the usual red.
+     */
+    private static Color failedOn( Color bg ) {
+
+        double luminance = ( 0.299 * bg.getRed() + 0.587 * bg.getGreen()
+                             + 0.114 * bg.getBlue() ) / 255 ;
+        return luminance < 0.6 ? FAILED_ON_DARK : FAILED_FG ;
     }
 
     /** A small filled circle. */

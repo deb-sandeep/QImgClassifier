@@ -5,6 +5,7 @@ import com.sandy.sconsole.qimgtools.apps.transcriber.model.Transcription;
 import com.sandy.sconsole.qimgtools.apps.transcriber.model.TranscriptionItem;
 import com.sandy.sconsole.qimgtools.apps.transcriber.model.TranscriptionRoute;
 import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
+import com.sandy.sconsole.qimgtools.core.model.AttemptTranscript;
 import com.sandy.sconsole.qimgtools.core.model.ProcessingState;
 
 /**
@@ -24,8 +25,12 @@ public interface TranscriberListener {
     /** An attempt's request went out; its reply is awaited. */
     default void requestSent( AttemptRequest request ) {}
 
-    /** An attempt on {@code job} ended, and its transcript is saved. */
-    default void attemptFinished( TranscriptionJob job ) {}
+    /**
+     * An attempt on {@code job} ended as {@code transcript} says, and its
+     * transcript is saved.
+     */
+    default void attemptFinished( TranscriptionJob job,
+                                  AttemptTranscript transcript ) {}
 
     /**
      * A model transcribed {@code job}.
@@ -44,6 +49,9 @@ public interface TranscriberListener {
      * transcribed.
      */
     default void waitingForPassage( TranscriptionItem item ) {}
+
+    /** {@code item}, its passage now known, is queued for a model. */
+    default void queued( TranscriptionItem item ) {}
 
     /**
      * The passage of an LCT group is known: read from the server or the

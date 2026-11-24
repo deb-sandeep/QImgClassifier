@@ -8,6 +8,7 @@ import com.sandy.sconsole.qimgtools.core.model.AIAgent;
 import com.sandy.sconsole.qimgtools.core.model.AttemptRequest;
 import com.sandy.sconsole.qimgtools.core.model.AttemptTranscript;
 import com.sandy.sconsole.qimgtools.core.model.QTask;
+import com.sandy.sconsole.qimgtools.core.model.Subject;
 import com.sandy.sconsole.qimgtools.core.scheduler.AttemptListener;
 import com.sandy.sconsole.qimgtools.core.scheduler.TaskOutcomes;
 import com.sandy.sconsole.qimgtools.core.workspace.TranscriptStore;
@@ -20,10 +21,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The transcriber's {@link TaskOutcomes}: every job starts on the
- * {@link #TRANSCRIBE} root (Qwen); a re-send is routed by the caller to
+ * {@link #TRANSCRIBE} root (Qwen), except every
+ * {@link #PHYSICS_SHARE}th Physics question, which starts on
+ * {@link #PHYSICS} (Inkling) alone; a re-send is routed by the caller to
  * {@link #ESCALATE} or {@link #RECHECK}. A transcription that passed the
  * gate is taken as it is: after calibration C doesn't route, unless
  * {@code gate.route.on.c} is set, when a Qwen reply with C above
@@ -37,6 +41,12 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
 
     /** Qwen: every job starts here. */
     public static final String TRANSCRIBE = "transcribe" ;
+
+    /** Inkling: one in {@link #PHYSICS_SHARE} Physics questions. */
+    public static final String PHYSICS = "physics" ;
+
+    /** One in this many Physics questions sent starts on {@link #PHYSICS}. */
+    public static final int PHYSICS_SHARE = 4 ;
 
     /** The free Nemotron: a re-sent Qwen transcription, a second opinion. */
     public static final String ESCALATE = "escalate" ;
@@ -55,6 +65,7 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
     private final boolean             routeOnC ;
     private final int                 cMax ;
     private final Set<String>         shared ;
+    private final boolean             physics ;
 
     /** The job each task sent is, by task. */
     private final Map<QTask,TranscriptionJob> jobs = new ConcurrentHashMap<>() ;
@@ -71,37 +82,59 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
     /** The tasks sent to a model the user chose, that model alone. */
     private final Set<QTask> chosen = ConcurrentHashMap.newKeySet() ;
 
+    /** The Physics tasks that start on {@link #PHYSICS}. */
+    private final Set<QTask> onPhysics = ConcurrentHashMap.newKeySet() ;
+
+    /** Physics questions sent so far, for {@link #PHYSICS_SHARE}. */
+    private final AtomicInteger physicsSent = new AtomicInteger() ;
+
     /**
      * @param routeOnC true to escalate a Qwen reply with C above
      *        {@code cMax}
-     * @param shared   the models besides Qwen in the {@link #TRANSCRIBE}
-     *        root, which share its work: a question one takes without Qwen
-     *        having tried it is {@link Kind#SHARED}
+     * @param shared   the models besides Qwen which share its work (the
+     *        other models of the {@link #TRANSCRIBE} root and those of
+     *        {@link #PHYSICS}), by id and by the id sent to the gateway: a
+     *        question one takes without Qwen having tried it is
+     *        {@link Kind#SHARED}
+     * @param physics  true if the {@link #PHYSICS} root is usable, so
+     *        one in {@link #PHYSICS_SHARE} Physics questions starts there
      */
     public TranscriberOutcomes( TranscriberListener listener,
                                 TranscriptStore transcripts, UsageLog usageLog,
                                 boolean routeOnC, int cMax,
-                                Set<String> shared ) {
+                                Set<String> shared, boolean physics ) {
+
         this.listener    = listener ;
         this.transcripts = transcripts ;
         this.usageLog    = usageLog ;
         this.routeOnC    = routeOnC ;
         this.cMax        = cMax ;
         this.shared      = Set.copyOf( shared ) ;
+        this.physics     = physics ;
     }
 
     /**
      * Note that {@code job}'s task is about to be sent; {@code byChoice}
      * if to a model the user chose: it is then never escalated, and its
-     * route is {@link Kind#CHOSEN}.
+     * route is {@link Kind#CHOSEN}. Of the Physics jobs that are neither
+     * chosen nor re-sent, the first of every {@link #PHYSICS_SHARE} starts
+     * on {@link #PHYSICS}.
      */
     public void track( TranscriptionJob job, boolean byChoice ) {
 
-        jobs.put( job.task(), job ) ;
-        tried.put( job.task(), new ArrayList<>() ) ;
-        escalations.remove( job.task() ) ;
-        if( byChoice ) chosen.add( job.task() ) ;
-        else chosen.remove( job.task() ) ;
+        QTask task = job.task() ;
+        jobs.put( task, job ) ;
+        tried.put( task, new ArrayList<>() ) ;
+        escalations.remove( task ) ;
+        if( byChoice ) chosen.add( task ) ;
+        else chosen.remove( task ) ;
+
+        onPhysics.remove( task ) ;
+        if( physics && !byChoice && !job.resent()
+            && task.getSubject() == Subject.PHYSICS
+            && physicsSent.getAndIncrement() % PHYSICS_SHARE == 0 ) {
+            onPhysics.add( task ) ;
+        }
     }
 
     /** The job {@code task} is; null if it wasn't sent. */
@@ -116,7 +149,8 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
 
     @Override
     public List<String> roots( QTask task ) {
-        return List.of( TRANSCRIBE ) ;
+        return onPhysics.contains( task ) ? List.of( PHYSICS )
+                                          : List.of( TRANSCRIBE ) ;
     }
 
     @Override
@@ -176,7 +210,8 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
 
     /**
      * How the job's transcription by {@code model} came about: a re-send;
-     * Qwen's; Nemotron's after Qwen's reply failed or was escalated; or
+     * Qwen's; a sharing model's (Inkling's, or Nemotron's) taken before
+     * Qwen tried; Nemotron's after Qwen's reply failed or was escalated; or
      * Nemotron's standing in while Qwen was down or held back.
      */
     private TranscriptionRoute route( QTask task, TranscriptionJob job,
@@ -188,7 +223,8 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
         if( job != null && job.resent() ) {
             return new TranscriptionRoute( Kind.RESENT, model, null ) ;
         }
-        if( agent == AIAgent.OLLAMA ) {
+        boolean sharer = shared.contains( model ) ;
+        if( agent == AIAgent.OLLAMA && !sharer ) {
             return new TranscriptionRoute( Kind.QWEN, model, null ) ;
         }
 
@@ -199,14 +235,17 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
 
         Tried qwen = null ;
         for( Tried t : tried.getOrDefault( task, List.of() ) ) {
-            if( t.agent() == AIAgent.OLLAMA && t.outcome() != null ) qwen = t ;
+            if( t.agent() == AIAgent.OLLAMA && !shared.contains( t.model() )
+                && t.outcome() != null ) {
+                qwen = t ;
+            }
         }
         if( qwen != null
             && qwen.outcome() == AttemptTranscript.Outcome.FAILED ) {
             return new TranscriptionRoute( Kind.ESCALATED, model,
                                            qwen.failure() ) ;
         }
-        if( qwen == null && shared.contains( model ) ) {
+        if( qwen == null && sharer ) {
             return new TranscriptionRoute( Kind.SHARED, model, null ) ;
         }
         return new TranscriptionRoute( Kind.STAND_IN, model,
@@ -260,7 +299,7 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
                                "attempt {}", task, t.getAttempt(), e ) ;
                 }
                 usageLog.append( t ) ;
-                listener.attemptFinished( job ) ;
+                listener.attemptFinished( job, t ) ;
             }
         } ;
     }

@@ -131,7 +131,7 @@ JobHandle.State s = h.state() ;           // WAITING, HELD, RUNNING, DONE
 |---|---|---|
 | `hold()` | waiting, not started | taken out of scheduling (`HELD`) |
 | `release( front )` | held | back among the waiting, at the front or behind |
-| `cancel()` | held, or waiting and not started | ends the job; `dropped` is called |
+| `cancel()` | held, or waiting (also between attempts) | ends the job; `dropped` is called |
 
 Each returns `false` when the job isn't in a state it applies to.
 

@@ -210,6 +210,28 @@ public class TaskScheduler<R> {
         return outcomes.roots( task ).get( 0 ) ;
     }
 
+    /**
+     * Take {@code task} out of the queue while no request of its is in
+     * flight (before its first attempt, or waiting for a retry or another
+     * model after a failed one), so it can be submitted again on another
+     * route; its job is dropped.
+     *
+     * @return false if a request of its is in flight (true if it isn't
+     *         queued)
+     */
+    public boolean withdraw( QTask task ) {
+
+        synchronized( lock ) {
+            Entry e = active.get( task ) ;
+            if( e == null ) return true ;
+            if( e.handle == null || !e.handle.cancel() ) return false ;
+
+            // The cancel reports the job dropped, which ends the entry.
+            ended( e ) ;
+            return true ;
+        }
+    }
+
     /** True while a batch job is queued or running. */
     public boolean hasBatchWork() {
         synchronized( lock ) {
@@ -399,10 +421,10 @@ public class TaskScheduler<R> {
             String  mime  = attempt.request().images().isEmpty() ? null
                           : attempt.request().images().get( 0 ).mimeType() ;
 
-            e.attempts.attemptStarted( agent, attempt.model().id(),
+            e.attempts.attemptStarted( agent, attempt.model().modelId(),
                                        attempt.number() ) ;
             e.request = new AttemptRequest(
-                    e.task, agent, attempt.model().id(), attempt.number(),
+                    e.task, agent, attempt.model().modelId(), attempt.number(),
                     mime, attempt.startedAt(), attempt.request().prompt(),
                     outcomes.attemptContext( e.task ) ) ;
             e.attempts.requestSent( e.request ) ;
@@ -426,7 +448,7 @@ public class TaskScheduler<R> {
 
             String root = outcomes.secondOpinionRoot(
                     task, value, agentOf( attempt.model() ),
-                    attempt.model().id() ) ;
+                    attempt.model().modelId() ) ;
             return root == null
                    ? ReplyCheck.accept( value )
                    : ReplyCheck.escalate( value, root,
@@ -457,8 +479,9 @@ public class TaskScheduler<R> {
 
             Entry e = job.payload() ;
             try {
-                outcomes.succeeded( e.task, value, agentOf( model ), model.id(),
-                                    job.attempts(), provisional ) ;
+                outcomes.succeeded( e.task, value, agentOf( model ),
+                                    model.modelId(), job.attempts(),
+                                    provisional ) ;
             }
             finally {
                 ended( e ) ;

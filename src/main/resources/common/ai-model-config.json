@@ -23,8 +23,15 @@
 //                         (reset at 00:00 UTC) across the gateway's models;
 //                         0 = no limit
 //
-// models : by the id sent to the gateway
+// models : by name: the model id sent to the gateway, unless modelId is set
 //   enabled               false switches the model off
+//   modelId               (optional) the model id sent to the gateway, when
+//                         the name isn't it: one model served by two
+//                         gateways is two entries, each with its own name,
+//                         gateway and limits, and the same modelId. The apps
+//                         and the hub address a model by its name; requests,
+//                         transcripts and the server get the modelId. No two
+//                         entries may send one modelId to one gateway
 //   gateway               the gateway hosting it
 //   displayName           (optional) the name shown in the UI
 //   rateLimit             (optional) { rpm, rpd } the provider enforces on
@@ -37,7 +44,7 @@
 //                         USD per million tokens; for documentation only,
 //                         never used by the processing
 //
-// aliases : (optional) alias -> model id, so the app files can name a model
+// aliases : (optional) alias -> model name, so the app files can name a model
 //           by a name that outlives it: switching a model is then one edit
 //           here. An app file may give an alias wherever it names a model
 //           (its models, roots and fallback lists); it is resolved to the
@@ -54,7 +61,9 @@
     "nemotron:free"  : "nvidia/nemotron-3.5-super-vl:free",
     "haiku"          : "anthropic/claude-haiku-5.5",
     "glm-flash"      : "z-ai/glm-5.3-flash",
-    "deepseek-flash" : "deepseek/deepseek-v4.1-flash"
+    "deepseek-flash" : "deepseek/deepseek-v4.1-flash",
+    "inkling"        : "inkling-2-mini:26b-a5b",
+    "inkling-149"    : "inkling-2-mini:26b-a5b@149"
   },
 
   "gateways" : {
@@ -77,6 +86,17 @@
       "connectTimeoutSeconds" : 10,
       "cooldownSeconds"       : 60,
       "maxParallel"           : 3,
+      "rateLimit"             : {
+        "rpm" : 0,
+        "rpd" : 0
+      }
+    },
+    "ollama-149" : {
+      "enabled"               : true,
+      "type"                  : "ollama",
+      "url"                   : "http://192.168.0.149:11434/api/generate",
+      "connectTimeoutSeconds" : 10,
+      "cooldownSeconds"       : 60,
       "rateLimit"             : {
         "rpm" : 0,
         "rpd" : 0
@@ -163,6 +183,25 @@
       "enabled"             : true,
       "gateway"             : "ollama-studio",
       "displayName"         : "Qwen 3.8 27B",
+      "costPerMillionToken" : {
+        "input"  : 0.0,
+        "output" : 0.0
+      }
+    },
+    "inkling-2-mini:26b-a5b" : {
+      "enabled"             : true,
+      "gateway"             : "ollama-studio",
+      "displayName"         : "Inkling 2 Mini",
+      "costPerMillionToken" : {
+        "input"  : 0.0,
+        "output" : 0.0
+      }
+    },
+    "inkling-2-mini:26b-a5b@149" : {
+      "enabled"             : true,
+      "modelId"             : "inkling-2-mini:26b-a5b",
+      "gateway"             : "ollama-149",
+      "displayName"         : "Inkling 2 Mini (149)",
       "costPerMillionToken" : {
         "input"  : 0.0,
         "output" : 0.0

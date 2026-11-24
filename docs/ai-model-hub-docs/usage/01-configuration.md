@@ -94,17 +94,46 @@ included, with the colons of an object aligned.
 
 ### Model keys (global)
 
-Models are keyed by the **real id** sent to the gateway. That id also
-appears in logs, history and status.
+Models are keyed by a **name**, which is the real id sent to the gateway
+unless the entry sets `modelId`. The name is what the app file, roots,
+fallbacks, `AIConfig`, the hub, its status, logs and request history call
+the model (`ModelInfo.id()`); the gateway is sent `ModelInfo.modelId()`.
 
 | Key | Required | Meaning |
 |---|---|---|
 | `enabled` | yes | `false` switches off this model alone. |
+| `modelId` | no | The id sent to the gateway, when the name isn't it. Absent: the name. See [One model on two gateways](#one-model-on-two-gateways). |
 | `gateway` | yes | The gateway hosting it. |
 | `displayName` | no | The name to show users; see `AIConfig.displayName`. |
 | `rateLimit` | no | `{ "rpm", "rpd" }` the provider enforces on this model. |
 | `contextTokens` | no | The context window to ask for (Ollama's `num_ctx`). Absent: the server's own setting. A `num_ctx` other than the one the model is loaded with makes Ollama reload it. The Ollama gateway sends no `keep_alive`, so how long a model stays loaded is the server's setting too. |
 | `costPerMillionToken` | no | `{ "input", "output" }`: the provider's price in USD per million tokens. Documentation only: checked for shape, never used. |
+
+### One model on two gateways
+
+Give each copy its own entry, named apart, with the same `modelId`:
+
+```json
+"inkling-2-mini:26b-a5b" : {
+  "enabled" : true,
+  "gateway" : "ollama-studio"
+},
+"inkling-2-mini:26b-a5b@149" : {
+  "enabled" : true,
+  "modelId" : "inkling-2-mini:26b-a5b",
+  "gateway" : "ollama-149"
+}
+```
+
+Each entry is a model of its own to the hub: its own slots, limits, holds,
+passthrough and request history, so an app may put both in one root to
+share the load, or make one the other's `unreachable` fallback. Load
+refuses two entries sending one `modelId` to the same gateway.
+
+What an attempt reports as its model is up to the app: `Attempt.model()`
+is the whole `ModelInfo`. The SConsole apps record the `modelId` (in
+transcripts, the usage CSV and on the server), so provenance is the same
+whichever gateway answered, and address models by name everywhere else.
 
 ### Aliases
 

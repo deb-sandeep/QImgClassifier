@@ -10,7 +10,10 @@ import java.util.Map;
  * The names models are shown by: the display name the AI config gives a
  * model ({@code displayName} in the global file), else its id. Only what
  * is shown changes; requests, transcripts, logs and the server keep the
- * model id.
+ * model id. A model is found by its config name or by the id sent to its
+ * gateway ({@code modelId}), which the transcripts and the server record;
+ * an id shared by two entries (one model on two gateways) is shown by the
+ * display name of the entry named after it, else of the first.
  */
 public final class ModelNames {
 
@@ -29,6 +32,11 @@ public final class ModelNames {
         Map<String,String> names = new HashMap<>() ;
         for( ModelInfo m : config.models().values() ) {
             if( m.displayName() != null ) names.put( m.id(), m.displayName() ) ;
+        }
+        for( ModelInfo m : config.models().values() ) {
+            if( m.displayName() != null ) {
+                names.putIfAbsent( m.modelId(), m.displayName() ) ;
+            }
         }
         return new ModelNames( names ) ;
     }

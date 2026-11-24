@@ -4,6 +4,7 @@ import com.sandy.sconsole.ai.AIReply;
 import com.sandy.sconsole.ai.AIRequest;
 import com.sandy.sconsole.ai.TokenLogprob;
 import com.sandy.sconsole.qimgtools.apps.transcriber.gate.ConfidenceScore;
+import com.sandy.sconsole.qimgtools.apps.transcriber.gate.ReplyMend;
 import com.sandy.sconsole.qimgtools.apps.transcriber.gate.WellFormed;
 import com.sandy.sconsole.qimgtools.apps.transcriber.model.Transcription;
 import com.sandy.sconsole.qimgtools.apps.transcriber.pipeline.TranscriptionJob;
@@ -140,15 +141,21 @@ public final class TranscriptionPrompter
     @Override
     public Transcription parse( AIReply reply, QTask task ) throws BadReply {
 
-        String           raw      = reply.text() == null ? "" : reply.text() ;
-        String           content  = raw.stripTrailing() ;
-        TranscriptionJob job      = jobs.apply( task ) ;
-        boolean          passage  = job != null
-                                    && job.kind() == TranscriptionJob.Kind.PASSAGE ;
-        List<String>     problems = new ArrayList<>(
-                WellFormed.problems( raw, null ) ) ;
+        String             raw      = reply.text() == null ? ""
+                                                           : reply.text() ;
+        ReplyMend.Mended   mended   = ReplyMend.mend( raw ) ;
+        String             text     = mended.text() ;
+        String             content  = text.stripTrailing() ;
+        TranscriptionJob   job      = jobs.apply( task ) ;
+        boolean            passage  = job != null
+                                      && job.kind()
+                                         == TranscriptionJob.Kind.PASSAGE ;
+        List<String>       problems = new ArrayList<>(
+                WellFormed.problems( text, null ) ) ;
+        String             mendNote = mended.changed()
+                ? "Mended      : " + mended.describe() + "\n" : "" ;
 
-        problems.addAll( WellFormed.appProblems( raw ) ) ;
+        problems.addAll( WellFormed.appProblems( text ) ) ;
         if( job != null && job.kind() == TranscriptionJob.Kind.LCT_QUESTION
             && repeatsPassage( content, job.passage() ) ) {
             problems.add( "repeats the passage" ) ;
@@ -160,7 +167,7 @@ public final class TranscriptionPrompter
             else if( job != null && !content.isBlank() ) {
                 rejectedQuestions.put( job.item().id(), content ) ;
             }
-            notes.accept( task, "Well formed : no - " +
+            notes.accept( task, mendNote + "Well formed : no - " +
                                 String.join( "; ", problems ) + "\n" ) ;
             throw new BadReply( "malformed transcription: " +
                                 String.join( "; ", problems ) ) ;
@@ -168,7 +175,8 @@ public final class TranscriptionPrompter
 
         List<TokenLogprob> tokens = reply.tokens() ;
         if( tokens == null || tokens.isEmpty() ) {
-            notes.accept( task, "Well formed : yes\nScore       : no token " +
+            notes.accept( task, mendNote + "Well formed : yes\nScore" +
+                                "       : no token " +
                                 "probabilities\n" ) ;
             return new Transcription( content, null, null, null, null,
                                       List.of() ) ;
@@ -176,19 +184,38 @@ public final class TranscriptionPrompter
         if( !raw.equals( joined( tokens ) ) ) {
             log.warn( "[{}] The reply's tokens don't add up to its text - " +
                       "not scored", task ) ;
-            notes.accept( task, "Well formed : yes\nScore       : none, the " +
+            notes.accept( task, mendNote + "Well formed : yes\nScore" +
+                                "       : none, the " +
                                 "tokens don't add up to the text\n" ) ;
             return new Transcription( content, null, null, null, null,
                                       List.of() ) ;
         }
 
+        // Scored as the model wrote it; the contests moved onto the text
+        // as mended.
         ConfidenceScore.Result score = ConfidenceScore.score( raw, tokens ) ;
         Transcription          t     = new Transcription(
                 content, null, score.c( margin ), score.geoMeanP(),
-                score.minP(), score.contests( margin ) ) ;
+                score.minP(), shifted( score.contests( margin ), mended ) ) ;
 
-        notes.accept( task, describe( score ) ) ;
+        notes.accept( task, mendNote + describe( score ) ) ;
         return t ;
+    }
+
+    /**
+     * {@code contests}, positions in the reply as the model wrote it, at
+     * their places in the {@code mended} text: offsets and lines moved by
+     * the changes made before them.
+     */
+    private static List<ConfidenceScore.Contest> shifted(
+            List<ConfidenceScore.Contest> contests, ReplyMend.Mended mended ) {
+
+        if( !mended.changed() ) return contests ;
+        return contests.stream().map( x -> new ConfidenceScore.Contest(
+                mended.shift( x.offset() ),
+                x.line() + mended.linesBefore( x.offset() ), x.chosen(),
+                x.pChosen(), x.rival(), x.pRival(), x.continuation() ) )
+                       .toList() ;
     }
 
     /** The transcript's Confidence section for {@code score}. */

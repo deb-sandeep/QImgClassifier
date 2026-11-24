@@ -3,10 +3,13 @@
 // strictly in table order; see the classifier's qimgclassifier.ai.json for
 // what each setting means.
 //
-// The paid Nemotron is used only while the free one is held back by its
-// daily limit, after a server error, or while the free one is set to pass
-// its questions through (Models tab). Without a usable model in the root
-// the app still runs, with asking the AI disabled.
+// Qwen (local, structured output: the reply's schema comes from
+// NXRPrompter) answers them; any failure, or Qwen's server being down,
+// sends the question to the free Nemotron, and the paid Nemotron takes over
+// once the free one's daily limit is used up, after a server error, or
+// while the free one is set to pass its questions through (Models tab).
+// Without a usable model in the root the app still runs, with asking the AI
+// disabled.
 {
   "parent" : "classpath:/common/ai-model-config.json",
 

@@ -41,7 +41,7 @@ Swing view of the hub's status); see the Javadoc comments in their source.
 | Term | Meaning |
 |---|---|
 | **Gateway** | An endpoint that hosts models, of a type (`openrouter`, `ollama`), with its own switch, credentials, rate limits and an optional cap on requests in flight. Defined in the *global* file. |
-| **Model** | A model id on a gateway, with its own switch, display name and provider limits (global file), and the app's policy for it: slots, timeout, retries, reasoning, prompt caching, app limits, fallbacks (app file). |
+| **Model** | A model on a gateway, by its config name (the id sent, unless `modelId` sets another, so one model may be served by two gateways), with its own switch, display name and provider limits (global file), and the app's policy for it: slots, timeout, retries, reasoning, prompt caching, app limits, fallbacks (app file). |
 | **Usable** | A model that is switched on in the app and globally, whose gateway is on and has its credentials, and which the app's roots reach (see below). Only usable models get requests. |
 | **Reachable** | A model a job can get to: one in a root, or in a fallback list of a usable model a job can get to. An app can invoke only these; any other model in its `models` gets no slots. |
 | **Root** | A named pool of entry models in the app file. A job names the roots it may start on. |
@@ -63,7 +63,7 @@ submit ──► WAITING ──(a slot of a model in one of its roots picks it)�
                                                                            │
           reply accepted ─► succeeded      reply escalated ─► WAITING on the
           nothing left    ─► failed        escalation root's models
-          stopped/cancelled before starting ─► dropped
+          stopped before starting, cancelled while waiting ─► dropped
 ```
 
 Every step is reported to the job's
