@@ -91,6 +91,12 @@ final class TranscriberTableModel extends AbstractTableModel
         TranscriptionStatus queuedFrom ;
 
         /**
+         * The model its latest attempt went to, shown in the Route cell
+         * while it is Transcribing; null until a model takes it up.
+         */
+        String asking ;
+
+        /**
          * True if it can't be sent: the prompt has no section for its type,
          * or its subject is unknown.
          */
@@ -359,10 +365,17 @@ final class TranscriberTableModel extends AbstractTableModel
     /**
      * How a row's transcription came about, short: "Qwen",
      * "Qwen → Nemotron", "Nemotron (Qwen down)", "GLM (re-sent)",
-     * "Edited (Qwen)"; blank without one.
+     * "Edited (Qwen)"; blank without one. While it is Transcribing, the
+     * model asked follows in brackets: "(Qwen)", "Qwen (Nemotron)".
      */
     String routeText( Row row ) {
-        return routeText( row.route() ) ;
+
+        String text = routeText( row.route() ) ;
+        if( row.status != TranscriptionStatus.TRANSCRIBING
+            || row.asking == null ) return text ;
+
+        String asking = "(" + shortName( row.asking ) + ")" ;
+        return text.isEmpty() ? asking : text + " " + asking ;
     }
 
     /** {@code r}, short, as {@link #routeText(Row)}; blank for null. */

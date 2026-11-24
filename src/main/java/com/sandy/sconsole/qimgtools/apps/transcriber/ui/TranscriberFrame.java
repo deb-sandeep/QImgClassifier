@@ -1527,6 +1527,7 @@ public class TranscriberFrame extends JFrame
         onRow( job.item(), row -> {
             row.status  = TranscriptionStatus.TRANSCRIBING ;
             row.message = asking ;
+            row.asking  = model ;
         } ) ;
     }
 
