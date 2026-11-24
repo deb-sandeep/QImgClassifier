@@ -102,12 +102,49 @@ final class TranscriberTableModel extends AbstractTableModel
          */
         boolean unsupported ;
 
+        /** The status {@link #noteStatus} last saw, and since when. */
+        private TranscriptionStatus timedStatus ;
+        private long                statusSince ;
+
         Row( TranscriptionItem item ) {
             this.item     = item ;
             this.question = item.question() ;
             this.status   = item.hasImages() ? TranscriptionStatus.PENDING
                                              : TranscriptionStatus.NO_IMAGES ;
             this.message  = item.problem() ;
+        }
+
+        /**
+         * Start timing the status if it changed since last noted, so a
+         * Queued or Transcribing row can show how long it has been so.
+         */
+        void noteStatus() {
+            if( status == timedStatus ) return ;
+            timedStatus = status ;
+            statusSince = System.currentTimeMillis() ;
+        }
+
+        /** True if its Status cell shows how long it has been so. */
+        boolean isTimed() {
+            return status == TranscriptionStatus.QUEUED
+                   || status == TranscriptionStatus.TRANSCRIBING ;
+        }
+
+        /**
+         * The Status cell's text: the status, and while it is Queued or
+         * Transcribing how long it has been so, e.g. "Queued (1:05)".
+         */
+        String statusText() {
+
+            noteStatus() ;
+            if( !isTimed() ) return status.getLabel() ;
+
+            long s = ( System.currentTimeMillis() - statusSince ) / 1000 ;
+            String time = s < 3600
+                          ? String.format( "%d:%02d", s / 60, s % 60 )
+                          : String.format( "%d:%02d:%02d", s / 3600,
+                                           s / 60 % 60, s % 60 ) ;
+            return status.getLabel() + " (" + time + ")" ;
         }
 
         /** The transcription, an LCT question's part only; or null. */
@@ -346,8 +383,24 @@ final class TranscriberTableModel extends AbstractTableModel
 
     /** Repaint {@code row} after its state changed. */
     void changed( Row row ) {
+        row.noteStatus() ;
         int i = rows.indexOf( row ) ;
         if( i >= 0 ) fireTableRowsUpdated( i, i ) ;
+    }
+
+    /**
+     * Note every row's status change, for the times in the Status cells.
+     *
+     * @return true if any row shows a time, so the table needs a repaint
+     */
+    boolean tick() {
+
+        boolean timed = false ;
+        for( Row row : rows ) {
+            row.noteStatus() ;
+            timed |= row.isTimed() ;
+        }
+        return timed ;
     }
 
     /** Rows with {@code status}. */
