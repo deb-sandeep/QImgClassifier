@@ -21,13 +21,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The transcriber's {@link TaskOutcomes}: every job starts on the
- * {@link #TRANSCRIBE} root (Qwen), except every
- * {@link #PHY_MATHS_SHARE}th Physics or Maths question, which starts on
- * {@link #PHY_MATHS} (Inkling) alone; a re-send is routed by the caller to
+ * {@link #TRANSCRIBE} root (Qwen); a Physics or Maths question may also
+ * start on {@link #PHY_MATHS} (Inkling), which, binding late, takes one only
+ * when its slot is free, so none waits behind it; a re-send is routed by
+ * the caller to
  * {@link #ESCALATE} or {@link #RECHECK}. A transcription that passed the
  * gate is taken as it is: after calibration C doesn't route, unless
  * {@code gate.route.on.c} is set, when a Qwen reply with C above
@@ -42,14 +42,11 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
     /** Qwen: every job starts here. */
     public static final String TRANSCRIBE = "transcribe" ;
 
-    /** Inkling: one in {@link #PHY_MATHS_SHARE} Physics / Maths questions. */
-    public static final String PHY_MATHS = "phy-maths" ;
-
     /**
-     * One in this many Physics and Maths questions sent (counted together)
-     * starts on {@link #PHY_MATHS}.
+     * Inkling: a Physics / Maths question (not a passage) it takes when its
+     * slot is free.
      */
-    public static final int PHY_MATHS_SHARE = 4 ;
+    public static final String PHY_MATHS = "phy-maths" ;
 
     /** The free Nemotron: a re-sent Qwen transcription, a second opinion. */
     public static final String ESCALATE = "escalate" ;
@@ -85,12 +82,6 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
     /** The tasks sent to a model the user chose, that model alone. */
     private final Set<QTask> chosen = ConcurrentHashMap.newKeySet() ;
 
-    /** The Physics / Maths tasks that start on {@link #PHY_MATHS}. */
-    private final Set<QTask> onPhyMaths = ConcurrentHashMap.newKeySet() ;
-
-    /** Physics and Maths questions sent so far, for the share. */
-    private final AtomicInteger phyMathsSent = new AtomicInteger() ;
-
     /**
      * @param routeOnC true to escalate a Qwen reply with C above
      *        {@code cMax}
@@ -100,8 +91,7 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
      *        question one takes without Qwen having tried it is
      *        {@link Kind#SHARED}
      * @param phyMaths true if the {@link #PHY_MATHS} root is usable, so
-     *        one in {@link #PHY_MATHS_SHARE} Physics / Maths questions
-     *        starts there
+     *        Physics / Maths questions may start there too
      */
     public TranscriberOutcomes( TranscriberListener listener,
                                 TranscriptStore transcripts, UsageLog usageLog,
@@ -120,9 +110,7 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
     /**
      * Note that {@code job}'s task is about to be sent; {@code byChoice}
      * if to a model the user chose: it is then never escalated, and its
-     * route is {@link Kind#CHOSEN}. Of the Physics and Maths jobs that are
-     * neither chosen nor re-sent, the first of every
-     * {@link #PHY_MATHS_SHARE} starts on {@link #PHY_MATHS}.
+     * route is {@link Kind#CHOSEN}.
      */
     public void track( TranscriptionJob job, boolean byChoice ) {
 
@@ -132,15 +120,6 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
         escalations.remove( task ) ;
         if( byChoice ) chosen.add( task ) ;
         else chosen.remove( task ) ;
-
-        Subject subject = task.getSubject() ;
-
-        onPhyMaths.remove( task ) ;
-        if( phyMaths && !byChoice && !job.resent()
-            && ( subject == Subject.PHYSICS || subject == Subject.MATHS )
-            && phyMathsSent.getAndIncrement() % PHY_MATHS_SHARE == 0 ) {
-            onPhyMaths.add( task ) ;
-        }
     }
 
     /** The job {@code task} is; null if it wasn't sent. */
@@ -153,10 +132,26 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
         notes.put( task, note ) ;
     }
 
+    /**
+     * {@link #TRANSCRIBE}, and for a Physics or Maths question (not a
+     * passage: its group's questions wait for it) neither chosen nor
+     * re-sent, {@link #PHY_MATHS} too. The hub binds a job when a slot
+     * frees, so Inkling, slow and with one slot, takes the next question
+     * only once it is done with the last: none queues behind it.
+     */
     @Override
     public List<String> roots( QTask task ) {
-        return onPhyMaths.contains( task ) ? List.of( PHY_MATHS )
-                                           : List.of( TRANSCRIBE ) ;
+
+        TranscriptionJob job     = jobs.get( task ) ;
+        Subject          subject = task.getSubject() ;
+        boolean          inkling = phyMaths && job != null && !job.resent()
+                                   && !chosen.contains( task )
+                                   && job.kind() != TranscriptionJob.Kind.PASSAGE
+                                   && ( subject == Subject.PHYSICS
+                                        || subject == Subject.MATHS ) ;
+
+        return inkling ? List.of( TRANSCRIBE, PHY_MATHS )
+                       : List.of( TRANSCRIBE ) ;
     }
 
     @Override

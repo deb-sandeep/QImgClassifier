@@ -12,9 +12,10 @@
 // passes Qwen's questions straight to the free Nemotron.
 //
 // "phy-maths" (Inkling 2 Mini on ollama-149, a low-end server: one slot)
-// takes one in four Physics and Maths questions, counted together
-// (TranscriberOutcomes.PHY_MATHS_SHARE), which start there alone (route
-// "shared"). It reasons in hidden tokens whatever "reasoning" says,
+// is a second root of every Physics and Maths question but the passages
+// (TranscriberOutcomes.roots): bound late, Inkling takes the next one only
+// when its slot frees, so nothing queues behind it (route "shared"); a
+// passage never goes there, as its group's questions wait for it. It reasons in hidden tokens whatever "reasoning" says,
 // and its logprobs include them, so it is asked for none: its replies have
 // no C. A failed reply, or .149 being unreachable, falls back to Qwen.
 //
