@@ -169,7 +169,7 @@ public class QTranscriber implements TranscriberFrame.Controller,
                 new UsageLog( config.getUsageLogFile() ),
                 config.isGateRouteOnC(), config.getGateCMax(),
                 sharingModels( config.getAi() ),
-                config.getAi().isRootUsable( TranscriberOutcomes.PHYSICS ) ) ;
+                config.getAi().isRootUsable( TranscriberOutcomes.PHY_MATHS ) ) ;
         this.prompter    = new TranscriptionPrompter(
                 prompt, outcomes::job, config.getGateMargin(),
                 outcomes::note ) ;
@@ -203,10 +203,10 @@ public class QTranscriber implements TranscriberFrame.Controller,
                       "Nemotron transcription can't be re-sent",
                       ai.appLocation(), TranscriberOutcomes.RECHECK ) ;
         }
-        if( !ai.isRootUsable( TranscriberOutcomes.PHYSICS ) ) {
+        if( !ai.isRootUsable( TranscriberOutcomes.PHY_MATHS ) ) {
             log.warn( "{}: root '{}' has no usable model - Qwen takes " +
-                      "every Physics question", ai.appLocation(),
-                      TranscriberOutcomes.PHYSICS ) ;
+                      "every Physics and Maths question", ai.appLocation(),
+                      TranscriberOutcomes.PHY_MATHS ) ;
         }
 
         try {
@@ -771,7 +771,7 @@ public class QTranscriber implements TranscriberFrame.Controller,
         AIConfig ai    = config.getAi() ;
         boolean  local = inRoot( TranscriberOutcomes.TRANSCRIBE, model )
                          && isOllama( model )
-                         || inRoot( TranscriberOutcomes.PHYSICS, model ) ;
+                         || inRoot( TranscriberOutcomes.PHY_MATHS, model ) ;
         String   root  = local
                          ? TranscriberOutcomes.ESCALATE
                         : inRoot( TranscriberOutcomes.RECHECK, model )
@@ -1283,14 +1283,14 @@ public class QTranscriber implements TranscriberFrame.Controller,
 
     /**
      * The models that share Qwen's work, as {@link TranscriberOutcomes}
-     * takes them: {@link #sharedModels}, and those of the {@code physics}
+     * takes them: {@link #sharedModels}, and those of the {@code phy-maths}
      * root, each by id and by the id sent to the gateway.
      */
     private static Set<String> sharingModels( AIConfig ai ) {
 
         Set<String> ids = new HashSet<>( sharedModels( ai ) ) ;
-        if( ai.roots().containsKey( TranscriberOutcomes.PHYSICS ) ) {
-            ai.root( TranscriberOutcomes.PHYSICS ).forEach( m -> {
+        if( ai.roots().containsKey( TranscriberOutcomes.PHY_MATHS ) ) {
+            ai.root( TranscriberOutcomes.PHY_MATHS ).forEach( m -> {
                 ids.add( m.id() ) ;
                 ids.add( m.modelId() ) ;
             } ) ;

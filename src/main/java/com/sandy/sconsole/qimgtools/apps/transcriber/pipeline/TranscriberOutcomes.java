@@ -26,8 +26,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * The transcriber's {@link TaskOutcomes}: every job starts on the
  * {@link #TRANSCRIBE} root (Qwen), except every
- * {@link #PHYSICS_SHARE}th Physics question, which starts on
- * {@link #PHYSICS} (Inkling) alone; a re-send is routed by the caller to
+ * {@link #PHY_MATHS_SHARE}th Physics or Maths question, which starts on
+ * {@link #PHY_MATHS} (Inkling) alone; a re-send is routed by the caller to
  * {@link #ESCALATE} or {@link #RECHECK}. A transcription that passed the
  * gate is taken as it is: after calibration C doesn't route, unless
  * {@code gate.route.on.c} is set, when a Qwen reply with C above
@@ -42,11 +42,14 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
     /** Qwen: every job starts here. */
     public static final String TRANSCRIBE = "transcribe" ;
 
-    /** Inkling: one in {@link #PHYSICS_SHARE} Physics questions. */
-    public static final String PHYSICS = "physics" ;
+    /** Inkling: one in {@link #PHY_MATHS_SHARE} Physics / Maths questions. */
+    public static final String PHY_MATHS = "phy-maths" ;
 
-    /** One in this many Physics questions sent starts on {@link #PHYSICS}. */
-    public static final int PHYSICS_SHARE = 4 ;
+    /**
+     * One in this many Physics and Maths questions sent (counted together)
+     * starts on {@link #PHY_MATHS}.
+     */
+    public static final int PHY_MATHS_SHARE = 4 ;
 
     /** The free Nemotron: a re-sent Qwen transcription, a second opinion. */
     public static final String ESCALATE = "escalate" ;
@@ -65,7 +68,7 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
     private final boolean             routeOnC ;
     private final int                 cMax ;
     private final Set<String>         shared ;
-    private final boolean             physics ;
+    private final boolean             phyMaths ;
 
     /** The job each task sent is, by task. */
     private final Map<QTask,TranscriptionJob> jobs = new ConcurrentHashMap<>() ;
@@ -82,27 +85,28 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
     /** The tasks sent to a model the user chose, that model alone. */
     private final Set<QTask> chosen = ConcurrentHashMap.newKeySet() ;
 
-    /** The Physics tasks that start on {@link #PHYSICS}. */
-    private final Set<QTask> onPhysics = ConcurrentHashMap.newKeySet() ;
+    /** The Physics / Maths tasks that start on {@link #PHY_MATHS}. */
+    private final Set<QTask> onPhyMaths = ConcurrentHashMap.newKeySet() ;
 
-    /** Physics questions sent so far, for {@link #PHYSICS_SHARE}. */
-    private final AtomicInteger physicsSent = new AtomicInteger() ;
+    /** Physics and Maths questions sent so far, for the share. */
+    private final AtomicInteger phyMathsSent = new AtomicInteger() ;
 
     /**
      * @param routeOnC true to escalate a Qwen reply with C above
      *        {@code cMax}
      * @param shared   the models besides Qwen which share its work (the
      *        other models of the {@link #TRANSCRIBE} root and those of
-     *        {@link #PHYSICS}), by id and by the id sent to the gateway: a
+     *        {@link #PHY_MATHS}), by id and by the id sent to the gateway: a
      *        question one takes without Qwen having tried it is
      *        {@link Kind#SHARED}
-     * @param physics  true if the {@link #PHYSICS} root is usable, so
-     *        one in {@link #PHYSICS_SHARE} Physics questions starts there
+     * @param phyMaths true if the {@link #PHY_MATHS} root is usable, so
+     *        one in {@link #PHY_MATHS_SHARE} Physics / Maths questions
+     *        starts there
      */
     public TranscriberOutcomes( TranscriberListener listener,
                                 TranscriptStore transcripts, UsageLog usageLog,
                                 boolean routeOnC, int cMax,
-                                Set<String> shared, boolean physics ) {
+                                Set<String> shared, boolean phyMaths ) {
 
         this.listener    = listener ;
         this.transcripts = transcripts ;
@@ -110,15 +114,15 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
         this.routeOnC    = routeOnC ;
         this.cMax        = cMax ;
         this.shared      = Set.copyOf( shared ) ;
-        this.physics     = physics ;
+        this.phyMaths    = phyMaths ;
     }
 
     /**
      * Note that {@code job}'s task is about to be sent; {@code byChoice}
      * if to a model the user chose: it is then never escalated, and its
-     * route is {@link Kind#CHOSEN}. Of the Physics jobs that are neither
-     * chosen nor re-sent, the first of every {@link #PHYSICS_SHARE} starts
-     * on {@link #PHYSICS}.
+     * route is {@link Kind#CHOSEN}. Of the Physics and Maths jobs that are
+     * neither chosen nor re-sent, the first of every
+     * {@link #PHY_MATHS_SHARE} starts on {@link #PHY_MATHS}.
      */
     public void track( TranscriptionJob job, boolean byChoice ) {
 
@@ -129,11 +133,13 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
         if( byChoice ) chosen.add( task ) ;
         else chosen.remove( task ) ;
 
-        onPhysics.remove( task ) ;
-        if( physics && !byChoice && !job.resent()
-            && task.getSubject() == Subject.PHYSICS
-            && physicsSent.getAndIncrement() % PHYSICS_SHARE == 0 ) {
-            onPhysics.add( task ) ;
+        Subject subject = task.getSubject() ;
+
+        onPhyMaths.remove( task ) ;
+        if( phyMaths && !byChoice && !job.resent()
+            && ( subject == Subject.PHYSICS || subject == Subject.MATHS )
+            && phyMathsSent.getAndIncrement() % PHY_MATHS_SHARE == 0 ) {
+            onPhyMaths.add( task ) ;
         }
     }
 
@@ -149,8 +155,8 @@ public class TranscriberOutcomes implements TaskOutcomes<Transcription> {
 
     @Override
     public List<String> roots( QTask task ) {
-        return onPhysics.contains( task ) ? List.of( PHYSICS )
-                                          : List.of( TRANSCRIBE ) ;
+        return onPhyMaths.contains( task ) ? List.of( PHY_MATHS )
+                                           : List.of( TRANSCRIBE ) ;
     }
 
     @Override

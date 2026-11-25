@@ -11,9 +11,10 @@
 // once the free one's daily quota is used up. Cascade (the Models tab)
 // passes Qwen's questions straight to the free Nemotron.
 //
-// "physics" (Inkling 2 Mini on ollama-149, a low-end server: one slot)
-// takes one in four Physics questions (TranscriberOutcomes.PHYSICS_SHARE),
-// which start there alone (route "shared"). It reasons in hidden tokens whatever "reasoning" says,
+// "phy-maths" (Inkling 2 Mini on ollama-149, a low-end server: one slot)
+// takes one in four Physics and Maths questions, counted together
+// (TranscriberOutcomes.PHY_MATHS_SHARE), which start there alone (route
+// "shared"). It reasons in hidden tokens whatever "reasoning" says,
 // and its logprobs include them, so it is asked for none: its replies have
 // no C. A failed reply, or .149 being unreachable, falls back to Qwen.
 //
@@ -26,7 +27,7 @@
 
   "roots" : {
     "transcribe" : [ "qwen", "nemotron:free" ],
-    "physics"    : [ "inkling-149" ],
+    "phy-maths"  : [ "inkling-149" ],
     "escalate"   : [ "nemotron:free" ],
     "recheck"    : [ "glm-flash" ]
   },
